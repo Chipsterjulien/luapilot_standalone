@@ -1,4 +1,4 @@
-# luapilot
+# luaPilot
 
 LuaPilot is a Lua library offering advanced functionalities for file, table, and string manipulation, as well as performance analysis tools. LuaPilot is written in C++ for optimal performance and can be easily integrated into your Lua scripts.
 
