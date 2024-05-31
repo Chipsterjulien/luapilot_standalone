@@ -27,10 +27,20 @@ LuaPilot is a Lua library offering advanced functionalities for file, table, and
    ```sh
    git clone https://github.com/your-username/LuaPilot.git
    cd LuaPilot
-2. must be finished …
+2. **Build the project locally:**
+```
+  ./build_local.sh
+```
 
 ## Usage
 The main file is main.lua. This file is the begining of lua script
+
+### To create an executable from a Lua script using the --create-exe option:
+```
+  # for example :
+  echo "print(helloThere())" > main.lua
+  luapilot --create-exe . luapilot_with_script
+```
 
 ### Hello there
 ```
