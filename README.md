@@ -5,6 +5,7 @@ LuaPilot is a Lua library offering advanced functionalities for file, table, and
 ## Features
 
 - **Hello there**
+  - `helloThere`: Print Hello there
 
 - **File Manipulation**
   - `listFiles`: List files in a directory.
