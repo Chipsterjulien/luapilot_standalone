@@ -49,7 +49,7 @@ print(luapilot.helloThere())
 ```
 
 ### File Manipulation
-```
+```lua
 -- List files in a directory
 local files = luapilot.listFiles("/path/to/directory")
 for _, file in ipairs(files) do
@@ -62,7 +62,7 @@ print("File exists:", exists)
 ```
 
 ### Table Manipulation
-```
+```lua
 -- Merge two tables
 local table1 = {a = 1, b = 2}
 local table2 = {b = 3, c = 4}
@@ -79,7 +79,7 @@ local deepCopy = luapilot.deepCopy(table1)
 ```
 
 ### String Manipulation
-```
+```lua
 -- Split a string
 local parts = luapilot.splitString("hello,world", ",")
 for _, part in ipairs(parts) do
