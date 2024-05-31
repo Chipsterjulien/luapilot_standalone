@@ -37,14 +37,14 @@ LuaPilot is a Lua library offering advanced functionalities for file, table, and
 The main file is main.lua. This file is the begining of lua script
 
 ### To create an executable from a Lua script using the --create-exe option:
-```
+```sh
   # for example :
   echo "print(helloThere())" > main.lua
   luapilot --create-exe . luapilot_with_script
 ```
 
 ### Hello there
-```
+```lua
 print(luapilot.helloThere())
 ```
 
