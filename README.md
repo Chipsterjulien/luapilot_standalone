@@ -72,11 +72,8 @@ local mergedTable = luapilot.mergeTables(table1, table2)
 -- Merge multiple tables
 local mergedMultipleTables = luapilot.mergeTables(table1, table2, {d = 5}, {e = 6})
 
--- Make a shallow copy of a table
-local shallowCopy = luapilot.shallowCopy(table1)
-
 -- Make a deep copy of a table
-local deepCopy = luapilot.deepCopy(table1)
+local deepCopy = luapilot.deepCopyTable(table1)
 ```
 
 ### String Manipulation
