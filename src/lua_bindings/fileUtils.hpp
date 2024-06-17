@@ -4,7 +4,7 @@
 #include <lua.hpp>
 #include <string>
 
-// Lua wrapper for the getPath function
+// Interface pour les fonctions suivantes
 int lua_getBasename(lua_State *L);
 int lua_getExtension(lua_State *L);
 int lua_getFilename(lua_State *L);

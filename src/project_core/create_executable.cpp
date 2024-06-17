@@ -7,18 +7,15 @@
 
 namespace fs = std::filesystem;
 
-void createExecutableWithDir(const std::string &dir, const std::string &output)
-{
+void createExecutableWithDir(const std::string &dir, const std::string &output) {
     std::string mainLuaPath = fs::path(dir) / "main.lua";
-    if (!fs::exists(mainLuaPath))
-    {
+    if (!fs::exists(mainLuaPath)) {
         std::cerr << "Erreur : main.lua introuvable dans le répertoire " << dir << std::endl;
         return;
     }
 
     std::string zipFileName = fs::path(dir) / "temp.zip";
-    if (!createZipFromDirectory(dir, zipFileName))
-    {
+    if (!createZipFromDirectory(dir, zipFileName)) {
         std::cerr << "Erreur : échec de la création du fichier ZIP." << std::endl;
         return;
     }

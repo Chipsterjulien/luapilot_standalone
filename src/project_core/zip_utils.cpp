@@ -10,34 +10,28 @@
 
 namespace fs = std::filesystem;
 
-bool createZipFromDirectory(const std::string &dir, const std::string &zipFileName)
-{
+bool createZipFromDirectory(const std::string &dir, const std::string &zipFileName) {
     int error;
     zip_t *zip = zip_open(zipFileName.c_str(), ZIP_CREATE | ZIP_TRUNCATE, &error);
-    if (!zip)
-    {
+    if (!zip) {
         std::cerr << "Erreur lors de la création du fichier ZIP : " << zipFileName << std::endl;
         return false;
     }
 
-    for (const auto &entry : fs::recursive_directory_iterator(dir))
-    {
-        if (fs::is_regular_file(entry))
-        {
+    for (const auto &entry : fs::recursive_directory_iterator(dir)) {
+        if (fs::is_regular_file(entry)) {
             std::string filePath = entry.path().string();
             std::string relativePath = fs::relative(entry.path(), dir).string();
 
             zip_source_t *source = zip_source_file(zip, filePath.c_str(), 0, 0);
-            if (source == nullptr)
-            {
+            if (source == nullptr) {
                 std::cerr << "Erreur lors de l'ajout du fichier au ZIP : " << filePath << std::endl;
                 zip_close(zip);
                 return false;
             }
 
             zip_int64_t fileIndex = zip_file_add(zip, relativePath.c_str(), source, ZIP_FL_OVERWRITE);
-            if (fileIndex < 0)
-            {
+            if (fileIndex < 0) {
                 std::cerr << "Erreur lors de l'ajout du fichier au ZIP : " << filePath << std::endl;
                 zip_source_free(source);
                 zip_close(zip);
@@ -45,8 +39,7 @@ bool createZipFromDirectory(const std::string &dir, const std::string &zipFileNa
             }
 
             // Set the compression level to maximum (9)
-            if (zip_set_file_compression(zip, fileIndex, ZIP_CM_DEFLATE, 9) < 0)
-            {
+            if (zip_set_file_compression(zip, fileIndex, ZIP_CM_DEFLATE, 9) < 0) {
                 std::cerr << "Erreur lors de la définition du niveau de compression pour le fichier : " << filePath << std::endl;
                 zip_close(zip);
                 return false;
@@ -58,8 +51,7 @@ bool createZipFromDirectory(const std::string &dir, const std::string &zipFileNa
     return true;
 }
 
-void mergeFiles(const std::string &exe, const std::string &zip, const std::string &output)
-{
+void mergeFiles(const std::string &exe, const std::string &zip, const std::string &output) {
     std::ifstream exeFile(exe, std::ios::binary);
     std::ifstream zipFile(zip, std::ios::binary);
     std::ofstream outFile(output, std::ios::binary);
@@ -69,11 +61,9 @@ void mergeFiles(const std::string &exe, const std::string &zip, const std::strin
     std::cout << "Exécutable créé avec succès : " << output << std::endl;
 }
 
-bool extractEmbeddedZip(const std::string &exePath, const std::string &outputDir)
-{
+bool extractEmbeddedZip(const std::string &exePath, const std::string &outputDir) {
     std::ifstream exeFile(exePath, std::ios::binary);
-    if (!exeFile)
-    {
+    if (!exeFile) {
         std::cerr << "Erreur : impossible d'ouvrir le fichier exécutable " << exePath << std::endl;
         return false;
     }
@@ -88,8 +78,7 @@ bool extractEmbeddedZip(const std::string &exePath, const std::string &outputDir
     const std::array<char, 4> endOfCentralDirSignature = {0x50, 0x4b, 0x05, 0x06};
     auto it = std::search(buffer.rbegin(), buffer.rend(), endOfCentralDirSignature.rbegin(), endOfCentralDirSignature.rend());
 
-    if (it == buffer.rend())
-    {
+    if (it == buffer.rend()) {
         std::cerr << "Erreur : aucun fichier ZIP intégré trouvé" << std::endl;
         return false;
     }
@@ -104,14 +93,12 @@ bool extractEmbeddedZip(const std::string &exePath, const std::string &outputDir
 
     int error;
     zip_t *zip = zip_open(zipFileName.c_str(), ZIP_RDONLY, &error);
-    if (!zip)
-    {
+    if (!zip) {
         std::cerr << "Erreur : impossible d'ouvrir le fichier ZIP intégré : " << zipFileName << " (code d'erreur : " << error << ")" << std::endl;
         return false;
     }
 
-    for (int i = 0; i < zip_get_num_entries(zip, 0); ++i)
-    {
+    for (int i = 0; i < zip_get_num_entries(zip, 0); ++i) {
         struct zip_stat st;
         zip_stat_index(zip, i, 0, &st);
 
@@ -121,8 +108,7 @@ bool extractEmbeddedZip(const std::string &exePath, const std::string &outputDir
 
         std::string filePath = outputDir + "/" + st.name;
         std::ofstream outFile(filePath, std::ios::binary);
-        if (!outFile)
-        {
+        if (!outFile) {
             std::cerr << "Erreur : impossible de créer le fichier " << filePath << std::endl;
             zip_fclose(file);
             zip_close(zip);
@@ -131,8 +117,7 @@ bool extractEmbeddedZip(const std::string &exePath, const std::string &outputDir
 
         char buffer[8192];
         zip_int64_t bytesRead;
-        while ((bytesRead = zip_fread(file, buffer, sizeof(buffer))) > 0)
-        {
+        while ((bytesRead = zip_fread(file, buffer, sizeof(buffer))) > 0) {
             outFile.write(buffer, bytesRead);
         }
 
@@ -145,10 +130,8 @@ bool extractEmbeddedZip(const std::string &exePath, const std::string &outputDir
     return true;
 }
 
-bool initPhysFS(const char *argv0)
-{
-    if (!PHYSFS_init(argv0))
-    {
+bool initPhysFS(const char *argv0) {
+    if (!PHYSFS_init(argv0)) {
         PHYSFS_ErrorCode errorCode = PHYSFS_getLastErrorCode();
         std::cerr << "Erreur lors de l'initialisation de PhysFS: " << PHYSFS_getErrorByCode(errorCode) << std::endl;
         return false;
@@ -156,10 +139,8 @@ bool initPhysFS(const char *argv0)
     return true;
 }
 
-bool mountZipFile(const char *archive)
-{
-    if (!PHYSFS_mount(archive, NULL, 1))
-    {
+bool mountZipFile(const char *archive) {
+    if (!PHYSFS_mount(archive, NULL, 1)) {
         PHYSFS_ErrorCode errorCode = PHYSFS_getLastErrorCode();
         std::cerr << "Erreur lors du montage de l'archive " << archive << ": " << PHYSFS_getErrorByCode(errorCode) << std::endl;
         return false;

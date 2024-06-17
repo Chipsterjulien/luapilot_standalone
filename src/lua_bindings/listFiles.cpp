@@ -4,43 +4,45 @@
 
 namespace fs = std::filesystem;
 
-void listFilesHelper(lua_State *L, const std::string& basePath, const std::string& path, int& index, bool recursive)
-{
-    for (const auto &entry : fs::directory_iterator(path))
-    {
-        if (fs::is_regular_file(entry)) // Only process regular files
-        {
+// Fonction auxiliaire pour lister les fichiers
+void listFilesHelper(lua_State *L, const std::string& basePath, const std::string& path, int& index, bool recursive) {
+    // Itère sur chaque entrée dans le répertoire donné
+    for (const auto &entry : fs::directory_iterator(path)) {
+        if (fs::is_regular_file(entry)) { // Ne traite que les fichiers réguliers
             std::string relativePath = fs::relative(entry.path(), basePath).string();
 
-            if (relativePath.find("./") == 0)
-            {
-                relativePath = relativePath.substr(2); // Remove the "./" prefix
+            // Supprime le préfixe "./" du chemin relatif s'il est présent
+            if (relativePath.find("./") == 0) {
+                relativePath = relativePath.substr(2);
             }
 
-            lua_pushnumber(L, index++);           // Push the index
-            lua_pushstring(L, relativePath.c_str());  // Push the modified file name
-            lua_settable(L, -3);                  // Set the table entry
+            lua_pushnumber(L, index++);           // Pousse l'index sur la pile Lua
+            lua_pushstring(L, relativePath.c_str());  // Pousse le nom de fichier modifié sur la pile Lua
+            lua_settable(L, -3);                  // Définit l'entrée de la table
         }
 
-        if (recursive && fs::is_directory(entry))
-        {
-            listFilesHelper(L, basePath, entry.path().string(), index, recursive); // Recurse into subdirectory
+        // Si récursif et que l'entrée est un répertoire, appelle récursivement la fonction sur ce répertoire
+        if (recursive && fs::is_directory(entry)) {
+            listFilesHelper(L, basePath, entry.path().string(), index, recursive);
         }
     }
 }
 
-int lua_listFiles(lua_State *L)
-{
-    const char *path = luaL_checkstring(L, 1);
-    bool recursive = false; // Default value is false
-    if (lua_gettop(L) >= 2) // Check if the second argument is provided
-    {
-        recursive = lua_toboolean(L, 2);
-    }
-    lua_newtable(L); // Create a new table on the Lua stack
+// Fonction Lua pour lister les fichiers dans un répertoire
+int lua_listFiles(lua_State *L) {
+    const char *path = luaL_checkstring(L, 1); // Récupère le chemin du répertoire à partir du premier argument
+    bool recursive = false; // Valeur par défaut est false (non récursif)
 
-    int index = 1;
+    // Vérifie si le second argument est fourni pour la récursivité
+    if (lua_gettop(L) >= 2) {
+        recursive = lua_toboolean(L, 2); // Convertit le second argument en booléen
+    }
+
+    lua_newtable(L); // Crée une nouvelle table sur la pile Lua
+
+    int index = 1; // Initialise l'index pour la table Lua
+    // Appelle la fonction auxiliaire pour lister les fichiers
     listFilesHelper(L, path, path, index, recursive);
 
-    return 1; // Return the table
+    return 1;
 }
