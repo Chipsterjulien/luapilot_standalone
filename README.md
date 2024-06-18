@@ -34,13 +34,21 @@ LuaPilot is a Lua library offering advanced functionalities for file, table, and
 ## Usage
 The main file is main.lua. This file is the begining of lua script. You can load other lua file with require
 
+```sh
+  ./luapilot .
+```
+
 ### To create an executable from a Lua script using the --create-exe option:
 (luapilot need to be globally installed)
 ```sh
   # for example :
   echo "print(helloThere())" > main.lua
-  luapilot --create-exe . luapilot_with_script
-  ./luapilot_with_script
+  luapilot --create-exe . luapilot_with_lua_script_embedded
+  ./luapilot_with_lua_script_embedded
+```
+
+If you want to zip some files and directories :
+```sh
 ```
 
 ### Hello there
