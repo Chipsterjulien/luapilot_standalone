@@ -63,6 +63,8 @@ If you want use embedded zip:
   ./my_new_exec
 ```
 
+## Some examples
+
 ### Hello there
 ```lua
 print(luapilot.helloThere())
