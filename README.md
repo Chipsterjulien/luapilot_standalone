@@ -13,10 +13,8 @@ LuaPilot is a Lua library offering advanced functionalities for file, table, and
   - `fileExists`: Check if a file exists.
 
 - **Table Manipulation**
-  - `mergeTables`: Merge two Lua tables into one.
-  - `mergeMultipleTables`: Merge an arbitrary number of Lua tables into one.
-  - `shallowCopy`: Make a shallow copy of a Lua table.
-  - `deepCopy`: Make a deep copy of a Lua table.
+  - `mergeTables`: Merge two or more Lua tables into one.
+  - `deepCopyTables`: Make a deep copy of a Lua table.
 
 - **String Manipulation**
   - `splitString`: Split a string based on a delimiter.
@@ -26,7 +24,7 @@ LuaPilot is a Lua library offering advanced functionalities for file, table, and
 
 1. **Clone the repository:**
    ```sh
-   git clone https://github.com/your-username/LuaPilot.git
+   git clone https://github.com/Chipsterjulien/LuaPilot.git
    cd LuaPilot
 2. **Build the project locally:**
 ```sh
@@ -37,6 +35,7 @@ LuaPilot is a Lua library offering advanced functionalities for file, table, and
 The main file is main.lua. This file is the begining of lua script
 
 ### To create an executable from a Lua script using the --create-exe option:
+(luapilot need to be globally installed)
 ```sh
   # for example :
   echo "print(helloThere())" > main.lua
@@ -79,7 +78,7 @@ local deepCopy = luapilot.deepCopyTable(table1)
 ### String Manipulation
 ```lua
 -- Split a string
-local parts = luapilot.splitString("hello,world", ",")
+local parts = luapilot.split("hello,world", ",")
 for _, part in ipairs(parts) do
     print(part)
 end
