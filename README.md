@@ -2,6 +2,8 @@
 
 LuaPilot is a Lua library offering advanced functionalities for file, table, and string manipulation, as well as performance analysis tools. LuaPilot is written in C++ for optimal performance and can be easily integrated into your Lua scripts.
 
+LuaPilot also allows embedding a ZIP file into the executable. Upon execution, the ZIP file will be decompressed and loaded into memory. The LuaPilot file will search for the main.lua file.
+
 ## Features
 
 - **Hello there**
@@ -34,8 +36,15 @@ LuaPilot is a Lua library offering advanced functionalities for file, table, and
 ## Usage
 The main file is main.lua. This file is the begining of lua script. You can load other lua file with require
 
+
 ```sh
   ./luapilot .
+```
+
+If zip is embedded :
+
+```sh
+  ./luapilot_with_zip_embedded
 ```
 
 ### To create an executable from a Lua script using the --create-exe option:
@@ -44,15 +53,17 @@ The main file is main.lua. This file is the begining of lua script. You can load
   # for example :
   echo "print(helloThere())" > main.lua
   luapilot --create-exe . luapilot_with_lua_script_embedded
-  ./luapilot_with_lua_script_embedded
+  ./luapilot_with_zip_embedded
 ```
 
-If you want to zip some files and directories :
+If you want use embedded zip:
 ```sh
+  cat luapilot my_file.zip > my_new_exec_program
+  chmod +x my_new_exec_program
+  ./my_new_exec
 ```
 
 ### Hello there
-In main.lua, put this line :
 ```lua
 print(luapilot.helloThere())
 ```
