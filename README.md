@@ -32,7 +32,7 @@ LuaPilot is a Lua library offering advanced functionalities for file, table, and
 ```
 
 ## Usage
-The main file is main.lua. This file is the begining of lua script
+The main file is main.lua. This file is the begining of lua script. You can load other lua file with require
 
 ### To create an executable from a Lua script using the --create-exe option:
 (luapilot need to be globally installed)
@@ -44,6 +44,7 @@ The main file is main.lua. This file is the begining of lua script
 ```
 
 ### Hello there
+In main.lua, put this line :
 ```lua
 print(luapilot.helloThere())
 ```
