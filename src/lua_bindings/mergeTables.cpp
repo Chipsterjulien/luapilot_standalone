@@ -1,6 +1,12 @@
 #include "lua_bindings/mergeTables.hpp"
 
-int lua_mergeTables(lua_State *L) {
+/**
+ * Lua binding for merging multiple tables.
+ * @param L The Lua state.
+ * @return Number of return values (1: merged table).
+ * Lua usage: mergedTable = lua_mergeTables(table1, table2, ...)
+ */
+int lua_mergeTables(lua_State* L) {
     // Vérifiez qu'il y a au moins deux arguments et que ce sont des tables
     int n = lua_gettop(L);
     if (n < 2) {
@@ -46,3 +52,4 @@ int lua_mergeTables(lua_State *L) {
     // La nouvelle table fusionnée est maintenant en haut de la pile
     return 1;
 }
+

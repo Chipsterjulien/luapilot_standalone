@@ -1,3 +1,5 @@
+#include "lua_bindings/chdir.hpp"
+#include "lua_bindings/currentDir.hpp"
 #include "lua_bindings/deepCopyTable.hpp"
 #include "lua_bindings/fileExists.hpp"
 #include "lua_bindings/fileSize.hpp"
@@ -23,6 +25,14 @@ namespace fs = std::filesystem;
 void register_luapilot(lua_State *L) {
     // Crée une nouvelle table Lua
     lua_newtable(L);
+
+    // Lie la fonction C++ lua_chdir à la table sous le nom "chdir"
+    lua_pushcfunction(L, lua_chdir);
+    lua_setfield(L, -2, "chdir");
+
+    // Lie la fonction C++ lua_chdir à la table sous le nom "chdir"
+    lua_pushcfunction(L, lua_currentDir);
+    lua_setfield(L, -2, "currentDir");
 
     // Lie la fonction C++ lua_deepCopyTable à la table sous le nom "deepCopy"
     lua_pushcfunction(L, lua_deepCopyTable);
@@ -80,7 +90,7 @@ void register_luapilot(lua_State *L) {
     lua_setfield(L, -2, "rmdir_all");
 
     // Lie la fonction C++ split à la table sous le nom "split"
-    lua_pushcfunction(L, split);
+    lua_pushcfunction(L, lua_split);
     lua_setfield(L, -2, "split");
 
     // Enregistre la table globale "luapilot" dans l'état Lua

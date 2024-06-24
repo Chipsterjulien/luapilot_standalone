@@ -4,7 +4,14 @@
 
 namespace fs = std::filesystem;
 
-// Fonction auxiliaire pour lister les fichiers
+/**
+ * Auxiliary function to list files.
+ * @param L The Lua state.
+ * @param basePath The base directory path.
+ * @param path The current directory path.
+ * @param index The index for the Lua table.
+ * @param recursive Whether to list files recursively.
+ */
 void listFilesHelper(lua_State *L, const std::string& basePath, const std::string& path, int& index, bool recursive) {
     // Itère sur chaque entrée dans le répertoire donné
     for (const auto &entry : fs::directory_iterator(path)) {
@@ -28,7 +35,14 @@ void listFilesHelper(lua_State *L, const std::string& basePath, const std::strin
     }
 }
 
-// Fonction Lua pour lister les fichiers dans un répertoire
+/**
+ * Lua binding for listing files in a directory.
+ * @param L The Lua state.
+ * @return Number of return values (1: table of files).
+ * Lua usage: files = lua_listFiles(path, recursive)
+ *   - path: The directory path to list files from.
+ *   - recursive (optional): Whether to list files recursively. Defaults to false.
+ */
 int lua_listFiles(lua_State *L) {
     const char *path = luaL_checkstring(L, 1); // Récupère le chemin du répertoire à partir du premier argument
     bool recursive = false; // Valeur par défaut est false (non récursif)
