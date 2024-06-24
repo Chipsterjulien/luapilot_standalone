@@ -6,6 +6,8 @@
 #include "lua_bindings/listFiles.hpp"
 #include "lua_bindings/memoryUtils.hpp"
 #include "lua_bindings/mergeTables.hpp"
+#include "lua_bindings/mkdir.hpp"
+#include "lua_bindings/rmdir.hpp"
 #include "lua_bindings/split.hpp"
 #include "project_core/loadLuaFile.hpp"
 #include "project_core/zip_utils.hpp"
@@ -64,6 +66,18 @@ void register_luapilot(lua_State *L) {
 
     lua_pushcfunction(L, lua_mergeTables);
     lua_setfield(L, -2, "mergeTables");
+
+    // Lie la fonction C++ lua_mkdir à la table sous le nom "mkdir"
+    lua_pushcfunction(L, lua_mkdir);
+    lua_setfield(L, -2, "mkdir");
+
+    // Lie la fonction C++ lua_rmdir à la table sous le nom "rmdir"
+    lua_pushcfunction(L, lua_rmdir);
+    lua_setfield(L, -2, "rmdir");
+
+    // Lie la fonction C++ lua_rmdir à la table sous le nom "rmdir"
+    lua_pushcfunction(L, lua_rmdir_all);
+    lua_setfield(L, -2, "rmdir_all");
 
     // Lie la fonction C++ split à la table sous le nom "split"
     lua_pushcfunction(L, split);

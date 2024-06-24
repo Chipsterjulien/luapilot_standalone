@@ -6,6 +6,11 @@
 // Fonction pour diviser une chaîne en utilisant un délimiteur avec une limite sur le nombre de divisions
 std::vector<std::string> split(const std::string &str, char delimiter, int max_splits) {
     std::vector<std::string> tokens; // Vecteur pour stocker les morceaux de la chaîne
+    // Vérifiez si la chaîne est vide
+    if (str.empty()) {
+        return tokens;
+    }
+
     std::string token;
     std::istringstream tokenStream(str); // Flux de chaîne pour parcourir la chaîne d'entrée
     int splits = 0;
@@ -57,7 +62,7 @@ int split(lua_State *L) {
         max_splits = luaL_checkinteger(L, 3);
     }
 
-    // Effectue l'opération de division (en supposant qu'une fonction split est définie ailleurs)
+    // Effectue l'opération de division
     std::vector<std::string> tokens = split(str, delim[0], max_splits);
 
     // Crée une nouvelle table sur la pile Lua

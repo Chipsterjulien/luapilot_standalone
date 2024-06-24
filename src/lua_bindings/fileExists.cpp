@@ -16,8 +16,8 @@ int lua_fileExists(lua_State *L) {
     }
 
     // Vérifier que l'argument est une chaîne de caractères
-    if (!lua_isstring(L, 1)) {
-        return luaL_error(L, "Expected a string as argument");
+    if (lua_isnumber(L, 1)) {
+        return luaL_error(L, "Expected a string, but got a number");
     }
 
     // Récupérer le chemin du fichier à partir des arguments de lua
