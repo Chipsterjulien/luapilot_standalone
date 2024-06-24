@@ -11,6 +11,7 @@
 #include "lua_bindings/mkdir.hpp"
 #include "lua_bindings/rmdir.hpp"
 #include "lua_bindings/split.hpp"
+#include "lua_bindings/touch.hpp"
 #include "project_core/loadLuaFile.hpp"
 #include "project_core/zip_utils.hpp"
 #include "project_core/create_executable.hpp"
@@ -92,6 +93,10 @@ void register_luapilot(lua_State *L) {
     // Lie la fonction C++ split à la table sous le nom "split"
     lua_pushcfunction(L, lua_split);
     lua_setfield(L, -2, "split");
+
+    // Lie la fonction C++ touch à la table sous le nom "split"
+    lua_pushcfunction(L, lua_touch);
+    lua_setfield(L, -2, "touch");
 
     // Enregistre la table globale "luapilot" dans l'état Lua
     lua_setglobal(L, "luapilot");
