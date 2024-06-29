@@ -3,7 +3,7 @@
 #include "executable_path.hpp"
 #include <iostream>
 #include <filesystem>
-#include <sys/stat.h>  // Pour chmod
+#include <sys/stat.h>
 
 namespace fs = std::filesystem;
 

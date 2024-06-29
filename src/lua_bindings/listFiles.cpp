@@ -18,11 +18,6 @@ void listFilesHelper(lua_State *L, const std::string& basePath, const std::strin
         if (fs::is_regular_file(entry)) { // Ne traite que les fichiers réguliers
             std::string relativePath = fs::relative(entry.path(), basePath).string();
 
-            // Supprime le préfixe "./" du chemin relatif s'il est présent
-            if (relativePath.find("./") == 0) {
-                relativePath = relativePath.substr(2);
-            }
-
             lua_pushnumber(L, index++);           // Pousse l'index sur la pile Lua
             lua_pushstring(L, relativePath.c_str());  // Pousse le nom de fichier modifié sur la pile Lua
             lua_settable(L, -3);                  // Définit l'entrée de la table

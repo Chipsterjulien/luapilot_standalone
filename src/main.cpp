@@ -1,3 +1,4 @@
+#include "lua_bindings/attributes.hpp"
 #include "lua_bindings/chdir.hpp"
 #include "lua_bindings/currentDir.hpp"
 #include "lua_bindings/deepCopyTable.hpp"
@@ -5,17 +6,24 @@
 #include "lua_bindings/fileSize.hpp"
 #include "lua_bindings/fileUtils.hpp"
 #include "lua_bindings/helloThere.hpp"
+#include "lua_bindings/link.hpp"
 #include "lua_bindings/listFiles.hpp"
 #include "lua_bindings/memoryUtils.hpp"
 #include "lua_bindings/mergeTables.hpp"
 #include "lua_bindings/mkdir.hpp"
 #include "lua_bindings/rmdir.hpp"
+#include "lua_bindings/setmode.hpp"
+#include "lua_bindings/sleep.hpp"
 #include "lua_bindings/split.hpp"
+#include "lua_bindings/symlinkattr.hpp"
 #include "lua_bindings/touch.hpp"
+#include "lua_bindings/fileIterator.hpp"
+
 #include "project_core/loadLuaFile.hpp"
 #include "project_core/zip_utils.hpp"
 #include "project_core/create_executable.hpp"
 #include "project_core/help.hpp"
+
 #include <iostream>
 #include <lua.hpp>
 #include <filesystem>
@@ -23,15 +31,23 @@
 
 namespace fs = std::filesystem;
 
+/**
+ * @brief Register LuaPilot functions to Lua state.
+ * @param L Lua state.
+ */
 void register_luapilot(lua_State *L) {
     // Crée une nouvelle table Lua
     lua_newtable(L);
+
+    // Lie la fonction C++ lua_setattr à la table sous le nom "attributes"
+    lua_pushcfunction(L, lua_setattr);
+    lua_setfield(L, -2, "attributes");
 
     // Lie la fonction C++ lua_chdir à la table sous le nom "chdir"
     lua_pushcfunction(L, lua_chdir);
     lua_setfield(L, -2, "chdir");
 
-    // Lie la fonction C++ lua_chdir à la table sous le nom "chdir"
+    // Lie la fonction C++ lua_currentDir à la table sous le nom "currentDir"
     lua_pushcfunction(L, lua_currentDir);
     lua_setfield(L, -2, "currentDir");
 
@@ -67,6 +83,10 @@ void register_luapilot(lua_State *L) {
     lua_pushcfunction(L, lua_helloThere);
     lua_setfield(L, -2, "helloThere");
 
+    // Lie la fonction C++ lua_link à la table sous le nom "link"
+    lua_pushcfunction(L, lua_link);
+    lua_setfield(L, -2, "link");
+
     // Lie la fonction C++ lua_listFiles à la table sous le nom "listFiles"
     lua_pushcfunction(L, lua_listFiles);
     lua_setfield(L, -2, "listFiles");
@@ -86,20 +106,38 @@ void register_luapilot(lua_State *L) {
     lua_pushcfunction(L, lua_rmdir);
     lua_setfield(L, -2, "rmdir");
 
-    // Lie la fonction C++ lua_rmdir à la table sous le nom "rmdir"
+    // Lie la fonction C++ lua_rmdir_all à la table sous le nom "rmdir_all"
     lua_pushcfunction(L, lua_rmdir_all);
     lua_setfield(L, -2, "rmdir_all");
 
-    // Lie la fonction C++ split à la table sous le nom "split"
+    // Lie la fonction C++ lua_setmode à la table sous le nom "setmode"
+    lua_pushcfunction(L, lua_setmode);
+    lua_setfield(L, -2, "setmode");
+
+    // Lie la fonction C++ lua_sleep à la table sous le nom "sleep"
+    lua_pushcfunction(L, lua_sleep);
+    lua_setfield(L, -2, "sleep");
+
+    // Lie la fonction C++ lua_split à la table sous le nom "split"
     lua_pushcfunction(L, lua_split);
     lua_setfield(L, -2, "split");
 
-    // Lie la fonction C++ touch à la table sous le nom "split"
+    // Lie la fonction C++ lua_symlinkattr à la table sous le nom "symlinkattr"
+    lua_pushcfunction(L, lua_symlinkattr);
+    lua_setfield(L, -2, "symlinkattr");
+
+    // Lie la fonction C++ lua_touch à la table sous le nom "touch"
     lua_pushcfunction(L, lua_touch);
     lua_setfield(L, -2, "touch");
 
+    // Lie la fonction createFileIterator à la table sous le nom "createFileIterator"
+    lua_pushcfunction(L, lua_createFileIterator);
+    lua_setfield(L, -2, "createFileIterator");
+
     // Enregistre la table globale "luapilot" dans l'état Lua
     lua_setglobal(L, "luapilot");
+
+    luaopen_file_iterator(L);
 }
 
 int main(int argc, char *argv[]) {

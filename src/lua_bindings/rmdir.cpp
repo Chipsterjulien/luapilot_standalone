@@ -1,5 +1,6 @@
 #include "rmdir.hpp"
 #include <filesystem>
+#include <system_error>
 
 /**
  * Remove a file or an empty directory.
@@ -8,14 +9,15 @@
  */
 RemovePathResult rmdir(const std::string& path) {
     RemovePathResult result = {true, ""};
+    if (!std::filesystem::exists(path)) {
+        result.success = false;
+        result.error_message = "File or directory does not exist: " + path;
+        return result;
+    }
     std::error_code ec;
     if (!std::filesystem::remove(path, ec)) {
         result.success = false;
-        if (ec) {
-            result.error_message = "Error removing file or directory: " + ec.message();
-        } else {
-            result.error_message = "File or directory does not exist: " + path;
-        }
+        result.error_message = "Error removing file or directory: " + ec.message();
     }
     return result;
 }
@@ -27,6 +29,11 @@ RemovePathResult rmdir(const std::string& path) {
  */
 RemovePathResult rmdir_all(const std::string& path) {
     RemovePathResult result = {true, ""};
+    if (!std::filesystem::exists(path)) {
+        result.success = false;
+        result.error_message = "Directory does not exist: " + path;
+        return result;
+    }
     std::error_code ec;
     std::filesystem::remove_all(path, ec);
     if (ec) {
