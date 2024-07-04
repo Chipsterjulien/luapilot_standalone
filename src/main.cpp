@@ -5,6 +5,7 @@
 #include "lua_bindings/fileExists.hpp"
 #include "lua_bindings/fileSize.hpp"
 #include "lua_bindings/fileUtils.hpp"
+#include "lua_bindings/find.hpp"
 #include "lua_bindings/helloThere.hpp"
 #include "lua_bindings/link.hpp"
 #include "lua_bindings/listFiles.hpp"
@@ -39,66 +40,54 @@ void register_luapilot(lua_State *L) {
     // Crée une nouvelle table Lua
     lua_newtable(L);
 
-    // Lie la fonction C++ lua_setattr à la table sous le nom "attributes"
     lua_pushcfunction(L, lua_setattr);
     lua_setfield(L, -2, "attributes");
 
-    // Lie la fonction C++ lua_chdir à la table sous le nom "chdir"
     lua_pushcfunction(L, lua_chdir);
     lua_setfield(L, -2, "chdir");
 
-    // Lie la fonction C++ lua_currentDir à la table sous le nom "currentDir"
     lua_pushcfunction(L, lua_currentDir);
     lua_setfield(L, -2, "currentDir");
 
-    // Lie la fonction C++ lua_deepCopyTable à la table sous le nom "deepCopy"
     lua_pushcfunction(L, lua_deepCopyTable);
     lua_setfield(L, -2, "deepCopyTable");
 
-    // Lie la fonction C++ lua_fileExists à la table sous le nom "fileExists"
     lua_pushcfunction(L, lua_fileExists);
     lua_setfield(L, -2, "fileExists");
 
-    // Lie la fonction C++ lua_fileSize à la table sous le nom "fileSize"
     lua_pushcfunction(L, lua_fileSize);
     lua_setfield(L, -2, "fileSize");
 
-    // Lie la fonction C++ lua_getBasename à la table sous le nom "getBasename"
+    lua_pushcfunction(L, lua_find);
+    lua_setfield(L, -2, "find");
+
     lua_pushcfunction(L, lua_getBasename);
     lua_setfield(L, -2, "getBasename");
 
-    // Lie la fonction C++ lua_getExtension à la table sous le nom "getExtension"
     lua_pushcfunction(L, lua_getExtension);
     lua_setfield(L, -2, "getExtension");
 
-    // Lie la fonction C++ lua_getFilename à la table sous le nom "getFilename"
     lua_pushcfunction(L, lua_getFilename);
     lua_setfield(L, -2, "getFilename");
 
-    // Lie la fonction C++ lua_getPath à la table sous le nom "getPath"
     lua_pushcfunction(L, lua_getPath);
     lua_setfield(L, -2, "getPath");
 
-    // Lie la fonction C++ lua_helloThere à la table sous le nom "helloThere"
     lua_pushcfunction(L, lua_helloThere);
     lua_setfield(L, -2, "helloThere");
 
-    // Lie la fonction C++ lua_link à la table sous le nom "link"
     lua_pushcfunction(L, lua_link);
     lua_setfield(L, -2, "link");
 
-    // Lie la fonction C++ lua_listFiles à la table sous le nom "listFiles"
     lua_pushcfunction(L, lua_listFiles);
     lua_setfield(L, -2, "listFiles");
 
-    // Lie la fonction C++ lua_getMemoryUsage à la table sous le nom "getMemoryUsage"
     lua_pushcfunction(L, lua_getMemoryUsage);
     lua_setfield(L, -2, "getMemoryUsage");
 
     lua_pushcfunction(L, lua_mergeTables);
     lua_setfield(L, -2, "mergeTables");
 
-    // Lie la fonction C++ lua_mkdir à la table sous le nom "mkdir"
     lua_pushcfunction(L, lua_mkdir);
     lua_setfield(L, -2, "mkdir");
 
@@ -108,7 +97,7 @@ void register_luapilot(lua_State *L) {
 
     // Lie la fonction C++ lua_rmdir_all à la table sous le nom "rmdir_all"
     lua_pushcfunction(L, lua_rmdir_all);
-    lua_setfield(L, -2, "rmdir_all");
+    lua_setfield(L, -2, "rmdirAll");
 
     // Lie la fonction C++ lua_setmode à la table sous le nom "setmode"
     lua_pushcfunction(L, lua_setmode);
