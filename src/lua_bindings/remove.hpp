@@ -1,0 +1,17 @@
+#ifndef REMOVE_HPP
+#define REMOVE_HPP
+
+#include <lua.hpp>
+
+/**
+ * @brief Declaration of the lua_remove_file function for Lua
+ *
+ * This function is called from Lua to remove a file.
+ * It takes a string representing the path of the file to remove.
+ *
+ * @param L Pointer to the Lua state
+ * @return Number of return values on the Lua stack (2 on success or failure: boolean result and error message)
+ */
+int lua_remove_file(lua_State* L);
+
+#endif // REMOVE_HPP

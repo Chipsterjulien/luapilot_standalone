@@ -1,5 +1,7 @@
 #include "lua_bindings/attributes.hpp"
 #include "lua_bindings/chdir.hpp"
+#include "lua_bindings/copy.hpp"
+#include "lua_bindings/copyTree.hpp"
 #include "lua_bindings/currentDir.hpp"
 #include "lua_bindings/deepCopyTable.hpp"
 #include "lua_bindings/fileExists.hpp"
@@ -7,11 +9,16 @@
 #include "lua_bindings/fileUtils.hpp"
 #include "lua_bindings/find.hpp"
 #include "lua_bindings/helloThere.hpp"
+#include "lua_bindings/isdir.hpp"
+#include "lua_bindings/isfile.hpp"
 #include "lua_bindings/link.hpp"
 #include "lua_bindings/listFiles.hpp"
 #include "lua_bindings/memoryUtils.hpp"
 #include "lua_bindings/mergeTables.hpp"
 #include "lua_bindings/mkdir.hpp"
+#include "lua_bindings/joinPath.hpp"
+#include "lua_bindings/rename.hpp"
+#include "lua_bindings/remove.hpp"
 #include "lua_bindings/rmdir.hpp"
 #include "lua_bindings/setmode.hpp"
 #include "lua_bindings/sleep.hpp"
@@ -46,6 +53,12 @@ void register_luapilot(lua_State *L) {
     lua_pushcfunction(L, lua_chdir);
     lua_setfield(L, -2, "chdir");
 
+    lua_pushcfunction(L, lua_copy_file);
+    lua_setfield(L, -2, "copy");
+
+    lua_pushcfunction(L, lua_copyTree);
+    lua_setfield(L, -2, "copyTree");
+
     lua_pushcfunction(L, lua_currentDir);
     lua_setfield(L, -2, "currentDir");
 
@@ -70,11 +83,20 @@ void register_luapilot(lua_State *L) {
     lua_pushcfunction(L, lua_getFilename);
     lua_setfield(L, -2, "getFilename");
 
+    lua_pushcfunction(L, lua_getMemoryUsage);
+    lua_setfield(L, -2, "getMemoryUsage");
+
     lua_pushcfunction(L, lua_getPath);
     lua_setfield(L, -2, "getPath");
 
     lua_pushcfunction(L, lua_helloThere);
     lua_setfield(L, -2, "helloThere");
+
+    lua_pushcfunction(L, lua_isDir);
+    lua_setfield(L, -2, "isdir");
+
+    lua_pushcfunction(L, lua_isFile);
+    lua_setfield(L, -2, "isfile");
 
     lua_pushcfunction(L, lua_link);
     lua_setfield(L, -2, "link");
@@ -82,40 +104,39 @@ void register_luapilot(lua_State *L) {
     lua_pushcfunction(L, lua_listFiles);
     lua_setfield(L, -2, "listFiles");
 
-    lua_pushcfunction(L, lua_getMemoryUsage);
-    lua_setfield(L, -2, "getMemoryUsage");
-
     lua_pushcfunction(L, lua_mergeTables);
     lua_setfield(L, -2, "mergeTables");
 
     lua_pushcfunction(L, lua_mkdir);
     lua_setfield(L, -2, "mkdir");
 
-    // Lie la fonction C++ lua_rmdir à la table sous le nom "rmdir"
+    lua_pushcfunction(L, lua_joinPath);
+    lua_setfield(L, -2, "joinPath");
+
+    lua_pushcfunction(L, lua_remove_file);
+    lua_setfield(L, -2, "remove");
+
+    lua_pushcfunction(L, lua_rename);
+    lua_setfield(L, -2, "rename");
+
     lua_pushcfunction(L, lua_rmdir);
     lua_setfield(L, -2, "rmdir");
 
-    // Lie la fonction C++ lua_rmdir_all à la table sous le nom "rmdir_all"
     lua_pushcfunction(L, lua_rmdir_all);
     lua_setfield(L, -2, "rmdirAll");
 
-    // Lie la fonction C++ lua_setmode à la table sous le nom "setmode"
     lua_pushcfunction(L, lua_setmode);
     lua_setfield(L, -2, "setmode");
 
-    // Lie la fonction C++ lua_sleep à la table sous le nom "sleep"
     lua_pushcfunction(L, lua_sleep);
     lua_setfield(L, -2, "sleep");
 
-    // Lie la fonction C++ lua_split à la table sous le nom "split"
     lua_pushcfunction(L, lua_split);
     lua_setfield(L, -2, "split");
 
-    // Lie la fonction C++ lua_symlinkattr à la table sous le nom "symlinkattr"
     lua_pushcfunction(L, lua_symlinkattr);
     lua_setfield(L, -2, "symlinkattr");
 
-    // Lie la fonction C++ lua_touch à la table sous le nom "touch"
     lua_pushcfunction(L, lua_touch);
     lua_setfield(L, -2, "touch");
 
