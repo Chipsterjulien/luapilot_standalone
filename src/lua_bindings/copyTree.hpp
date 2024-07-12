@@ -3,6 +3,7 @@
 
 #include <lua.hpp>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 /**
@@ -15,7 +16,7 @@
  * @param destination Le chemin du répertoire de destination
  * @return True si l'opération de copie a réussi, false sinon
  */
-bool copy_directory(const std::filesystem::path& source, const std::filesystem::path& destination);
+bool copy_directory(const std::filesystem::path& source, const std::filesystem::path& destination, std::string& error_message);
 
 /**
  * @brief Fonction accessible depuis Lua pour copier un répertoire

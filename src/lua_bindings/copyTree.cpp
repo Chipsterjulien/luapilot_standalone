@@ -1,9 +1,5 @@
 #include "lua_bindings/copyTree.hpp"
 #include <iostream>
-#include <filesystem>
-#include <string>
-#include <vector>
-#include <lua.hpp>
 
 namespace fs = std::filesystem;
 
@@ -18,27 +14,44 @@ namespace fs = std::filesystem;
  * @param destination The destination directory to copy to.
  * @return true if the directory was copied successfully, false otherwise.
  */
-bool copy_directory(const fs::path& source, const fs::path& destination) {
+bool copy_directory(const fs::path& source, const fs::path& destination, std::string& error_message) {
     std::vector<std::tuple<fs::path, fs::path, fs::path>> symlinks;
+    std::error_code ec;
+
+    if (!fs::exists(source)) {
+        error_message = "Source directory does not exist: " + source.string();
+        return false;
+    }
+    if (!fs::is_directory(source)) {
+        error_message = "Source is not a directory: " + source.string();
+        return false;
+    }
+
+    // Create the destination directory if it does not exist
+    fs::create_directories(destination, ec);
+    if (ec) {
+        error_message = "Error creating destination directory: " + ec.message();
+        return false;
+    }
+
     try {
-        if (!fs::exists(source) || !fs::is_directory(source)) {
-            std::cerr << "Source directory does not exist or is not a directory\n";
-            return false;
-        }
-
-        fs::create_directories(destination);
-
         for (const auto& entry : fs::recursive_directory_iterator(source, fs::directory_options::skip_permission_denied)) {
             const auto& path = entry.path();
-            auto relative_path = fs::relative(path, source);
+            fs::path relative_path = fs::relative(path, source);
             fs::path dest_path = destination / relative_path;
 
             auto file_status = fs::symlink_status(path);
 
             if (fs::is_directory(file_status) && !fs::is_symlink(file_status)) {
-                fs::create_directories(dest_path);
+                fs::create_directories(dest_path, ec);
+                if (ec) {
+                    error_message = "Error creating directory: " + dest_path.string() + " : " + ec.message();
+                }
             } else if (fs::is_regular_file(file_status)) {
-                fs::copy(path, dest_path, fs::copy_options::overwrite_existing);
+                fs::copy(path, dest_path, fs::copy_options::overwrite_existing, ec);
+                if (ec) {
+                    error_message = "Error copy file: " + path.string() + " to " + dest_path.string() + " : " + ec.message();
+                }
             } else if (fs::is_symlink(file_status)) {
                 fs::path dest_link = fs::absolute(destination / path.lexically_relative(source));
                 fs::path old_path = fs::absolute(fs::relative(path));
@@ -56,7 +69,7 @@ bool copy_directory(const fs::path& source, const fs::path& destination) {
             }
         }
     } catch (fs::filesystem_error& e) {
-        std::cerr << "Erreur lors de la copie du répertoire : " << e.what() << '\n';
+        error_message = "Erreur lors de la copie du répertoire : " + std::string(e.what());
         return false;
     }
     return true;
@@ -68,8 +81,12 @@ bool copy_directory(const fs::path& source, const fs::path& destination) {
  * This function is a Lua binding that exposes the copy_directory function to Lua scripts.
  * It expects two string arguments representing the source and destination directories.
  *
+ * It returns two values to Lua:
+ * 1. A boolean indicating the success of the operation.
+ * 2. A string containing the error message if the operation failed, or nil if it succeeded.
+ *
  * @param L The Lua state.
- * @return The number of return values (1 boolean value indicating success or failure).
+ * @return int Number of return values on the Lua stack.
  */
 int lua_copyTree(lua_State* L) {
     if (!lua_isstring(L, 1) || !lua_isstring(L, 2)) {
@@ -79,7 +96,15 @@ int lua_copyTree(lua_State* L) {
     const char* source = lua_tostring(L, 1);
     const char* destination = lua_tostring(L, 2);
 
-    bool result = copy_directory(source, destination);
+    std::string error_message;
+    bool result = copy_directory(source, destination, error_message);
+
     lua_pushboolean(L, result);
-    return 1;
+    if (!result) {
+        lua_pushstring(L, error_message.c_str());
+    } else {
+        lua_pushnil(L);
+    }
+
+    return 2;
 }
