@@ -1,8 +1,7 @@
-#include "lua_bindings/rename.hpp"
+#include "rename.hpp"
 #include <cstdio>
 #include <string>
-#include <cerrno>
-#include <cstring>
+#include <system_error>
 
 /**
  * @brief Function to rename a file or directory
@@ -12,14 +11,15 @@
  *
  * @param old_path The current name of the file or directory
  * @param new_path The new name of the file or directory
- * @return A pair containing a boolean (true if the rename operation was successful, false otherwise)
- *         and a string with the error message if any.
+ * @return A string with the error message if any, or an empty string if successful.
  */
-std::pair<bool, std::string> rename_file(const std::string& old_path, const std::string& new_path) {
+std::string rename_file(const std::string& old_path, const std::string& new_path) {
+    std::error_code ec;
     if (std::rename(old_path.c_str(), new_path.c_str()) != 0) {
-        return {false, strerror(errno)};
+        ec = std::error_code(errno, std::generic_category());
+        return ec.message();
     }
-    return {true, ""};
+    return "";
 }
 
 /**
@@ -30,7 +30,7 @@ std::pair<bool, std::string> rename_file(const std::string& old_path, const std:
  * If the arguments are not strings, a Lua error is raised.
  *
  * @param L Pointer to the Lua state
- * @return Number of return values on the Lua stack (2 on success or failure: boolean result and error message)
+ * @return Number of return values on the Lua stack (1: error message or nil).
  */
 int lua_rename(lua_State* L) {
     if (!lua_isstring(L, 1) || !lua_isstring(L, 2)) {
@@ -40,8 +40,12 @@ int lua_rename(lua_State* L) {
     const char* old_path = lua_tostring(L, 1);
     const char* new_path = lua_tostring(L, 2);
 
-    auto [success, error_message] = rename_file(old_path, new_path);
-    lua_pushboolean(L, success);
-    lua_pushstring(L, error_message.c_str());
-    return 2;  // Two return values (boolean result and error message)
+    std::string error_message = rename_file(old_path, new_path);
+
+    if (error_message.empty()) {
+        lua_pushnil(L);
+    } else {
+        lua_pushstring(L, error_message.c_str());
+    }
+    return 1;  // One return value (error message or nil)
 }

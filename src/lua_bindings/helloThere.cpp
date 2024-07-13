@@ -1,4 +1,4 @@
-#include "lua_bindings/helloThere.hpp"
+#include "helloThere.hpp"
 #include <iostream>
 
 int lua_helloThere(lua_State *L) {

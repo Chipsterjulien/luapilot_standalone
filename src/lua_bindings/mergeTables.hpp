@@ -6,8 +6,8 @@
 /**
  * Lua binding for merging multiple tables.
  * @param L The Lua state.
- * @return Number of return values (1: merged table).
- * Lua usage: mergedTable = lua_mergeTables(table1, table2, ...)
+ * @return Number of return values (2: merged table or nil, and error message or nil).
+ * Lua usage: mergedTable, err = lua_mergeTables(table1, table2, ...)
  */
 int lua_mergeTables(lua_State *L);
 

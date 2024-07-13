@@ -1,4 +1,4 @@
-#include "lua_bindings/fileIterator.hpp"
+#include "fileIterator.hpp"
 #include <iostream>
 
 namespace fs = std::filesystem;

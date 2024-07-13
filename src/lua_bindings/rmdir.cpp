@@ -5,74 +5,78 @@
 /**
  * Remove a file or an empty directory.
  * @param path The file or directory path to remove.
- * @return A RemovePathResult struct containing the success status and an error message if any.
+ * @return A string with the error message if any, or an empty string if successful.
  */
-RemovePathResult rmdir(const std::string& path) {
-    RemovePathResult result = {true, ""};
+std::string rmdir(const std::string& path) {
     if (!std::filesystem::exists(path)) {
-        result.success = false;
-        result.error_message = "File or directory does not exist: " + path;
-        return result;
+        return "Directory does not exist: " + path;
+    }
+    if (!std::filesystem::is_directory(path)) {
+        return "Path is not a directory: " + path;
     }
     std::error_code ec;
     if (!std::filesystem::remove(path, ec)) {
-        result.success = false;
-        result.error_message = "Error removing file or directory: " + ec.message();
+        return "Error removing directory: " + ec.message();
     }
-    return result;
+    return "";
 }
 
 /**
  * Remove a directory and all its contents.
  * @param path The directory path to remove.
- * @return A RemovePathResult struct containing the success status and an error message if any.
+ * @return A string with the error message if any, or an empty string if successful.
  */
-RemovePathResult rmdir_all(const std::string& path) {
-    RemovePathResult result = {true, ""};
+std::string rmdir_all(const std::string& path) {
     if (!std::filesystem::exists(path)) {
-        result.success = false;
-        result.error_message = "Directory does not exist: " + path;
-        return result;
+        return "Directory does not exist: " + path;
+    }
+    if (!std::filesystem::is_directory(path)) {
+        return "Path is not a directory: " + path;
     }
     std::error_code ec;
     std::filesystem::remove_all(path, ec);
     if (ec) {
-        result.success = false;
-        result.error_message = "Error removing directory: " + ec.message();
+        return "Error removing directory: " + ec.message();
     }
-    return result;
+    return "";
 }
 
 /**
  * Lua binding for removing a file or an empty directory.
  * @param L The Lua state.
- * @return Number of return values (2: success boolean and error message).
- * Lua usage: success, error_message = lua_rmdir(path)
+ * @return Number of return values (1: error message or nil).
+ * Lua usage: error_message = lua_rmdir(path)
  *   - path: The file or directory path to remove.
  */
 int lua_rmdir(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
 
-    RemovePathResult result = rmdir(path);
+    std::string error_message = rmdir(path);
 
-    lua_pushboolean(L, result.success);
-    lua_pushstring(L, result.error_message.c_str());
-    return 2;
+    if (error_message.empty()) {
+        lua_pushnil(L);
+    } else {
+        lua_pushstring(L, error_message.c_str());
+    }
+    return 1;
 }
 
 /**
  * Lua binding for removing a directory and all its contents.
  * @param L The Lua state.
- * @return Number of return values (2: success boolean and error message).
- * Lua usage: success, error_message = lua_rmdir_all(path)
+ * @return Number of return values (1: error message or nil).
+ * Lua usage: error_message = lua_rmdir_all(path)
  *   - path: The directory path to remove.
  */
 int lua_rmdir_all(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
 
-    RemovePathResult result = rmdir_all(path);
+    std::string error_message = rmdir_all(path);
 
-    lua_pushboolean(L, result.success);
-    lua_pushstring(L, result.error_message.c_str());
-    return 2;
+    if (error_message.empty()) {
+        lua_pushnil(L);
+    } else {
+        lua_pushstring(L, error_message.c_str());
+    }
+    return 1;
 }

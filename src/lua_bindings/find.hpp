@@ -34,8 +34,9 @@ struct FindOptions {
  * @param options The search options, including filters and depth limits.
  * @param depth The current depth of the search.
  * @param results The vector to store the search results.
+ * @return A string containing an error message if any, or an empty string if successful.
  */
-void find(const fs::path& root, const FindOptions& options, int depth, std::vector<fs::path>& results);
+std::string find(const fs::path& root, const FindOptions& options, int depth, std::vector<fs::path>& results);
 
 /**
  * @brief Lua binding for the find function.
@@ -43,11 +44,6 @@ void find(const fs::path& root, const FindOptions& options, int depth, std::vect
  * This function is a Lua binding for the find function, allowing it to be called from Lua scripts.
  * It retrieves the search options from the Lua stack, performs the search, and returns the results
  * as a Lua table.
- *
- * The function returns three values:
- * - A boolean indicating success (true) or failure (false).
- * - An error message string if the operation failed, or nil if it succeeded.
- * - A Lua table containing the search results if the operation succeeded, or nil if it failed.
  *
  * @param L The Lua state.
  * @return The number of return values on the Lua stack.

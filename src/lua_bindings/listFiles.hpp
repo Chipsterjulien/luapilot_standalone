@@ -1,27 +1,18 @@
-#ifndef LIST_FILES_HPP
-#define LIST_FILES_HPP
+#ifndef LISTFILES_HPP
+#define LISTFILES_HPP
 
-#include <string>
 #include <lua.hpp>
 
 /**
- * Auxiliary function to list files.
- * @param L The Lua state.
- * @param basePath The base directory path.
- * @param path The current directory path.
- * @param index The index for the Lua table.
- * @param recursive Whether to list files recursively.
- */
-void listFilesHelper(lua_State *L, const std::string &basePath, const std::string &path, int &index, bool recursive);
-
-/**
- * Lua binding for listing files in a directory.
- * @param L The Lua state.
- * @return Number of return values (1: table of files).
- * Lua usage: files = lua_listFiles(path, recursive)
- *   - path: The directory path to list files from.
- *   - recursive (optional): Whether to list files recursively. Defaults to false.
+ * @brief Lua binding for listing files in a directory.
+ *
+ * This function lists all files in a specified directory and returns the result as a Lua table.
+ * It can list files recursively if the optional second argument is set to true.
+ * It returns a Lua table of files and an error message or nil if there is no error.
+ *
+ * @param L The Lua state
+ * @return Number of return values on the Lua stack (2: table of files and error message or nil)
  */
 int lua_listFiles(lua_State *L);
 
-#endif // LIST_FILES_HPP
+#endif // LISTFILES_HPP

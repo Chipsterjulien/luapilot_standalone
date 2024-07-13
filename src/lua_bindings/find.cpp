@@ -1,7 +1,7 @@
-#include "lua_bindings/find.hpp"
+#include "find.hpp"
 #include <regex>
 #include <limits>
-#include <iostream>
+#include <system_error>
 
 /**
  * @brief Transforms Lua regex escape sequences to C++ regex escape sequences.
@@ -42,19 +42,18 @@ std::string transform_lua_regex(const std::string& lua_regex) {
  * @param options The search options, including filters and depth limits.
  * @param depth The current depth of the search.
  * @param results The vector to store the search results.
+ * @return A string containing an error message if any, or an empty string if successful.
  */
-void find(const fs::path& root, const FindOptions& options, int depth, std::vector<fs::path>& results) {
+std::string find(const fs::path& root, const FindOptions& options, int depth, std::vector<fs::path>& results) {
     if (!fs::exists(root)) {
-        std::cerr << "Error: Path does not exist: " << root << std::endl;
-        return;
+        return "Error: Path does not exist: " + root.string();
     }
 
     if (!fs::is_directory(root)) {
-        std::cerr << "Error: Path is not a directory: " << root << std::endl;
-        return;
+        return "Error: Path is not a directory: " + root.string();
     }
 
-    if (depth > options.maxdepth) return;
+    if (depth > options.maxdepth) return "";
 
     try {
         for (const auto& entry : fs::directory_iterator(root)) {
@@ -98,12 +97,17 @@ void find(const fs::path& root, const FindOptions& options, int depth, std::vect
             }
 
             if (fs::is_directory(entry)) {
-                find(entry.path(), options, depth + 1, results);
+                std::string err = find(entry.path(), options, depth + 1, results);
+                if (!err.empty()) {
+                    return err;
+                }
             }
         }
     } catch (const fs::filesystem_error& e) {
-        throw;
+        return e.what();
     }
+
+    return "";
 }
 
 /**
@@ -113,30 +117,11 @@ void find(const fs::path& root, const FindOptions& options, int depth, std::vect
  * It retrieves the search options from the Lua stack, performs the search, and returns the results
  * as a Lua table.
  *
- * The function returns three values:
- * - A boolean indicating success (true) or failure (false).
- * - An error message string if the operation failed, or nil if it succeeded.
- * - A Lua table containing the search results if the operation succeeded, or nil if it failed.
- *
  * @param L The Lua state.
  * @return The number of return values on the Lua stack.
  */
 int lua_find(lua_State* L) {
     const char* root = luaL_checkstring(L, 1);
-
-    if (!fs::exists(root)) {
-        lua_pushboolean(L, 0);  // success = false
-        lua_pushstring(L, "Error: Path does not exist");
-        lua_pushnil(L); // no results
-        return 3; // Return success, error message, and nil results
-    }
-
-    if (!fs::is_directory(root)) {
-        lua_pushboolean(L, 0);  // success = false
-        lua_pushstring(L, "Error: Path is not a directory");
-        lua_pushnil(L); // no results
-        return 3; // Return success, error message, and nil results
-    }
 
     FindOptions options;
     if (lua_istable(L, 2)) {
@@ -166,22 +151,20 @@ int lua_find(lua_State* L) {
     }
 
     std::vector<fs::path> results;
-    try {
-        find(root, options, 0, results);
-    } catch (const fs::filesystem_error& e) {
-        lua_pushboolean(L, 0);  // success = false
-        lua_pushstring(L, e.what());
-        lua_pushnil(L); // no results
-        return 3; // Return success, error message, and nil results
+    std::string error_message = find(root, options, 0, results);
+
+    if (!error_message.empty()) {
+        lua_pushnil(L);
+        lua_pushstring(L, error_message.c_str());
+        return 2; // Return nil and error message
     }
 
-    lua_pushboolean(L, 1);  // success = true
-    lua_pushnil(L); // no error message
     lua_newtable(L);
     for (size_t i = 0; i < results.size(); ++i) {
         lua_pushstring(L, results[i].string().c_str());
         lua_rawseti(L, -2, i + 1);
     }
+    lua_pushnil(L); // No error
 
-    return 3; // Return success, nil error message, and results table
+    return 2; // Return results table and nil error
 }

@@ -1,5 +1,5 @@
-#ifndef SETATTR_HPP
-#define SETATTR_HPP
+#ifndef ATTRIBUTES_HPP
+#define ATTRIBUTES_HPP
 
 #include <lua.hpp>
 
@@ -13,4 +13,4 @@
  */
 int lua_setattr(lua_State* L);
 
-#endif // SETATTR_HPP
+#endif // ATTRIBUTES_HPP

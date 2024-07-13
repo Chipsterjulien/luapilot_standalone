@@ -1,5 +1,5 @@
-#include "lua_bindings/isdir.hpp"
-#include <sys/stat.h>
+#include "isdir.hpp"
+#include <filesystem>
 #include <string>
 
 /**
@@ -11,11 +11,7 @@
  * @return True if the path is a directory, false otherwise
  */
 bool is_directory(const std::string& path) {
-    struct stat info;
-    if (stat(path.c_str(), &info) != 0) {
-        return false; // Path does not exist or error
-    }
-    return (info.st_mode & S_IFDIR) != 0;
+    return std::filesystem::is_directory(path);
 }
 
 /**
@@ -29,6 +25,12 @@ bool is_directory(const std::string& path) {
  * @return Number of return values on the Lua stack (1 on success, the boolean result)
  */
 int lua_isDir(lua_State* L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 1) {
+        return luaL_error(L, "Expected one argument");
+    }
+
     if (!lua_isstring(L, 1)) {
         return luaL_error(L, "Expected a string as argument");
     }

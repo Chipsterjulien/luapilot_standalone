@@ -1,7 +1,6 @@
-#include "lua_bindings/symlinkattr.hpp"
+#include "symlinkattr.hpp"
 #include <unistd.h>
-#include <errno.h>
-#include <cstring>
+#include <system_error>
 
 /**
  * @brief Changes the attributes of a symbolic link.
@@ -11,8 +10,8 @@
  * 2. The new owner (UID).
  * 3. The new group (GID).
  *
- * If successful, it returns true to Lua.
- * If it fails, it returns false and an error message.
+ * If it fails, it returns the error message to Lua.
+ * If successful, it returns nil to Lua.
  *
  * @param L Lua state.
  * @return int Number of return values on the Lua stack.
@@ -23,12 +22,11 @@ int lua_symlinkattr(lua_State* L) {
     gid_t group = static_cast<gid_t>(luaL_checkinteger(L, 3));
 
     if (lchown(path, owner, group) != 0) {
-        lua_pushboolean(L, 0);
-        lua_pushstring(L, std::strerror(errno));
-        return 2;
+        std::error_code ec(errno, std::generic_category());
+        lua_pushstring(L, ec.message().c_str());
+        return 1; // Return error message
     }
 
-    lua_pushboolean(L, 1);
     lua_pushnil(L);
-    return 2;
+    return 1; // Return nil for success
 }

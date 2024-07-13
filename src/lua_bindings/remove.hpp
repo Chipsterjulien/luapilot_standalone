@@ -10,7 +10,7 @@
  * It takes a string representing the path of the file to remove.
  *
  * @param L Pointer to the Lua state
- * @return Number of return values on the Lua stack (2 on success or failure: boolean result and error message)
+ * @return Number of return values on the Lua stack (1: error message or nil)
  */
 int lua_remove_file(lua_State* L);
 

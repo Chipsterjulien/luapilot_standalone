@@ -1,6 +1,7 @@
-#include "lua_bindings/isfile.hpp"
+#include "isfile.hpp"
 #include <sys/stat.h>
 #include <string>
+#include <filesystem>
 
 /**
  * @brief Function to check if a path is a file
@@ -11,11 +12,7 @@
  * @return True if the path is a file, false otherwise
  */
 bool is_file(const std::string& path) {
-    struct stat info;
-    if (stat(path.c_str(), &info) != 0) {
-        return false; // Path does not exist or error
-    }
-    return (info.st_mode & S_IFREG) != 0;
+    return std::filesystem::is_regular_file(path);
 }
 
 /**
@@ -29,6 +26,12 @@ bool is_file(const std::string& path) {
  * @return Number of return values on the Lua stack (1 on success, the boolean result)
  */
 int lua_isFile(lua_State* L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 1) {
+        return luaL_error(L, "Expected one argument");
+    }
+
     if (!lua_isstring(L, 1)) {
         return luaL_error(L, "Expected a string as argument");
     }

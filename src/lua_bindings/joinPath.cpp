@@ -1,4 +1,4 @@
-#include "lua_bindings/joinPath.hpp"
+#include "joinPath.hpp"
 #include <string>
 #include <vector>
 
@@ -35,7 +35,7 @@ std::string join(const std::vector<std::string>& segments) {
  * If the argument is not a table or if the table contains non-string elements, a Lua error is raised.
  *
  * @param L Pointer to the Lua state
- * @return Number of return values on the Lua stack (1 on success, the joined path)
+ * @return Number of return values on the Lua stack (2: fullpath and error message)
  */
 int lua_joinPath(lua_State* L) {
     std::vector<std::string> segments;
@@ -48,7 +48,9 @@ int lua_joinPath(lua_State* L) {
                 segments.push_back(lua_tostring(L, -1));
             } else {
                 lua_pop(L, 1);
-                return luaL_error(L, "Table must contain only strings");
+                lua_pushnil(L);
+                lua_pushstring(L, "Table must contain only strings");
+                return 2; // Return nil and error message
             }
             lua_pop(L, 1);  // Remove the value, keep the key for the next iteration
         }
@@ -58,12 +60,15 @@ int lua_joinPath(lua_State* L) {
             if (lua_isstring(L, i)) {
                 segments.push_back(lua_tostring(L, i));
             } else {
-                return luaL_error(L, "All arguments must be strings");
+                lua_pushnil(L);
+                lua_pushstring(L, "All arguments must be strings");
+                return 2; // Return nil and error message
             }
         }
     }
 
     std::string result = join(segments);
     lua_pushstring(L, result.c_str());
-    return 1;  // One return value (the joined path)
+    lua_pushnil(L); // No error
+    return 2;  // Two return values (the joined path and nil)
 }

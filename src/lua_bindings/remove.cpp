@@ -1,8 +1,7 @@
-#include "lua_bindings/remove.hpp"
+#include "remove.hpp"
 #include <cstdio>
 #include <string>
-#include <cerrno>
-#include <cstring>
+#include <system_error>
 
 /**
  * @brief Function to remove a file
@@ -11,14 +10,15 @@
  * and removes the file.
  *
  * @param path The path of the file to remove
- * @return A pair containing a boolean (true if the remove operation was successful, false otherwise)
- *         and a string with the error message if any.
+ * @return An error message if any, or an empty string if successful.
  */
-std::pair<bool, std::string> remove_file(const std::string& path) {
+std::string remove_file(const std::string& path) {
+    std::error_code ec;
     if (std::remove(path.c_str()) != 0) {
-        return {false, strerror(errno)};
+        ec = std::error_code(errno, std::generic_category());
+        return ec.message();
     }
-    return {true, ""};
+    return "";
 }
 
 /**
@@ -29,7 +29,7 @@ std::pair<bool, std::string> remove_file(const std::string& path) {
  * If the argument is not a string, a Lua error is raised.
  *
  * @param L Pointer to the Lua state
- * @return Number of return values on the Lua stack (2 on success or failure: boolean result and error message)
+ * @return Number of return values on the Lua stack (1: error message or nil).
  */
 int lua_remove_file(lua_State* L) {
     if (!lua_isstring(L, 1)) {
@@ -37,8 +37,12 @@ int lua_remove_file(lua_State* L) {
     }
 
     const char* path = lua_tostring(L, 1);
-    auto [success, error_message] = remove_file(path);
-    lua_pushboolean(L, success);
-    lua_pushstring(L, error_message.c_str());
-    return 2;  // Two return values (boolean result and error message)
+    std::string error_message = remove_file(path);
+
+    if (error_message.empty()) {
+        lua_pushnil(L); // No error
+    } else {
+        lua_pushstring(L, error_message.c_str());
+    }
+    return 1;  // One return value (error message or nil)
 }

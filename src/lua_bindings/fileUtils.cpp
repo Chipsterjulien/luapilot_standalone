@@ -1,4 +1,4 @@
-#include "lua_bindings/fileUtils.hpp"
+#include "fileUtils.hpp"
 #include <filesystem>
 
 namespace fs = std::filesystem;

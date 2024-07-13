@@ -14,10 +14,9 @@
  *
  * @param source The source path of the directory tree to move.
  * @param destination The destination path where the directory tree will be moved.
- * @param error_message A string to hold the error message in case of failure.
- * @return True if the move was successful, false otherwise.
+ * @return An error message if any, or an empty string if successful.
  */
-bool moveTree(const std::filesystem::path& source, const std::filesystem::path& destination, std::string& error_message);
+std::string moveTree(const std::filesystem::path& source, const std::filesystem::path& destination);
 
 /**
  * @brief Lua binding for moveTree function.

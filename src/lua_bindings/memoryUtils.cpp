@@ -1,4 +1,4 @@
-#include "lua_bindings/memoryUtils.hpp"
+#include "memoryUtils.hpp"
 #include <lua.hpp>
 
 /**

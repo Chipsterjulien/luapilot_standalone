@@ -1,4 +1,4 @@
-#include "lua_bindings/moveTree.hpp"
+#include "moveTree.hpp"
 #include <iostream>
 #include <system_error>
 
@@ -12,24 +12,21 @@ namespace fs = std::filesystem;
  *
  * @param source The source path of the directory tree to move.
  * @param destination The destination path where the directory tree will be moved.
- * @param error_message A string to hold the error message in case of failure.
- * @return True if the move was successful, false otherwise.
+ * @return An error message if any, or an empty string if successful.
  */
-bool moveTree(const fs::path& source, const fs::path& destination, std::string& error_message) {
+std::string moveTree(const fs::path& source, const fs::path& destination) {
     std::vector<std::tuple<fs::path, fs::path, fs::path>> symlinks;
     std::error_code ec;
 
     // Check if the source exists
     if (!fs::exists(source)) {
-        error_message = "Source path does not exist: " + source.string();
-        return false;
+        return "Source path does not exist: " + source.string();
     }
 
     // Create the destination directory if it does not exist
     fs::create_directories(destination, ec);
     if (ec) {
-        error_message = "Error creating destination directory: " + ec.message();
-        return false;
+        return "Error creating destination directory: " + ec.message();
     }
 
     // Move each item in the source directory to the destination
@@ -44,8 +41,7 @@ bool moveTree(const fs::path& source, const fs::path& destination, std::string& 
             if (fs::is_directory(file_status) && !fs::is_symlink(file_status)) {
                 fs::create_directories(dest_path, ec);
                 if (ec) {
-                    error_message = "Error creating directory: " + dest_path.string() + " : " + ec.message();
-                    return false;
+                    return "Error creating directory: " + dest_path.string() + " : " + ec.message();
                 }
             } else if (fs::is_symlink(file_status)) {
                 fs::path dest_link = fs::absolute(destination / path.lexically_relative(source));
@@ -55,16 +51,14 @@ bool moveTree(const fs::path& source, const fs::path& destination, std::string& 
             } else {
                 fs::rename(path, dest_path, ec);
                 if (ec) {
-                    error_message = "Error moving file: " + path.string() + " to " + dest_path.string() + " : " + ec.message();
-                    return false;
+                    return "Error moving file: " + path.string() + " to " + dest_path.string() + " : " + ec.message();
                 }
             }
         }
         // Remove the source directory tree after moving all files
         fs::remove_all(source, ec);
         if (ec) {
-            error_message = "Error removing source directory: " + source.string() + " : " + ec.message();
-            return false;
+            return "Error removing source directory: " + source.string() + " : " + ec.message();
         }
 
         for (const auto& [dest_symlink, old_path, new_path] : symlinks) {
@@ -75,11 +69,10 @@ bool moveTree(const fs::path& source, const fs::path& destination, std::string& 
             }
         }
     } catch (const fs::filesystem_error& e) {
-        error_message = "Filesystem error: " + std::string(e.what());
-        return false;
+        return "Filesystem error: " + std::string(e.what());
     }
 
-    return true;
+    return "";
 }
 
 /**
@@ -90,9 +83,8 @@ bool moveTree(const fs::path& source, const fs::path& destination, std::string& 
  * 1. The source path of the directory tree to move.
  * 2. The destination path where the directory tree will be moved.
  *
- * It returns two values to Lua:
- * 1. A boolean indicating the success of the operation.
- * 2. A string containing the error message if the operation failed, or nil if it succeeded.
+ * It returns one value to Lua:
+ * 1. A string containing the error message if the operation failed, or nil if it succeeded.
  *
  * @param L Lua state.
  * @return int Number of return values on the Lua stack.
@@ -105,15 +97,13 @@ int lua_moveTree(lua_State* L) {
     const char* source = luaL_checkstring(L, 1);
     const char* destination = luaL_checkstring(L, 2);
 
-    std::string error_message;
-    bool result = moveTree(source, destination, error_message);
+    std::string error_message = moveTree(source, destination);
 
-    lua_pushboolean(L, result);
-    if (!result) {
-        lua_pushstring(L, error_message.c_str());
-    } else {
+    if (error_message.empty()) {
         lua_pushnil(L);
+    } else {
+        lua_pushstring(L, error_message.c_str());
     }
 
-    return 2;
+    return 1;
 }

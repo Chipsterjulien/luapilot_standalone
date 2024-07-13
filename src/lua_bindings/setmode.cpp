@@ -1,7 +1,6 @@
-#include "lua_bindings/setmode.hpp"
+#include "setmode.hpp"
 #include <sys/stat.h>
-#include <errno.h>
-#include <cstring>
+#include <system_error>
 
 /**
  * @brief Changes the permissions of a file or directory.
@@ -10,8 +9,8 @@
  * 1. The path to the file or directory.
  * 2. The new permissions (mode) in octal format.
  *
- * If successful, it returns true to Lua.
- * If it fails, it returns false and an error message.
+ * If it fails, it returns the error message to Lua.
+ * If successful, it returns nil to Lua.
  *
  * @param L Lua state.
  * @return int Number of return values on the Lua stack.
@@ -21,12 +20,11 @@ int lua_setmode(lua_State* L) {
     mode_t mode = static_cast<mode_t>(luaL_checkinteger(L, 2));
 
     if (chmod(path, mode) != 0) {
-        lua_pushboolean(L, 0);
-        lua_pushstring(L, std::strerror(errno));
-        return 2;
+        std::error_code ec(errno, std::generic_category());
+        lua_pushstring(L, ec.message().c_str());
+        return 1;
     }
 
-    lua_pushboolean(L, 1);
     lua_pushnil(L);
-    return 2;
+    return 1;
 }

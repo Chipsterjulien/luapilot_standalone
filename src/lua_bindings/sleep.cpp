@@ -1,4 +1,4 @@
-#include "lua_bindings/sleep.hpp"
+#include "sleep.hpp"
 #include <thread>
 #include <chrono>
 

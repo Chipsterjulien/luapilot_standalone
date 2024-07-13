@@ -7,26 +7,26 @@
 #include <vector>
 
 /**
- * @brief Copie un répertoire source vers une destination
+ * @brief Copy a source directory to a destination
  *
- * Cette fonction copie récursivement tous les fichiers et sous-répertoires
- * du répertoire source vers le répertoire de destination.
+ * This function recursively copies all files and subdirectories
+ * from the source directory to the destination directory.
  *
- * @param source Le chemin du répertoire source
- * @param destination Le chemin du répertoire de destination
- * @return True si l'opération de copie a réussi, false sinon
+ * @param source The path of the source directory
+ * @param destination The path of the destination directory
+ * @return A string with the error message if any, or an empty string if successful.
  */
-bool copy_directory(const std::filesystem::path& source, const std::filesystem::path& destination, std::string& error_message);
+std::string copy_directory(const std::filesystem::path& source, const std::filesystem::path& destination);
 
 /**
- * @brief Fonction accessible depuis Lua pour copier un répertoire
+ * @brief Lua-accessible function to copy a directory
  *
- * Cette fonction est appelée depuis Lua et utilise la fonction copy_directory
- * pour copier un répertoire. Elle s'attend à recevoir deux chaînes de caractères
- * en tant qu'arguments : le chemin source et le chemin de destination.
+ * This function is called from Lua and uses the copy_directory
+ * function to copy a directory. It expects to receive two strings
+ * as arguments: the source path and the destination path.
  *
- * @param L Pointeur vers l'état Lua
- * @return Nombre de valeurs de retour sur la pile Lua (1 en cas de succès, le résultat booléen)
+ * @param L Pointer to the Lua state
+ * @return Number of return values on the Lua stack (1: error message or nil)
  */
 int lua_copyTree(lua_State* L);
 

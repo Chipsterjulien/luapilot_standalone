@@ -1,4 +1,4 @@
-#include "lua_bindings/deepCopyTable.hpp"
+#include "deepCopyTable.hpp"
 
 // Fonction pour copier une table
 void deepCopyTable(lua_State *L, int srcIndex, int destIndex, int &nextIndex) {

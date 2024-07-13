@@ -1,5 +1,5 @@
-#include "lua_bindings/copy.hpp"
-#include "lua_bindings/fileOperations.hpp"
+#include "copy.hpp"
+#include "fileOperations.hpp"
 #include <string>
 
 /**
@@ -10,18 +10,27 @@
  * If the arguments are not strings, a Lua error is raised.
  *
  * @param L Pointer to the Lua state
- * @return Number of return values on the Lua stack (2 on success or failure: boolean result and error message)
+ * @return Number of return values on the Lua stack (1: error message or nil)
  */
 int lua_copy_file(lua_State* L) {
+    int argc = lua_gettop(L);
+    if (argc != 2) {
+        return luaL_error(L, "Expected two arguments");
+    }
+
     if (!lua_isstring(L, 1) || !lua_isstring(L, 2)) {
         return luaL_error(L, "Expected two strings as arguments");
     }
 
-    const char* src_path = lua_tostring(L, 1);
-    const char* dest_path = lua_tostring(L, 2);
+    const char* src_path = luaL_checkstring(L, 1);
+    const char* dest_path = luaL_checkstring(L, 2);
 
-    auto [success, error_message] = copy_file(src_path, dest_path);
-    lua_pushboolean(L, success);
-    lua_pushstring(L, error_message.c_str());
-    return 2;  // Two return values (boolean result and error message)
+    std::string error_message = copy_file(src_path, dest_path);
+
+    if (error_message.empty()) {
+        lua_pushnil(L);
+    } else {
+        lua_pushstring(L, error_message.c_str());
+    }
+    return 1;  // One return value (error message or nil)
 }

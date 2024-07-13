@@ -1,8 +1,7 @@
-#include "lua_bindings/attributes.hpp"
+#include "attributes.hpp"
 #include <sys/stat.h>
 #include <unistd.h>
-#include <errno.h>
-#include <cstring>
+#include <system_error>
 
 /**
  * @brief Changes the attributes of a file or directory.
@@ -13,8 +12,8 @@
  * 3. The new owner (UID).
  * 4. The new group (GID).
  *
- * If successful, it returns true to Lua.
- * If it fails, it returns false and an error message.
+ * If it fails, it returns the error message to Lua.
+ * If successful, it returns nil to Lua.
  *
  * @param L Lua state.
  * @return int Number of return values on the Lua stack.
@@ -26,18 +25,17 @@ int lua_setattr(lua_State* L) {
     gid_t group = static_cast<gid_t>(luaL_checkinteger(L, 4));
 
     if (chmod(path, mode) != 0) {
-        lua_pushboolean(L, 0);
-        lua_pushstring(L, std::strerror(errno));
-        return 2;
+        std::error_code ec(errno, std::generic_category());
+        lua_pushstring(L, ec.message().c_str());
+        return 1; // Return error message
     }
 
     if (chown(path, owner, group) != 0) {
-        lua_pushboolean(L, 0);
-        lua_pushstring(L, std::strerror(errno));
-        return 2;
+        std::error_code ec(errno, std::generic_category());
+        lua_pushstring(L, ec.message().c_str());
+        return 1; // Return error message
     }
 
-    lua_pushboolean(L, 1);
     lua_pushnil(L);
-    return 2;
+    return 1; // Return nil for success
 }

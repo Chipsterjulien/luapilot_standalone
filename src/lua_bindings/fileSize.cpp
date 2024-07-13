@@ -1,61 +1,60 @@
-#include "lua_bindings/fileSize.hpp"
+#include "fileSize.hpp"
 #include <filesystem>
+#include <system_error>
 
 /**
  * Get the size of a file in bytes.
  * @param path The file path to check.
- * @return A FileSizeResult struct containing the size, success status, and an error message if any.
+ * @return A string containing the size in bytes if successful, or an error message if any.
  */
-FileSizeResult fileSize(const std::string& path) {
-    FileSizeResult result = {false, 0, ""};
+std::tuple<std::uint64_t, std::string> fileSize(const std::string& path) {
     std::error_code ec;
     if (std::filesystem::exists(path, ec) && std::filesystem::is_regular_file(path, ec)) {
-        result.size = static_cast<std::uint64_t>(std::filesystem::file_size(path, ec));
+        std::uint64_t size = std::filesystem::file_size(path, ec);
         if (!ec) {
-            result.success = true;
+            return {size, ""};
         } else {
-            result.error_message = "Error getting file size: " + ec.message();
+            return {0, "Error getting file size: " + ec.message()};
         }
     } else {
-        result.error_message = "File does not exist or is not a regular file: " + path;
+        return {0, "File does not exist or is not a regular file: " + path};
     }
-    return result;
 }
 
 /**
  * Lua binding for getting the size of a file.
  * @param L The Lua state.
- * @return Number of return values (2: size and error message).
+ * @return Number of return values (2: size and error message or nil).
  * Lua usage: size, error_message = lua_fileSize(path)
  *   - path: The file path to check.
  */
 int lua_fileSize(lua_State* L) {
-    // Vérifier qu'il y a un argument passé
+    // Check if there is one argument passed
     int argc = lua_gettop(L);
     if (argc != 1) {
         return luaL_error(L, "Expected one argument");
     }
 
-    // Vérifier que l'argument est une chaîne de caractères
+    // Check if the argument is a string
     if (!lua_isstring(L, 1)) {
         return luaL_error(L, "Expected a string as argument");
     }
 
-    // Récupérer le chemin du fichier à partir des arguments de lua
+    // Get the file path from the Lua arguments
     const char* path = luaL_checkstring(L, 1);
 
-    // Obtenir la taille du fichier
-    FileSizeResult result = fileSize(path);
+    // Get the file size
+    auto [size, error_message] = fileSize(path);
 
-    // Vérifier si l'obtention de la taille du fichier a échoué
-    if (!result.success) {
+    // Check if getting the file size failed
+    if (!error_message.empty()) {
         lua_pushnil(L);
-        lua_pushstring(L, result.error_message.c_str());
+        lua_pushstring(L, error_message.c_str());
         return 2;
     }
 
-    // Pousser la taille du fichier sur la pile lua
-    lua_pushinteger(L, static_cast<lua_Integer>(result.size));
-    lua_pushstring(L, result.error_message.c_str());
+    // Push the file size onto the Lua stack
+    lua_pushinteger(L, static_cast<lua_Integer>(size));
+    lua_pushnil(L);  // No error message, so push nil
     return 2;
 }
