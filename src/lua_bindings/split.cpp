@@ -1,4 +1,4 @@
-#include "lua_bindings/split.hpp"
+#include "split.hpp"
 #include <sstream>
 #include <vector>
 #include <string>
