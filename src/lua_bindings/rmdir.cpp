@@ -49,6 +49,17 @@ std::string rmdir_all(const std::string& path) {
  *   - path: The file or directory path to remove.
  */
 int lua_rmdir(lua_State* L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 1) {
+        return luaL_error(L, "Expected one argument");
+    }
+
+    // Check that the argument is a string
+    if (!lua_isstring(L, 1)) {
+        return luaL_error(L, "Expected a string as argument");
+    }
+
     const char* path = luaL_checkstring(L, 1);
 
     std::string error_message = rmdir(path);
@@ -69,6 +80,17 @@ int lua_rmdir(lua_State* L) {
  *   - path: The directory path to remove.
  */
 int lua_rmdir_all(lua_State* L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 1) {
+        return luaL_error(L, "Expected one argument");
+    }
+
+    // Check that the argument is a string
+    if (!lua_isstring(L, 1)) {
+        return luaL_error(L, "Expected a string as argument");
+    }
+
     const char* path = luaL_checkstring(L, 1);
 
     std::string error_message = rmdir_all(path);

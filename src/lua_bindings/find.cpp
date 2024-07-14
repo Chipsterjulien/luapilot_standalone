@@ -121,6 +121,22 @@ std::string find(const fs::path& root, const FindOptions& options, int depth, st
  * @return The number of return values on the Lua stack.
  */
 int lua_find(lua_State* L) {
+    // Check that there are at least 2 arguments
+    int argc = lua_gettop(L);
+    if (argc < 2) {
+        return luaL_error(L, "Expected at least two arguments");
+    }
+
+    // Check that the first argument is a string (root path)
+    if (!lua_isstring(L, 1)) {
+        return luaL_error(L, "Expected a string as the first argument");
+    }
+
+    // Check that the second argument is a table (options)
+    if (!lua_istable(L, 2)) {
+        return luaL_error(L, "Expected a table as the second argument");
+    }
+
     const char* root = luaL_checkstring(L, 1);
 
     FindOptions options;

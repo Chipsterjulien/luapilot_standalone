@@ -16,6 +16,21 @@
  * @return int Number of return values on the Lua stack.
  */
 int lua_setmode(lua_State* L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 2) {
+        return luaL_error(L, "Expected two arguments");
+    }
+
+    // Check that the argument is a string
+    if (!lua_isstring(L, 1)) {
+        return luaL_error(L, "Expected a string as first argument");
+    }
+
+    if (!lua_isinteger(L, 2)) {
+        return luaL_error(L, "Expected an integer as second argument");
+    }
+
     const char* path = luaL_checkstring(L, 1);
     mode_t mode = static_cast<mode_t>(luaL_checkinteger(L, 2));
 

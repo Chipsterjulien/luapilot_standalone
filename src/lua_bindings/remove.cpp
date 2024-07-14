@@ -32,6 +32,12 @@ std::string remove_file(const std::string& path) {
  * @return Number of return values on the Lua stack (1: error message or nil).
  */
 int lua_remove_file(lua_State* L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 1) {
+        return luaL_error(L, "Expected one argument");
+    }
+
     if (!lua_isstring(L, 1)) {
         return luaL_error(L, "Expected a string as argument");
     }

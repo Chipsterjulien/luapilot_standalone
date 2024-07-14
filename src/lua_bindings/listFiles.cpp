@@ -39,6 +39,12 @@ void listFilesHelper(lua_State *L, const std::string& basePath, const std::strin
  *   - recursive (optional): Whether to list files recursively. Defaults to false.
  */
 int lua_listFiles(lua_State *L) {
+    // Check that at least one argument is passed
+    int argc = lua_gettop(L);
+    if (argc < 1) {
+        return luaL_error(L, "Expected at least one argument");
+    }
+
     const char *path = luaL_checkstring(L, 1); // Get the directory path from the first argument
     bool recursive = false; // Default value is false (non-recursive)
 

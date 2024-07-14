@@ -1,30 +1,37 @@
 #include "currentDir.hpp"
 #include <filesystem>
 #include <system_error>
+#include <tuple>
 
 /**
  * Get the current working directory.
- * @return A string containing the current directory path if successful, or an error message if any.
+ * @return A tuple containing the current directory path and an error message if any.
  */
-std::string currentDir() {
+std::tuple<std::string, std::string> currentDir() {
     std::error_code ec;
     auto path = std::filesystem::current_path(ec);
     if (ec) {
-        return "Error getting current directory: " + ec.message();
+        return std::make_tuple("", "Error getting current directory: " + ec.message());
     }
-    return path.string();
+    return std::make_tuple(path.string(), "");
 }
 
 /**
  * Lua binding for getting the current working directory.
  * @param L The Lua state.
- * @return Number of return values (1: current directory path or error message).
- * Lua usage: path_or_error = lua_currentDir()
+ * @return Number of return values (2: current directory path and error message).
+ * Lua usage: currentDir, err = lua_currentDir()
  */
 int lua_currentDir(lua_State* L) {
-    std::string path_or_error = currentDir();
+    auto [path, error] = currentDir();
 
-    lua_pushstring(L, path_or_error.c_str());
+    lua_pushstring(L, path.c_str());
+    if (error.empty()) {
+        lua_pushnil(L); // No error, push nil
+    } else {
+        lua_pushstring(L, error.c_str());
+    }
 
-    return 1; // One return value (current directory path or error message)
+    return 2; // Two return values (current directory path and error message)
 }
+

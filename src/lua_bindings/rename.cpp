@@ -33,6 +33,12 @@ std::string rename_file(const std::string& old_path, const std::string& new_path
  * @return Number of return values on the Lua stack (1: error message or nil).
  */
 int lua_rename(lua_State* L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 2) {
+        return luaL_error(L, "Expected two arguments");
+    }
+
     if (!lua_isstring(L, 1) || !lua_isstring(L, 2)) {
         return luaL_error(L, "Expected two strings as arguments");
     }

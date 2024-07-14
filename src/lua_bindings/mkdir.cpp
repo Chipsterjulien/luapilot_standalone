@@ -30,6 +30,16 @@ std::string make_path(const std::string& path, bool ignore_if_exists) {
  *   - ignore_if_exists (optional): If true, do not return an error if the directory already exists. Defaults to false.
  */
 int lua_mkdir(lua_State* L) {
+    int argc = lua_gettop(L);
+    if (argc < 1) {
+        return luaL_error(L, "Expected one argument");
+    }
+
+    // Check that the argument is a string
+    if (!lua_isstring(L, 1)) {
+        return luaL_error(L, "Expected a string as argument");
+    }
+
     const char* path = luaL_checkstring(L, 1);
     bool ignore_if_exists = false;
     if (!lua_isnoneornil(L, 2)) {

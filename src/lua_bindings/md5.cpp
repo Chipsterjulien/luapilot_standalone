@@ -62,6 +62,16 @@ std::tuple<std::string, std::string> md5sum(const std::string &path) {
  * @return 2 values: the MD5 checksum or nil, and an error message or nil.
  */
 int lua_md5sum(lua_State *L) {
+    int argc = lua_gettop(L);
+    if (argc != 1) {
+        return luaL_error(L, "Expected one argument");
+    }
+
+    // Check that the argument is a string
+    if (!lua_isstring(L, 1)) {
+        return luaL_error(L, "Expected a string as argument");
+    }
+
     const char *path = luaL_checkstring(L, 1);
     auto [md5sum_str, err] = md5sum(path);
 

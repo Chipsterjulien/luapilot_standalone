@@ -41,28 +41,33 @@ int lua_joinPath(lua_State* L) {
     std::vector<std::string> segments;
 
     if (lua_istable(L, 1)) {
+        // Check that the table contains at least two elements
+        if (lua_rawlen(L, 1) < 2) {
+            return luaL_error(L, "Table must contain at least two strings");
+        }
+
         lua_pushnil(L);  // First key
         while (lua_next(L, 1) != 0) {
             // Retrieve the value at the top of the Lua stack
             if (lua_isstring(L, -1)) {
                 segments.push_back(lua_tostring(L, -1));
             } else {
-                lua_pop(L, 1);
-                lua_pushnil(L);
-                lua_pushstring(L, "Table must contain only strings");
-                return 2; // Return nil and error message
+                return luaL_error(L, "Table must contain at least two strings");
             }
             lua_pop(L, 1);  // Remove the value, keep the key for the next iteration
         }
     } else {
         int n = lua_gettop(L); // Number of arguments
+        // Check that there are at least two string parameters
+        if (n < 2) {
+            return luaL_error(L, "Expected at least two string arguments");
+        }
+
         for (int i = 1; i <= n; ++i) {
             if (lua_isstring(L, i)) {
                 segments.push_back(lua_tostring(L, i));
             } else {
-                lua_pushnil(L);
-                lua_pushstring(L, "All arguments must be strings");
-                return 2; // Return nil and error message
+                return luaL_error(L, "All arguments must be strings");
             }
         }
     }

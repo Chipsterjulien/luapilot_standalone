@@ -19,6 +19,18 @@
  * @return int Number of return values on the Lua stack.
  */
 int lua_setattr(lua_State* L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 1) {
+        return luaL_error(L, "Expected one argument");
+    }
+
+    // Check that the argument is a string
+    if (!lua_isstring(L, 1)) {
+        return luaL_error(L, "Expected a string as argument");
+    }
+
+
     const char* path = luaL_checkstring(L, 1);
     mode_t mode = static_cast<mode_t>(luaL_checkinteger(L, 2));
     uid_t owner = static_cast<uid_t>(luaL_checkinteger(L, 3));

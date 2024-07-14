@@ -21,6 +21,12 @@
  * @return int Number of return values on the Lua stack.
  */
 int lua_link(lua_State* L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 2) {
+        return luaL_error(L, "Expected two arguments");
+    }
+
     const char* target = luaL_checkstring(L, 1);
     const char* linkpath = luaL_checkstring(L, 2);
 
@@ -50,9 +56,6 @@ int lua_link(lua_State* L) {
         // Resize the string to the actual length of the resolved path
         resolved_linkpath.resize(strlen(resolved_linkpath.c_str()));
     }
-
-    // Debugging information
-//    std::cerr << "Creating symlink from '" << resolved_target << "' to '" << resolved_linkpath << "'" << std::endl;
 
     if (symlink(resolved_target.c_str(), resolved_linkpath.c_str()) != 0) {
         lua_pushstring(L, std::system_category().message(errno).c_str());

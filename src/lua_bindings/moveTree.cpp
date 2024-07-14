@@ -90,6 +90,12 @@ std::string moveTree(const fs::path& source, const fs::path& destination) {
  * @return int Number of return values on the Lua stack.
  */
 int lua_moveTree(lua_State* L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 2) {
+        return luaL_error(L, "Expected two arguments");
+    }
+
     if (!lua_isstring(L, 1) || !lua_isstring(L, 2)) {
         return luaL_error(L, "Expected two strings as arguments");
     }

@@ -62,6 +62,17 @@ std::tuple<std::string, std::string> sha512sum(const std::string &path) {
  * @return 2 values: the SHA-512 checksum or nil, and an error message or nil.
  */
 int lua_sha512sum(lua_State *L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 1) {
+        return luaL_error(L, "Expected one argument");
+    }
+
+    // Check that the argument is a string
+    if (!lua_isstring(L, 1)) {
+        return luaL_error(L, "Expected a string as argument");
+    }
+
     const char *path = luaL_checkstring(L, 1);
     auto [sha512sum_str, err] = sha512sum(path);
 

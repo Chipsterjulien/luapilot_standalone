@@ -17,6 +17,27 @@
  * @return int Number of return values on the Lua stack.
  */
 int lua_symlinkattr(lua_State* L) {
+    // Check if there is one argument passed
+    int argc = lua_gettop(L);
+    if (argc != 3) {
+        return luaL_error(L, "Expected three arguments");
+    }
+
+    // Check that the argument is a string
+    if (!lua_isstring(L, 1)) {
+        return luaL_error(L, "Expected a string as argument");
+    }
+
+    // Check that the second argument is an integer
+    if (!lua_isinteger(L, 2)) {
+        return luaL_error(L, "Expected an integer as the second argument");
+    }
+
+    // Check that the third argument is an integer
+    if (!lua_isinteger(L, 3)) {
+        return luaL_error(L, "Expected an integer as the third argument");
+    }
+
     const char* path = luaL_checkstring(L, 1);
     uid_t owner = static_cast<uid_t>(luaL_checkinteger(L, 2));
     gid_t group = static_cast<gid_t>(luaL_checkinteger(L, 3));

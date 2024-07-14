@@ -30,26 +30,26 @@ void deepCopyTable(lua_State *L, int srcIndex, int destIndex, int &nextIndex) {
     }
 }
 
-// Interface pour la copie d'une table
+// Interface for copying a table
 int lua_deepCopyTable(lua_State *L) {
-    // Vérifier qu'on a un argument en paramètre
+    // Check that one parameter is passed as an argument
     int argc = lua_gettop(L);
     if (argc != 1) {
         return luaL_error(L, "Expected one argument");
     }
 
-    // Vérifier que l'argument est une table
+    // Check that the argument is a table
     if (!lua_istable(L, 1)) {
         return luaL_error(L, "Expected a table as argument");
     }
 
-    // Créer une nouvelle table pour le résultat
+    // Create a new table for the result
     lua_newtable(L);
 
-    // Copier la table source dans la table de destination
+    // Copy the source table to the destination table
     int nextIndex = 1;
     deepCopyTable(L, 1, lua_gettop(L), nextIndex);
 
-    // La nouvelle table copiée est maintenant en haut de la pile
+    // The new copied table is now at the top of the stack
     return 1;
 }
