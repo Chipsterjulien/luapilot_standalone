@@ -1,7 +1,7 @@
 #ifndef HELP_HPP
 #define HELP_HPP
 
-// Déclaration de la fonction printHelp
+// Declaration of the printHelp function
 void printHelp();
 
 #endif // HELP_HPP
