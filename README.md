@@ -1,41 +1,35 @@
 # luaPilot
 
-LuaPilot is a Lua library offering advanced functionalities for file, table, and string manipulation, as well as performance analysis tools. LuaPilot is written in C++ for optimal performance and can be easily integrated into your Lua scripts.
+LuaPilot is a binary that provides advanced functionalities such as splitting strings, merging tables, listing files with or without an iterator, and more. It is written in C++17 for optimal performance and allows embedding a ZIP file into the executable if you want. Upon execution, the ZIP file will be decompressed and loaded into memory.
 
-LuaPilot also allows embedding a ZIP file into the executable. Upon execution, the ZIP file will be decompressed and loaded into memory. The LuaPilot file will search for the main.lua file.
+It is currently compiled to work with Lua 5.4.7, but you can change the version by recompiling the code.
 
-## Features
+See the **[examples](https://github.com/Chipsterjulien/luapilot_standalone/tree/main/examples)** if you want to learn more …
 
-- **Hello there**
-  - `helloThere`: Print Hello there
+## Download the latest version
 
-- **File Manipulation**
-  - `listFiles`: List files in a directory.
-  - `listFilesRecursive`: Recursively list files in a directory.
-  - `fileExists`: Check if a file exists.
+To download the latest version of LuaPilot, visit the [releases page on GitHub](https://github.com/Chipsterjulien/luapilot_standalone/releases) and download the most recent release.
 
-- **Table Manipulation**
-  - `mergeTables`: Merge two or more Lua tables into one.
-  - `deepCopyTables`: Make a deep copy of a Lua table.
+## Compilation
 
-- **String Manipulation**
-  - `splitString`: Split a string based on a delimiter.
-
-## Installation
-
+If you want to compile the project, do this :
 
 1. **Clone the repository:**
-   ```sh
-   git clone https://github.com/Chipsterjulien/LuaPilot.git
-   cd LuaPilot
-2. **Build the project locally:**
+
+```sh
+git clone https://github.com/Chipsterjulien/LuaPilot.git
+cd LuaPilot
+```
+
+1. **Build the project locally:**
+
 ```sh
   ./build_local.sh
 ```
 
 ## Usage
-The main file is main.lua. This file is the begining of lua script. You can load other lua file with require
 
+The main file is main.lua. This file is the begining of lua script. You can load other lua file with require
 
 ```sh
   ./luapilot .
@@ -47,8 +41,10 @@ If zip is embedded :
   ./luapilot_with_zip_embedded
 ```
 
-### To create an executable from a Lua script using the --create-exe option:
-(luapilot need to be globally installed)
+### To create an executable from a Lua script using the --create-exe option
+
+If luapilot is installed globally :
+
 ```sh
   # for example :
   echo "print(helloThere())" > main.lua
@@ -56,7 +52,19 @@ If zip is embedded :
   ./luapilot_with_zip_embedded
 ```
 
-If you want use embedded zip:
+If luapilot is not installed globally :
+
+```sh
+  # for example :
+  echo "print(helloThere())" > main.lua
+  ./luapilot --create-exe . luapilot_with_lua_script_embedded
+  ./luapilot_with_zip_embedded
+```
+
+In this example, LuaPilot creates a ZIP file from the current directory since `.` is the first argument.
+  
+If you want use your own ZIP:
+
 ```sh
   cat luapilot my_file.zip > my_new_exec_program
   chmod +x my_new_exec_program
@@ -66,11 +74,13 @@ If you want use embedded zip:
 ## Some examples
 
 ### Hello there
+
 ```lua
 print(luapilot.helloThere())
 ```
 
 ### File Manipulation
+
 ```lua
 -- List files in a directory
 local files = luapilot.listFiles("/path/to/directory")
@@ -84,6 +94,7 @@ print("File exists:", exists)
 ```
 
 ### Table Manipulation
+
 ```lua
 -- Merge two tables
 local table1 = {a = 1, b = 2}
@@ -98,6 +109,7 @@ local deepCopy = luapilot.deepCopyTable(table1)
 ```
 
 ### String Manipulation
+
 ```lua
 -- Split a string
 local parts = luapilot.split("hello,world", ",")
@@ -105,6 +117,8 @@ for _, part in ipairs(parts) do
     print(part)
 end
 ```
+
+See the [examples](https://github.com/Chipsterjulien/luapilot_standalone/tree/main/examples) if you want to learn more …
 
 ## Contributing
 
