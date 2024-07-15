@@ -274,12 +274,8 @@ local t4 = { i = 8, j = { k = 9, l = 10, m = { n = 11, o = 12, } } }
 
 print("mergeTales(table1, table2)")
 local mergedTables
-mergedTables, err = luapilot.mergeTables(table1, table2, table3, t3, t4)
-if err then
-    print(err)
-else
-    print(inspect(mergedTables))
-end
+mergedTables = luapilot.mergeTables(table1, table2, table3, t3, t4)
+print(inspect(mergedTables))
 
 print("---")
 print("deepCopyTable(t4)")
