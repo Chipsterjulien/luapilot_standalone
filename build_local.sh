@@ -18,23 +18,32 @@ if ! command -v wget &> /dev/null; then
     exit 1
 fi
 
+# Vérifier que xargs est installé
+if ! command -v xargs &> /dev/null; then
+    echo "xargs n'est pas installé. Veuillez l'installer avant de continuer."
+fi
+
 # Variables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
 DOWNLOAD_DIR="${SCRIPT_DIR}/downloads"
-#BINAIRE_NOM="luapilot"
 #
-LUA_VERSION="5.4.6"
+PROJECT_BUILD_DIR="${BUILD_DIR}/project_build"
+PROJECT_NAME="luapilot"
+#
+LUA_VERSION="5.4.7"
 LUA_DIR="lua-$LUA_VERSION"
 LUA_TAR="$LUA_DIR.tar.gz"
 LUA_BUILD_DIR="${BUILD_DIR}/lua_build"
-LUA_LIB="${LUA_BUILD_DIR}/${LUA_DIR}/src/liblua.a"
+LUA_URL="http://www.lua.org/ftp/$LUA_TAR"
+LUA_LIB_NAME="liblua.a"
+LUA_LIB="${LUA_BUILD_DIR}/${LUA_DIR}/src/${LUA_LIB_NAME}"
 LUA_INCLUDE="${LUA_BUILD_DIR}/${LUA_DIR}/src"
 #
 LIBZIP_VERSION="1.10.1"
 LIBZIP_DIR="libzip-$LIBZIP_VERSION"
 LIBZIP_TAR="$LIBZIP_DIR.tar.gz"
-#LIBZIP_URL="https://libzip.org/download/$LIBZIP_TAR"
+LIBZIP_URL="https://libzip.org/download/$LIBZIP_TAR"
 LIBZIP_BUILD_DIR="${BUILD_DIR}/libzip"
 LIBZIP_LIB_NAME="libzip.a"
 LIBZIP_HEADER_NAME="zip.h"
@@ -59,15 +68,17 @@ OPENSSL_DIR="openssl-${OPENSSL_VERSION}"
 OPENSSL_TAR="${OPENSSL_DIR}.tar.gz"
 OPENSSL_BUILD_DIR="${BUILD_DIR}/openssl"
 
+
 # Créer les répertoires nécessaires
 mkdir -p "$DOWNLOAD_DIR"
 mkdir -p "$LUA_BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
+
 # Télécharger Lua si nécessaire
 if [ ! -f "$DOWNLOAD_DIR/$LUA_TAR" ]; then
     echo "Téléchargement de Lua $LUA_VERSION..."
-    wget "http://www.lua.org/ftp/$LUA_TAR" -O "$DOWNLOAD_DIR/$LUA_TAR"
+    wget "${LUA_URL}" -O "$DOWNLOAD_DIR/$LUA_TAR"
     if [ $? -ne 0 ]; then
         echo "Échec du téléchargement de Lua."
         exit 1
@@ -105,10 +116,11 @@ fi
 # Revenir au répertoire du script
 cd "$SCRIPT_DIR" || exit 1
 
+
 # Télécharger libzip si nécessaire
 if [ ! -f "$DOWNLOAD_DIR/$LIBZIP_TAR" ]; then
     echo "Téléchargement de libzip $LIBZIP_VERSION..."
-    wget "https://libzip.org/download/$LIBZIP_TAR" -O "$DOWNLOAD_DIR/$LIBZIP_TAR"
+    wget "${LIBZIP_URL}" -O "$DOWNLOAD_DIR/$LIBZIP_TAR"
     if [ $? -ne 0 ]; then
         echo "Échec du téléchargement de libzip."
         exit 1
@@ -125,6 +137,7 @@ if [ ! -d "$LIBZIP_BUILD_DIR/$LIBZIP_DIR" ]; then
         exit 1
     fi
 fi
+
 
 # Chercher libzip.a et zip.h
 LIBZIP_LIB_PATH=$(find . -name "$LIBZIP_LIB_NAME" -print -quit | sed 's|^\./||')
@@ -254,9 +267,6 @@ if [ -z "$libbz2_path" ] && [ -z "$libbz2_path_local" ]; then
         make clean
         make -j"$(nproc)"
     fi
-
-    # # Mise à jour de libbz2_path
-    # libbz2_path="${BZIP2_BUILD_DIR}/${BZIP2_DIR}/${BZIP2_LIB_NAME}"
 fi
 
 if [ -z $libbz2_path ]; then
@@ -301,9 +311,6 @@ if [ -z "${OPENSSL_PATH}" ] && [ -z "${OPENSSL_PATH_LOCAL}" ]; then
         make clean
         make -j"$(nproc)"
     fi
-
-    # # Mettre à jour le chemin de openssl
-    # OPENSSL_PATH="${OPENSSL_BUILD_DIR}/${OPENSSL_DIR}/${OPENSSL_LIB_NAME}"
 fi
 
 if [ -z ${OPENSSL_PATH} ]; then
@@ -319,27 +326,21 @@ if [ -z "${LIBZ_PATH}" ]; then
 fi
 
 
-
-
-
-
-
 # Créer le répertoire de build pour le projet
-PROJECT_BUILD_DIR="${BUILD_DIR}/project_build"
 mkdir -p "$PROJECT_BUILD_DIR"
 cd "$PROJECT_BUILD_DIR" || exit 1
 
-echo "lua_lib: ${LUA_LIB}"
-echo "lua_include: ${LUA_INCLUDE}"
-echo "libzip_lib: ${LIBZIP_LIB_PATH}"
-echo "libzip_include: ${LIBZIP_INCLUDE}"
-echo "physfs_lib: ${PHYSFS_LIB_PATH}"
-echo "physfs_include: ${PHYSFS_INCLUDE}"
-
-echo "libbz2_path: ${libbz2_path}"
-echo "openssl_path: ${OPENSSL_PATH}"
-echo "crypto_path: ${CRYPTO_PATH}"
-echo "libz_path: ${LIBZ_PATH}"
+#echo "lua_lib: ${LUA_LIB}"
+#echo "lua_include: ${LUA_INCLUDE}"
+#echo "libzip_lib: ${LIBZIP_LIB_PATH}"
+#echo "libzip_include: ${LIBZIP_INCLUDE}"
+#echo "physfs_lib: ${PHYSFS_LIB_PATH}"
+#echo "physfs_include: ${PHYSFS_INCLUDE}"
+#
+#echo "libbz2_path: ${libbz2_path}"
+#echo "openssl_path: ${OPENSSL_PATH}"
+#echo "crypto_path: ${CRYPTO_PATH}"
+#echo "libz_path: ${LIBZ_PATH}"
 
 
 cmake "$SCRIPT_DIR" -DLUA_LIB="$LUA_LIB" \
@@ -364,8 +365,15 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+if [ -f "${SCRIPT_DIR}/test/${PROJECT_NAME}" ]; then
+  rm "${SCRIPT_DIR}/test/${PROJECT_NAME}"
+fi
 
+cp "${PROJECT_BUILD_DIR}/${PROJECT_NAME}" "${SCRIPT_DIR}/test/${PROJECT_NAME}"
 
+cd "${SCRIPT_DIR}/test/"
+
+(./"${PROJECT_NAME}" .)
 
 
 
