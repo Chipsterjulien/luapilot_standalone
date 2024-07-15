@@ -3,23 +3,19 @@
 /**
  * Lua binding for merging multiple tables.
  * @param L The Lua state.
- * @return Number of return values (2: merged table or nil, and error message or nil).
- * Lua usage: mergedTable, err = lua_mergeTables(table1, table2, ...)
+ * @return Number of return values (1: merged table).
+ * Lua usage: mergedTable = lua_mergeTables(table1, table2, ...)
  */
 int lua_mergeTables(lua_State* L) {
     // Verify that there are at least two arguments and that they are tables
     int n = lua_gettop(L);
     if (n < 2) {
-        lua_pushnil(L);
-        lua_pushstring(L, "Expected at least two tables as arguments");
-        return 2;
+        return luaL_error(L, "Expected at least two tables as arguments");
     }
 
     for (int i = 1; i <= n; ++i) {
         if (!lua_istable(L, i)) {
-            lua_pushnil(L);
-            lua_pushstring(L, "Expected all arguments to be tables");
-            return 2;
+            return luaL_error(L, "Expected all arguments to be tables");
         }
     }
 
@@ -54,6 +50,5 @@ int lua_mergeTables(lua_State* L) {
     }
 
     // The new merged table is now at the top of the stack
-    lua_pushnil(L); // No error
-    return 2; // Return merged table and nil error
+    return 1; // Return merged table
 }
