@@ -83,32 +83,43 @@ print(luapilot.helloThere())
 
 ```lua
 -- List files in a directory
-local files = luapilot.listFiles("/path/to/directory")
-for _, file in ipairs(files) do
-    print(file)
+local files, err = luapilot.listFiles(".")
+if err then
+    print(err)
+else
+    for _, file in ipairs(files) do
+        print(file)
+    end
 end
 
 -- Check if a file exists
-local exists = luapilot.fileExists("/path/to/file.txt")
-print("File exists:", exists)
+local fileFound, err = luapilot.fileExists("my/folder/file.txt")
+print(err or "File exists: " .. tostring(fileFound))
 ```
 
-### Table Manipulation
+### Table manipulations
 
 ```lua
+local inspect = require('inspect')
 -- Merge two tables
 local table1 = {a = 1, b = 2}
 local table2 = {b = 3, c = 4}
+local table3 = {"g", "h", "i"}
+local t3 = {i = 8, j = { k = 9, l = 10} }
+local t4 = { i = 8, j = { k = 9, l = 10, m = { n = 11, o = 12, } } }
 local mergedTable = luapilot.mergeTables(table1, table2)
+print(inspect(mergedTable))
 
 -- Merge multiple tables
-local mergedMultipleTables = luapilot.mergeTables(table1, table2, {d = 5}, {e = 6})
+local mergedMultipleTables = luapilot.mergeTables(table1, table2, {d = 5}, {e = 6}, t4, t3)
+print(inspect(mergedMultipleTables))
 
 -- Make a deep copy of a table
-local deepCopy = luapilot.deepCopyTable(table1)
+local deepCopy = luapilot.deepCopyTable(t4)
+print(inspect(deepCopy))
 ```
 
-### String Manipulation
+### String manipulation
 
 ```lua
 -- Split a string
