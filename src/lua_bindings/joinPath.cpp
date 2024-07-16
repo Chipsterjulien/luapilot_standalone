@@ -74,6 +74,5 @@ int lua_joinPath(lua_State* L) {
 
     std::string result = join(segments);
     lua_pushstring(L, result.c_str());
-    lua_pushnil(L); // No error
-    return 2;  // Two return values (the joined path and nil)
+    return 1;  // One return value (the joined path)
 }
