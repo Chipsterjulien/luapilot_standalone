@@ -348,45 +348,44 @@ luapilot.rmdirAll("my2")
 
 print("---")
 print("joinPath(path1, path2, …) or joinPath({path1, path2, …})")
-local newPath
-newPath, err = luapilot.joinPath({"test", "coin.txt"})
-print(err or "newPath: " .. newPath)
+local newPath = luapilot.joinPath({"test", "coin.txt"})
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath({"test/", "coin.txt"})
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath({"test/", "coin.txt"})
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath({"test", "/coin.txt"})
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath({"test", "/coin.txt"})
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath({"test/", "/coin.txt"})
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath({"test/", "/coin.txt"})
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath("test", "coin.txt")
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath("test", "coin.txt")
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath("test/", "coin.txt")
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath("test/", "coin.txt")
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath("test", "/coin.txt")
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath("test", "/coin.txt")
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath("test/", "/coin.txt")
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath("test/", "/coin.txt")
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath("test", "path", "coin.txt")
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath("test", "path", "coin.txt")
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath("test", "/path", "coin.txt")
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath("test", "/path", "coin.txt")
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath("/test", "/path", "coin.txt")
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath("/test", "/path", "coin.txt")
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath({"test", "/path", "coin.txt"})
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath({"test", "/path", "coin.txt"})
+print("newPath: " .. newPath)
 
-newPath, err = luapilot.joinPath({"/test", "/path", "coin.txt"})
-print(err or "newPath: " .. newPath)
+newPath = luapilot.joinPath({"/test", "/path", "coin.txt"})
+print("newPath: " .. newPath)
 
 print("---")
 print("isdir(path)")
