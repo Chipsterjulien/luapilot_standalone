@@ -209,14 +209,44 @@ local memUsage = luapilot.getMemoryUsage()
 print("Memory usage: " .. memUsage .. "kB")
 
 print("---")
-print("setmode(path, mode)")
-local path = "my/folder/file.txt"
-local mode = 0755 -- Permission in octal format
-err = luapilot.setmode(path, mode)
+print("getMode(path)")
+local currentMode
+currentMode, err = luapilot.getMode("my3/folder/file.txt")
+print(err or string.format("Current mode: 0%o", currentMode))
+
+print("---")
+print("setMode(path, mode)")
+local path = "my3/folder/file.txt"
+local mode = 0700 -- Permission in octal format
+err = luapilot.setMode(path, mode)
 if err then
     print(err)
 else
     print("Permissions changées avec succès")
+end
+
+print("---")
+print("getAttributes(path)")
+local attrs
+attrs, err = luapilot.getAttributes(path)
+if err then
+    print(err)
+else
+    print(string.format("Current permissions: %o", attrs.mode))
+    print("Current owner (UID): " .. attrs.owner)
+    print("Current group (GID): " .. attrs.group)
+end
+
+print("---")
+-- Définir le nouveau propriétaire et groupe
+local owner = 1000   -- UID du propriétaire
+local group = 1000   -- GID du groupe
+print("setAttributes(path, owner, group)")
+err = luapilot.setAttributes(path, owner, group)
+if err then
+    print(err)
+else
+    print("Attributs modifiés avec succès")
 end
 
 print("---")
@@ -226,7 +256,7 @@ luapilot.sleep(sleepTime)
 
 print("---")
 print("symlinkattr(path, new_owner, new_group)")
---path = "my/folder/file.txt"
+path = "my/target"
 local new_owner = 1000
 local new_group = 1000
 err = luapilot.symlinkattr(path, new_owner, new_group)
