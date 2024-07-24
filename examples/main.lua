@@ -205,8 +205,12 @@ end
 
 print("---")
 print("getMemoryUsage()")
-local memUsage = luapilot.getMemoryUsage()
-print("Memory usage: " .. memUsage .. "kB")
+local memoryUsedKB = luapilot.getMemoryUsage()
+print(string.format("Memory used: %d B", memoryUsedKB))
+local memoryTotalBytes
+memoryUsedKB, memoryTotalBytes = luapilot.getDetailedMemoryUsage()
+print(string.format("Memory used: %d B", memoryUsedKB))
+print(string.format("Estimated total memory: %d B", memoryTotalBytes))
 
 print("---")
 print("getMode(path)")
@@ -241,6 +245,7 @@ print("---")
 -- Définir le nouveau propriétaire et groupe
 local owner = 1000   -- UID du propriétaire
 local group = 1000   -- GID du groupe
+--local mode = 0744
 print("setAttributes(path, owner, group)")
 err = luapilot.setAttributes(path, owner, group)
 if err then
@@ -248,11 +253,6 @@ if err then
 else
     print("Attributs modifiés avec succès")
 end
-
-print("---")
-print("sleep(sleepTime)")
-local sleepTime = 2
-luapilot.sleep(sleepTime)
 
 print("---")
 print("symlinkattr(path, new_owner, new_group)")
@@ -279,9 +279,12 @@ print("---")
 print("split(myString)")
 local helloSplitted = luapilot.split("Hello there !", " ")
 print(inspect(helloSplitted))
+helloSplitted = luapilot.split("Hello there !", "")
+print(inspect(helloSplitted))
+helloSplitted = luapilot.split("Hello there !")
+print(inspect(helloSplitted))
 
 print("---")
-
 local fullPath = "/home/test/hello.txt"
 print("Print string path of " .. fullPath)
 local output
@@ -454,5 +457,14 @@ if err then
 else
     print("Remove is succeeded")
 end
+
+print("---")
+print("sleep(sleepTime)")
+local sleepTime = 2
+luapilot.sleep(sleepTime)
+
+-- The unit of time (optional, default is seconds). Can be "s" for seconds, "ms" for milliseconds, "us" for microseconds.
+luapilot.sleep(200, "us")
+
 luapilot.remove("essaie1")
 luapilot.rmdirAll("my3")
