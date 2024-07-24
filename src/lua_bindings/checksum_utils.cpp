@@ -1,4 +1,4 @@
-#include "sha1.hpp"
+#include "checksum_utils.hpp"
 #include "openssl_utils.hpp"
 #include "evp_md_ctx_raii.hpp"
 #include <openssl/evp.h>
@@ -8,13 +8,7 @@
 #include <system_error>
 #include <cstring>  // Pour strerror
 
-/**
- * @brief Calculates the SHA-1 checksum of a file.
- *
- * @param path The path to the file.
- * @return An optional string containing the SHA-1 checksum, or nullopt if an error occurred.
- */
-std::optional<std::string> sha1sum(const std::string &path) {
+std::optional<std::string> calculate_checksum(const std::string &path, const EVP_MD* md) {
     std::ifstream file(path, std::ifstream::binary);
     if (!file) {
         return std::nullopt;
@@ -25,7 +19,6 @@ std::optional<std::string> sha1sum(const std::string &path) {
         return std::nullopt;
     }
 
-    const EVP_MD* md = EVP_sha1();
     if (EVP_DigestInit_ex(mdctx.get(), md, nullptr) != 1) {
         return std::nullopt;
     }
@@ -55,34 +48,4 @@ std::optional<std::string> sha1sum(const std::string &path) {
     }
 
     return hexStream.str();
-}
-
-/**
- * @brief Lua binding for the sha1sum function.
- *
- * @param L The Lua state.
- * @return 2 values: the SHA-1 checksum or nil, and an error message or nil.
- */
-int lua_sha1sum(lua_State *L) {
-    int argc = lua_gettop(L);
-    if (argc != 1) {
-        return luaL_error(L, "Expected one argument");
-    }
-
-    if (!lua_isstring(L, 1)) {
-        return luaL_error(L, "Expected a string as argument");
-    }
-
-    const char* path = luaL_checkstring(L, 1);
-    auto result = sha1sum(path);
-
-    if (!result.has_value()) {
-        lua_pushnil(L);
-        lua_pushstring(L, "Error calculating SHA-1 checksum");
-        return 2;
-    }
-
-    lua_pushstring(L, result->c_str());
-    lua_pushnil(L);
-    return 2;
 }

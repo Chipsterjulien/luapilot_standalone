@@ -1,7 +1,10 @@
 #include "rename.hpp"
-#include <cstdio>
+#include <filesystem>
 #include <string>
 #include <system_error>
+#include <iostream>
+
+namespace fs = std::filesystem;
 
 /**
  * @brief Function to rename a file or directory
@@ -13,12 +16,49 @@
  * @param new_path The new name of the file or directory
  * @return A string with the error message if any, or an empty string if successful.
  */
-std::string rename_file(const std::string& old_path, const std::string& new_path) {
+std::string rename_file(std::string_view old_path, std::string_view new_path) {
     std::error_code ec;
-    if (std::rename(old_path.c_str(), new_path.c_str()) != 0) {
-        ec = std::error_code(errno, std::generic_category());
-        return ec.message();
+
+    // Check if the old path is empty
+    if (old_path.empty()) {
+        return "The old path is empty.";
     }
+
+    // Check if the new path is empty
+    if (new_path.empty()) {
+        return "The new path is empty.";
+    }
+
+    // Check if the old path exists
+    if (!fs::exists(old_path)) {
+        return "Source path does not exist: " + std::string(old_path);
+    }
+
+    // Check if the new path is different from the old path
+    if (old_path == new_path) {
+        return "The new path must be different from the old path.";
+    }
+
+    // Attempt to rename the file or directory
+    try {
+        fs::rename(old_path, new_path, ec);
+    } catch (const fs::filesystem_error& e) {
+        return "Filesystem error: " + std::string(e.what());
+    }
+
+    if (ec) {
+        switch (ec.value()) {
+            case static_cast<int>(std::errc::permission_denied):
+                return "Permission denied: " + std::string(old_path);
+            case static_cast<int>(std::errc::no_such_file_or_directory):
+                return "No such file or directory: " + std::string(old_path);
+            case static_cast<int>(std::errc::file_exists):
+                return "File already exists at destination: " + std::string(new_path);
+            default:
+                return "Error renaming file or directory: " + std::string(old_path) + " to " + std::string(new_path) + " : " + ec.message();
+        }
+    }
+
     return "";
 }
 
@@ -33,7 +73,7 @@ std::string rename_file(const std::string& old_path, const std::string& new_path
  * @return Number of return values on the Lua stack (1: error message or nil).
  */
 int lua_rename(lua_State* L) {
-    // Check if there is one argument passed
+    // Check if there are two arguments passed
     int argc = lua_gettop(L);
     if (argc != 2) {
         return luaL_error(L, "Expected two arguments");
@@ -55,3 +95,4 @@ int lua_rename(lua_State* L) {
     }
     return 1;  // One return value (error message or nil)
 }
+

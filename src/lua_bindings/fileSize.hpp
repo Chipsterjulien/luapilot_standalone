@@ -1,24 +1,26 @@
 #ifndef FILE_SIZE_HPP
 #define FILE_SIZE_HPP
 
+#include <optional>
 #include <string>
+#include <string_view>
 #include <cstdint>
-#include <tuple>
 #include <lua.hpp>
 
 /**
- * Get the size of a file in bytes.
+ * @brief Check if a file exists and is a regular file, and get its size.
+ *
  * @param path The file path to check.
- * @return A tuple containing the size in bytes if successful, or an error message if any.
+ * @param size Reference to store the size of the file if it exists and is a regular file.
+ * @return bool True if the file exists and is a regular file, false otherwise.
  */
-std::tuple<std::uint64_t, std::string> fileSize(const std::string& path);
+bool getFileSize(std::string_view path, uintmax_t& size);
 
 /**
- * Lua binding for getting the size of a file.
+ * @brief Lua binding for getting the size of a file.
+ *
  * @param L The Lua state.
- * @return Number of return values (2: size and error message or nil).
- * Lua usage: size, error_message = lua_fileSize(path)
- *   - path: The file path to check.
+ * @return int Number of return values (2: file size and error message or nil).
  */
 int lua_fileSize(lua_State* L);
 

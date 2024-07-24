@@ -2,6 +2,23 @@
 #include <regex>
 #include <limits>
 #include <system_error>
+#include <algorithm>
+#include <filesystem>
+#include <string>
+#include <vector>
+#include <iostream>
+#include <optional>
+#include <functional>
+#include <unordered_map>
+
+namespace fs = std::filesystem;
+
+struct RegexCache {
+    std::unordered_map<std::string, std::regex> name_regex;
+    std::unordered_map<std::string, std::regex> iname_regex;
+};
+
+static RegexCache cache;
 
 /**
  * @brief Transforms Lua regex escape sequences to C++ regex escape sequences.
@@ -12,17 +29,16 @@
  * @param lua_regex The Lua regex pattern string.
  * @return The transformed C++ regex pattern string.
  */
-std::string transform_lua_regex(const std::string& lua_regex) {
+std::string transform_lua_regex(const std::string_view lua_regex) {
     std::string cpp_regex;
     cpp_regex.reserve(lua_regex.size());
 
     for (size_t i = 0; i < lua_regex.size(); ++i) {
-        if (lua_regex[i] == '%') {
+        if (lua_regex[i] == '%' && (i + 1 < lua_regex.size() && lua_regex[i + 1] == '%')) {
+            cpp_regex.push_back('%');
+            ++i; // Skip the next '%'
+        } else if (lua_regex[i] == '%') {
             cpp_regex.push_back('\\');
-            if (i + 1 < lua_regex.size()) {
-                cpp_regex.push_back(lua_regex[i + 1]);
-                ++i;
-            }
         } else {
             cpp_regex.push_back(lua_regex[i]);
         }
@@ -32,19 +48,154 @@ std::string transform_lua_regex(const std::string& lua_regex) {
 }
 
 /**
+ * @brief Gets or compiles a regex pattern.
+ *
+ * This function retrieves a precompiled regex pattern from the cache or compiles it if not found.
+ *
+ * @param cache The regex cache.
+ * @param pattern The regex pattern string.
+ * @param case_insensitive Whether the regex should be case-insensitive.
+ * @return The compiled regex pattern.
+ */
+std::regex get_or_compile_regex(RegexCache& cache, const std::string& pattern, bool case_insensitive = false) {
+    auto& regex_map = case_insensitive ? cache.iname_regex : cache.name_regex;
+    auto it = regex_map.find(pattern);
+    if (it == regex_map.end()) {
+        std::regex_constants::syntax_option_type flags = std::regex_constants::ECMAScript;
+        if (case_insensitive) {
+            flags |= std::regex_constants::icase;
+        }
+        auto transformed_pattern = transform_lua_regex(pattern);
+        auto [new_it, success] = regex_map.try_emplace(pattern, std::regex(transformed_pattern, flags));
+        return new_it->second;
+    }
+    return it->second;
+}
+
+/**
+ * @brief Checks if a directory entry matches the given options.
+ *
+ * This function checks if a directory entry matches the specified search options.
+ *
+ * @param entry The directory entry to check.
+ * @param options The search options.
+ * @param cache The regex cache.
+ * @return True if the entry matches the options, false otherwise.
+ */
+bool matches_options(const fs::directory_entry& entry, const FindOptions& options, RegexCache& cache) {
+    // Filter by type (file or directory)
+    if (!options.type.empty()) {
+        if ((options.type == "f" && !fs::is_regular_file(entry)) ||
+            (options.type == "d" && !fs::is_directory(entry))) {
+            return false;
+        }
+    }
+
+    // Filter by name using case-sensitive regex
+    if (!options.name.empty()) {
+        const auto& name_regex = get_or_compile_regex(cache, options.name);
+        if (!std::regex_match(entry.path().filename().string(), name_regex)) {
+            return false;
+        }
+    }
+
+    // Filter by name using case-insensitive regex
+    if (!options.iname.empty()) {
+        const auto& iname_regex = get_or_compile_regex(cache, options.iname, true);
+        if (!std::regex_match(entry.path().filename().string(), iname_regex)) {
+            return false;
+        }
+    }
+
+    // Filter by path using regex search (more flexible than match)
+    if (!options.path.empty()) {
+        const std::regex path_regex(transform_lua_regex(options.path));
+        if (!std::regex_search(entry.path().string(), path_regex)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * @brief Parses the search options from a Lua table.
+ *
+ * This function reads the search options from the Lua stack and populates the FindOptions structure.
+ *
+ * @param L The Lua state.
+ * @param index The stack index of the options table.
+ * @return The populated FindOptions structure.
+ */
+FindOptions parse_options(lua_State* L, int index) {
+    FindOptions options;
+
+    lua_getfield(L, index, "mindepth");
+    if (lua_isnumber(L, -1)) {
+        options.mindepth = lua_tointeger(L, -1);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "Expected number for mindepth");
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, index, "maxdepth");
+    if (lua_isnumber(L, -1)) {
+        options.maxdepth = lua_tointeger(L, -1);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "Expected number for maxdepth");
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, index, "type");
+    if (lua_isstring(L, -1)) {
+        options.type = lua_tostring(L, -1);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "Expected string for type");
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, index, "name");
+    if (lua_isstring(L, -1)) {
+        options.name = lua_tostring(L, -1);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "Expected string for name");
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, index, "iname");
+    if (lua_isstring(L, -1)) {
+        options.iname = lua_tostring(L, -1);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "Expected string for iname");
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, index, "path");
+    if (lua_isstring(L, -1)) {
+        options.path = lua_tostring(L, -1);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "Expected string for path");
+    }
+    lua_pop(L, 1);
+
+    return options;
+}
+
+/**
  * @brief Recursively searches for files and directories based on the provided options.
  *
  * This function performs a recursive search starting from the given root directory,
- * applying the specified options to filter the results. The search results are stored
- * in the provided vector.
+ * applying the specified options to filter the results. The callback function is called
+ * for each file found.
  *
  * @param root The root directory to start the search from.
  * @param options The search options, including filters and depth limits.
- * @param depth The current depth of the search.
- * @param results The vector to store the search results.
- * @return A string containing an error message if any, or an empty string if successful.
+ * @param callback The callback function to call for each file found.
+ * @param cache The regex cache.
+ * @return An optional string containing an error message if any, or an empty optional if successful.
  */
-std::string find(const fs::path& root, const FindOptions& options, int depth, std::vector<fs::path>& results) {
+std::optional<std::string> find(const fs::path& root, const FindOptions& options,
+                                std::function<void(const fs::path&)> callback, RegexCache& cache) {
     if (!fs::exists(root)) {
         return "Error: Path does not exist: " + root.string();
     }
@@ -53,61 +204,27 @@ std::string find(const fs::path& root, const FindOptions& options, int depth, st
         return "Error: Path is not a directory: " + root.string();
     }
 
-    if (depth > options.maxdepth) return "";
-
     try {
-        for (const auto& entry : fs::directory_iterator(root)) {
-            if (depth >= options.mindepth) {
-                bool matches = true;
-
-                if (!options.type.empty()) {
-                    if ((options.type == "f" && !fs::is_regular_file(entry)) ||
-                        (options.type == "d" && !fs::is_directory(entry))) {
-                        matches = false;
-                    }
+        for (auto it = fs::recursive_directory_iterator(root); it != fs::recursive_directory_iterator(); ++it) {
+            int depth = it.depth();
+            if (depth < options.mindepth || depth > options.maxdepth) {
+                if (depth > options.maxdepth) {
+                    it.pop();
                 }
-
-                if (!options.name.empty()) {
-                    std::string name_pattern = transform_lua_regex(options.name);
-                    std::regex name_regex(name_pattern);
-                    if (!std::regex_match(entry.path().filename().string(), name_regex)) {
-                        matches = false;
-                    }
-                }
-
-                if (!options.iname.empty()) {
-                    std::string iname_pattern = transform_lua_regex(options.iname);
-                    std::regex iname_regex(iname_pattern, std::regex_constants::icase);
-                    if (!std::regex_match(entry.path().filename().string(), iname_regex)) {
-                        matches = false;
-                    }
-                }
-
-                if (!options.path.empty()) {
-                    std::string path_pattern = transform_lua_regex(options.path);
-                    std::regex path_regex(path_pattern);
-                    if (!std::regex_match(entry.path().string(), path_regex)) {
-                        matches = false;
-                    }
-                }
-
-                if (matches) {
-                    results.push_back(entry.path());
-                }
+                continue;
             }
 
-            if (fs::is_directory(entry)) {
-                std::string err = find(entry.path(), options, depth + 1, results);
-                if (!err.empty()) {
-                    return err;
-                }
+            if (matches_options(*it, options, cache)) {
+                callback(it->path());
             }
         }
-    } catch (const fs::filesystem_error& e) {
-        return e.what();
+    } catch (const std::exception& e) {
+        return "Error: " + std::string(e.what());
+    } catch (...) {
+        return "An unknown error occurred.";
     }
 
-    return "";
+    return std::nullopt;
 }
 
 /**
@@ -138,49 +255,24 @@ int lua_find(lua_State* L) {
     }
 
     const char* root = luaL_checkstring(L, 1);
+    FindOptions options = parse_options(L, 2);
 
-    FindOptions options;
-    if (lua_istable(L, 2)) {
-        lua_getfield(L, 2, "mindepth");
-        if (lua_isnumber(L, -1)) options.mindepth = lua_tointeger(L, -1);
-        lua_pop(L, 1);
+    lua_newtable(L);
+    int result_index = lua_gettop(L);
 
-        lua_getfield(L, 2, "maxdepth");
-        if (lua_isnumber(L, -1)) options.maxdepth = lua_tointeger(L, -1);
-        lua_pop(L, 1);
+    int file_index = 1;
 
-        lua_getfield(L, 2, "type");
-        if (lua_isstring(L, -1)) options.type = lua_tostring(L, -1);
-        lua_pop(L, 1);
+    auto callback = [L, result_index, &file_index](const fs::path& path) {
+        lua_pushstring(L, path.string().c_str());
+        lua_rawseti(L, result_index, file_index++);
+    };
 
-        lua_getfield(L, 2, "name");
-        if (lua_isstring(L, -1)) options.name = lua_tostring(L, -1);
-        lua_pop(L, 1);
-
-        lua_getfield(L, 2, "iname");
-        if (lua_isstring(L, -1)) options.iname = lua_tostring(L, -1);
-        lua_pop(L, 1);
-
-        lua_getfield(L, 2, "path");
-        if (lua_isstring(L, -1)) options.path = lua_tostring(L, -1);
-        lua_pop(L, 1);
-    }
-
-    std::vector<fs::path> results;
-    std::string error_message = find(root, options, 0, results);
-
-    if (!error_message.empty()) {
+    if (auto error_message = find(root, options, callback, cache)) {
         lua_pushnil(L);
-        lua_pushstring(L, error_message.c_str());
+        lua_pushstring(L, error_message->c_str());
         return 2; // Return nil and error message
     }
 
-    lua_newtable(L);
-    for (size_t i = 0; i < results.size(); ++i) {
-        lua_pushstring(L, results[i].string().c_str());
-        lua_rawseti(L, -2, i + 1);
-    }
     lua_pushnil(L); // No error
-
     return 2; // Return results table and nil error
 }

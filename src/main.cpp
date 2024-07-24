@@ -13,14 +13,21 @@
 #include "lua_bindings/isfile.hpp"
 #include "lua_bindings/link.hpp"
 #include "lua_bindings/listFiles.hpp"
+#include "lua_bindings/md5.hpp"
 #include "lua_bindings/memoryUtils.hpp"
 #include "lua_bindings/mergeTables.hpp"
 #include "lua_bindings/mkdir.hpp"
+#include "lua_bindings/mode.hpp"
+#include "lua_bindings/moveTree.hpp"
 #include "lua_bindings/joinPath.hpp"
 #include "lua_bindings/rename.hpp"
 #include "lua_bindings/remove.hpp"
 #include "lua_bindings/rmdir.hpp"
-#include "lua_bindings/setmode.hpp"
+#include "lua_bindings/sha1.hpp"
+#include "lua_bindings/sha3_256.hpp"
+#include "lua_bindings/sha3_512.hpp"
+#include "lua_bindings/sha256.hpp"
+#include "lua_bindings/sha512.hpp"
 #include "lua_bindings/sleep.hpp"
 #include "lua_bindings/split.hpp"
 #include "lua_bindings/symlinkattr.hpp"
@@ -48,7 +55,10 @@ void register_luapilot(lua_State *L) {
     lua_newtable(L);
 
     lua_pushcfunction(L, lua_setattr);
-    lua_setfield(L, -2, "attributes");
+    lua_setfield(L, -2, "setAttributes");
+
+    lua_pushcfunction(L, lua_getattr);
+    lua_setfield(L, -2, "getAttributes");
 
     lua_pushcfunction(L, lua_chdir);
     lua_setfield(L, -2, "chdir");
@@ -86,6 +96,9 @@ void register_luapilot(lua_State *L) {
     lua_pushcfunction(L, lua_getMemoryUsage);
     lua_setfield(L, -2, "getMemoryUsage");
 
+    lua_pushcfunction(L, lua_getDetailedMemoryUsage);
+    lua_setfield(L, -2, "getDetailedMemoryUsage");
+
     lua_pushcfunction(L, lua_getPath);
     lua_setfield(L, -2, "getPath");
 
@@ -104,11 +117,17 @@ void register_luapilot(lua_State *L) {
     lua_pushcfunction(L, lua_listFiles);
     lua_setfield(L, -2, "listFiles");
 
+    lua_pushcfunction(L, lua_md5sum);
+    lua_setfield(L, -2, "md5sum");
+
     lua_pushcfunction(L, lua_mergeTables);
     lua_setfield(L, -2, "mergeTables");
 
     lua_pushcfunction(L, lua_mkdir);
     lua_setfield(L, -2, "mkdir");
+
+    lua_pushcfunction(L, lua_moveTree);
+    lua_setfield(L, -2, "moveTree");
 
     lua_pushcfunction(L, lua_joinPath);
     lua_setfield(L, -2, "joinPath");
@@ -126,7 +145,25 @@ void register_luapilot(lua_State *L) {
     lua_setfield(L, -2, "rmdirAll");
 
     lua_pushcfunction(L, lua_setmode);
-    lua_setfield(L, -2, "setmode");
+    lua_setfield(L, -2, "setMode");
+
+    lua_pushcfunction(L, lua_getmode);
+    lua_setfield(L, -2, "getMode");
+
+    lua_pushcfunction(L, lua_sha1sum);
+    lua_setfield(L, -2, "sha1sum");
+
+    lua_pushcfunction(L, lua_sha3_256sum);
+    lua_setfield(L, -2, "sha3_256sum");
+
+    lua_pushcfunction(L, lua_sha3_512sum);
+    lua_setfield(L, -2, "sha3_512sum");
+
+    lua_pushcfunction(L, lua_sha256sum);
+    lua_setfield(L, -2, "sha256sum");
+
+    lua_pushcfunction(L, lua_sha512sum);
+    lua_setfield(L, -2, "sha512sum");
 
     lua_pushcfunction(L, lua_sleep);
     lua_setfield(L, -2, "sleep");

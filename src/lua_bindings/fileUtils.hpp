@@ -1,76 +1,70 @@
-#ifndef FILE_UTILS_HPP
-#define FILE_UTILS_HPP
+#ifndef FILEUTILS_HPP
+#define FILEUTILS_HPP
 
+#include <filesystem>
+#include <optional>
 #include <string>
-#include <tuple>
-#include <system_error>
+#include <string_view>
 #include <lua.hpp>
 
 /**
- * Get the basename (filename with extension) from a full path.
+ * @brief Get the basename (filename with extension) from a full path.
  * @param fullPath The full path of the file.
- * @return A tuple with the basename and an error code if any.
+ * @return An optional string with the basename, or an empty optional if an error occurs.
  */
-std::tuple<std::string, std::error_code> getBasename(const std::string &fullPath);
+std::optional<std::string> getBasename(std::string_view fullPath);
 
 /**
- * Get the extension of the file from a full path.
+ * @brief Get the extension of the file from a full path.
  * @param fullPath The full path of the file.
- * @return A tuple with the extension and an error code if any.
+ * @return An optional string with the extension, or an empty optional if an error occurs.
  */
-std::tuple<std::string, std::error_code> getExtension(const std::string &fullPath);
+std::optional<std::string> getExtension(std::string_view fullPath);
 
 /**
- * Get the filename without extension from a full path.
+ * @brief Get the filename without extension from a full path.
  * @param fullPath The full path of the file.
- * @return A tuple with the filename without extension and an error code if any.
+ * @return An optional string with the filename without extension, or an empty optional if an error occurs.
  */
-std::tuple<std::string, std::error_code> getFilename(const std::string &fullPath);
+std::optional<std::string> getFilename(std::string_view fullPath);
 
 /**
- * Get the parent path from a full path.
+ * @brief Get the parent path from a full path.
  * @param fullPath The full path of the file.
- * @return A tuple with the parent path and an error code if any.
+ * @return An optional string with the parent path, or an empty optional if an error occurs.
  */
-std::tuple<std::string, std::error_code> getPath(const std::string &fullPath);
+std::optional<std::string> getPath(std::string_view fullPath);
 
 /**
- * Lua binding for getting the basename.
+ * @brief Lua binding for getting the basename.
  * @param L The Lua state.
  * @return Number of return values (2: basename, error).
  * Lua usage: basename, err = lua_getBasename(path)
  */
-int lua_getBasename(lua_State *L);
+int lua_getBasename(lua_State* L);
 
 /**
- * Lua binding for getting the extension.
+ * @brief Lua binding for getting the extension.
  * @param L The Lua state.
  * @return Number of return values (2: extension, error).
  * Lua usage: extension, err = lua_getExtension(path)
  */
+int lua_getExtension(lua_State* L);
 
 /**
- * Lua binding for getting the extension.
- * @param L The Lua state.
- * @return Number of return values (2: extension, error).
- * Lua usage: extension, err = lua_getExtension(path)
- */
-int lua_getExtension(lua_State *L);
-
-/**
- * Lua binding for getting the filename without extension.
+ * @brief Lua binding for getting the filename without extension.
  * @param L The Lua state.
  * @return Number of return values (2: filename without extension, error).
  * Lua usage: filename, err = lua_getFilename(path)
  */
-int lua_getFilename(lua_State *L);
+int lua_getFilename(lua_State* L);
 
 /**
- * Lua binding for getting the parent path.
+ * @brief Lua binding for getting the parent path.
  * @param L The Lua state.
  * @return Number of return values (2: parent path, error).
  * Lua usage: parentPath, err = lua_getPath(path)
  */
-int lua_getPath(lua_State *L);
+int lua_getPath(lua_State* L);
 
-#endif // FILE_UTILS_HPP
+#endif // FILEUTILS_HPP

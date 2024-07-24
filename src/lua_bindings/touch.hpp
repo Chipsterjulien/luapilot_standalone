@@ -1,8 +1,8 @@
 #ifndef TOUCH_HPP
 #define TOUCH_HPP
 
-#include <string>
 #include <lua.hpp>
+#include <string>
 
 /**
  * Function to create or update a file.

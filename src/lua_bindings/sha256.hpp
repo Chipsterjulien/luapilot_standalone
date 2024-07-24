@@ -1,17 +1,18 @@
 #ifndef SHA256_HPP
 #define SHA256_HPP
 
+#include <openssl/evp.h>
+#include <optional>
 #include <string>
-#include <tuple>
 #include <lua.hpp>
 
 /**
  * @brief Calculates the SHA-256 checksum of a file.
  *
  * @param path The path to the file.
- * @return A tuple containing the SHA-256 checksum as a hexadecimal string and an error message if any.
+ * @return An optional string containing the SHA-256 checksum, or nullopt if an error occurred.
  */
-std::tuple<std::string, std::string> sha256sum(const std::string &path);
+std::optional<std::string> sha256sum(const std::string &path);
 
 /**
  * @brief Lua binding for the sha256sum function.

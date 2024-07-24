@@ -1,8 +1,28 @@
 #include "listFiles.hpp"
-#include <filesystem>
 #include <iostream>
+#include <system_error>
+#include <optional>
+#include <filesystem>
 
-namespace fs = std::filesystem;
+namespace fs = std::filesystem; // Alias pour std::filesystem
+
+using optional_string = std::optional<std::string>;
+
+/**
+ * @brief Check if the directory path is valid.
+ *
+ * This function checks if the provided path exists and is a directory.
+ *
+ * @param path The directory path to check.
+ * @return std::optional<std::string> An error message if the path is invalid, or std::nullopt if valid.
+ */
+optional_string validate_directory_path(const fs::path& path) {
+    std::error_code ec;
+    if (!fs::is_directory(path, ec)) {
+        return ec ? ec.message() : "Path is not a directory";
+    }
+    return std::nullopt;
+}
 
 /**
  * Auxiliary function to list files.
@@ -11,23 +31,26 @@ namespace fs = std::filesystem;
  * @param path The current directory path.
  * @param index The index for the Lua table.
  * @param recursive Whether to list files recursively.
+ * @return std::optional<std::string> An error message if an error occurs, or std::nullopt if successful.
  */
-void listFilesHelper(lua_State *L, const std::string& basePath, const std::string& path, int& index, bool recursive) {
-    // Iterate over each entry in the given directory
-    for (const auto &entry : fs::directory_iterator(path)) {
-        if (fs::is_regular_file(entry)) { // Only process regular files
-            std::string relativePath = fs::relative(entry.path(), basePath).string();
-
-            lua_pushnumber(L, index++);           // Push the index onto the Lua stack
-            lua_pushstring(L, relativePath.c_str());  // Push the modified file name onto the Lua stack
-            lua_settable(L, -3);                  // Set the table entry
+optional_string listFilesHelper(lua_State *L, const fs::path& basePath, const fs::path& path, int& index, bool recursive) {
+    try {
+        for (const auto &entry : fs::directory_iterator(path)) {
+            if (fs::is_regular_file(entry)) {
+                lua_pushnumber(L, index++);
+                lua_pushstring(L, fs::relative(entry.path(), basePath).string().c_str());
+                lua_settable(L, -3);
+            }
+            if (recursive && fs::is_directory(entry)) {
+                if (auto error = listFilesHelper(L, basePath, entry.path(), index, recursive); error) {
+                    return error;
+                }
+            }
         }
-
-        // If recursive and the entry is a directory, recursively call the function on that directory
-        if (recursive && fs::is_directory(entry)) {
-            listFilesHelper(L, basePath, entry.path().string(), index, recursive);
-        }
+    } catch (const fs::filesystem_error& e) {
+        return e.what();
     }
+    return std::nullopt;
 }
 
 /**
@@ -39,39 +62,31 @@ void listFilesHelper(lua_State *L, const std::string& basePath, const std::strin
  *   - recursive (optional): Whether to list files recursively. Defaults to false.
  */
 int lua_listFiles(lua_State *L) {
-    // Check that at least one argument is passed
-    int argc = lua_gettop(L);
-    if (argc < 1) {
+    // Ensure at least one argument is passed
+    if (lua_gettop(L) < 1) {
         return luaL_error(L, "Expected at least one argument");
     }
 
-    const char *path = luaL_checkstring(L, 1); // Get the directory path from the first argument
-    bool recursive = false; // Default value is false (non-recursive)
+    // Get the directory path from the first argument
+    const char *path = luaL_checkstring(L, 1);
+    bool recursive = lua_gettop(L) >= 2 ? lua_toboolean(L, 2) : false;
 
-    // Check if the second argument is provided for recursion
-    if (lua_gettop(L) >= 2) {
-        recursive = lua_toboolean(L, 2); // Convert the second argument to a boolean
-    }
-
-    // Check if the directory exists
-    if (!fs::exists(path)) {
+    // Validate the directory path
+    fs::path canonical_path(path);
+    if (auto error = validate_directory_path(canonical_path); error) {
         lua_pushnil(L);
-        lua_pushstring(L, "Path does not exist");
-        return 2; // Return nil and error message
-    }
-
-    // Check if the path is a directory
-    if (!fs::is_directory(path)) {
-        lua_pushnil(L);
-        lua_pushstring(L, "Path is not a directory");
+        lua_pushstring(L, error->c_str());
         return 2; // Return nil and error message
     }
 
     lua_newtable(L); // Create a new table on the Lua stack
 
     int index = 1; // Initialize the index for the Lua table
-    // Call the auxiliary function to list the files
-    listFilesHelper(L, path, path, index, recursive);
+    if (auto error = listFilesHelper(L, canonical_path, canonical_path, index, recursive); error) {
+        lua_pushnil(L);
+        lua_pushstring(L, error->c_str());
+        return 2; // Return nil and the error message
+    }
 
     lua_pushnil(L); // No error
     return 2; // Return the table of files and nil (no error)

@@ -1,6 +1,7 @@
 #include "moveTree.hpp"
 #include <iostream>
 #include <system_error>
+#include <tuple>
 
 namespace fs = std::filesystem;
 
@@ -15,12 +16,16 @@ namespace fs = std::filesystem;
  * @return An error message if any, or an empty string if successful.
  */
 std::string moveTree(const fs::path& source, const fs::path& destination) {
-    std::vector<std::tuple<fs::path, fs::path, fs::path>> symlinks;
+    // Vector to store symlink mappings
+    std::vector<std::tuple<fs::path, fs::path, fs::path>> symlink_mappings;
     std::error_code ec;
 
-    // Check if the source exists
+    // Check if the source exists and is a directory
     if (!fs::exists(source)) {
         return "Source path does not exist: " + source.string();
+    }
+    if (!fs::is_directory(source)) {
+        return "Source path is not a directory: " + source.string();
     }
 
     // Create the destination directory if it does not exist
@@ -44,10 +49,10 @@ std::string moveTree(const fs::path& source, const fs::path& destination) {
                     return "Error creating directory: " + dest_path.string() + " : " + ec.message();
                 }
             } else if (fs::is_symlink(file_status)) {
-                fs::path dest_link = fs::absolute(destination / path.lexically_relative(source));
+                fs::path dest_symlink = fs::absolute(destination / path.lexically_relative(source));
                 fs::path old_path = fs::read_symlink(path);
                 fs::path new_path = fs::absolute(destination / fs::relative(old_path, source));
-                symlinks.emplace_back(dest_link, old_path, new_path);
+                symlink_mappings.emplace_back(dest_symlink, old_path, new_path);
             } else {
                 fs::rename(path, dest_path, ec);
                 if (ec) {
@@ -55,13 +60,15 @@ std::string moveTree(const fs::path& source, const fs::path& destination) {
                 }
             }
         }
+
         // Remove the source directory tree after moving all files
         fs::remove_all(source, ec);
         if (ec) {
             return "Error removing source directory: " + source.string() + " : " + ec.message();
         }
 
-        for (const auto& [dest_symlink, old_path, new_path] : symlinks) {
+        // Recreate symlinks in the destination
+        for (const auto& [dest_symlink, old_path, new_path] : symlink_mappings) {
             if (fs::exists(new_path)) {
                 fs::create_symlink(new_path, dest_symlink);
             } else if (fs::exists(old_path)) {
@@ -90,12 +97,13 @@ std::string moveTree(const fs::path& source, const fs::path& destination) {
  * @return int Number of return values on the Lua stack.
  */
 int lua_moveTree(lua_State* L) {
-    // Check if there is one argument passed
+    // Check if there are exactly two arguments
     int argc = lua_gettop(L);
     if (argc != 2) {
         return luaL_error(L, "Expected two arguments");
     }
 
+    // Check if both arguments are strings
     if (!lua_isstring(L, 1) || !lua_isstring(L, 2)) {
         return luaL_error(L, "Expected two strings as arguments");
     }

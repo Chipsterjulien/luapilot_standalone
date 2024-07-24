@@ -1,65 +1,71 @@
 #include "link.hpp"
-#include <unistd.h>
+#include <filesystem>
 #include <string>
 #include <system_error>
-#include <limits.h>
-#include <stdlib.h>
-#include <cstring>  // For strlen
-#include <iostream>
+#include <lua.hpp>
+#include <cstring>  // Pour strlen
+
+namespace fs = std::filesystem;
 
 /**
  * @brief Creates a symbolic link.
  *
- * This function takes two arguments from the Lua stack:
+ * This function takes two arguments:
  * 1. The target file or directory to link to.
  * 2. The path where the symbolic link will be created.
  *
- * If it fails, it returns the error message to Lua.
- * If successful, it returns nil to Lua.
+ * If it fails, it returns the error message.
+ * If successful, it returns an empty optional.
  *
- * @param L Lua state.
- * @return int Number of return values on the Lua stack.
+ * @param target The target path for the symbolic link.
+ * @param linkpath The path where the symbolic link will be created.
+ * @return std::optional<std::string> An optional error message if an error occurs.
  */
-int lua_link(lua_State* L) {
-    // Check if there is one argument passed
-    int argc = lua_gettop(L);
-    if (argc != 2) {
-        return luaL_error(L, "Expected two arguments");
+std::optional<std::string> create_symlink(const std::string& target, const std::string& linkpath) {
+    if (target.empty() || linkpath.empty()) {
+        return "Target path and link path cannot be empty";
     }
+
+    std::error_code ec;
+    fs::path resolved_target = fs::weakly_canonical(fs::path(target), ec);
+    if (ec) {
+        return "Failed to resolve target path: " + ec.message();
+    }
+
+    try {
+        if (fs::exists(linkpath)) {
+            return "Link path already exists";
+        }
+
+        fs::create_directories(fs::path(linkpath).parent_path(), ec);
+        if (ec) {
+            throw fs::filesystem_error("Failed to create parent directories", ec);
+        }
+
+        fs::create_symlink(resolved_target, fs::path(linkpath), ec);
+        if (ec) {
+            throw fs::filesystem_error("Failed to create symbolic link", ec);
+        }
+    } catch (const std::exception& e) {
+        return e.what();
+    } catch (...) {
+        return "Unknown error occurred";
+    }
+
+    return std::nullopt;
+}
+
+int lua_link(lua_State* L) {
+    luaL_argcheck(L, lua_gettop(L) == 2, 1, "Expected two arguments");
 
     const char* target = luaL_checkstring(L, 1);
     const char* linkpath = luaL_checkstring(L, 2);
 
-    if (strlen(target) >= PATH_MAX || strlen(linkpath) >= PATH_MAX) {
-        lua_pushstring(L, "Path too long");
-        return 1;
-    }
-
-    std::string resolved_target(PATH_MAX, '\0');
-    std::string resolved_linkpath(PATH_MAX, '\0');
-
-    // Resolve the absolute path of the target
-    if (realpath(target, &resolved_target[0]) == nullptr) {
-        lua_pushstring(L, std::system_category().message(errno).c_str());
-        return 1;
-    }
-
-    // Resize the string to the actual length of the resolved path
-    resolved_target.resize(strlen(resolved_target.c_str()));
-
-    // Resolve the absolute path of the link path
-    if (realpath(linkpath, &resolved_linkpath[0]) == nullptr) {
-        // If the link path does not exist, it's not an error for creating a symlink,
-        // so we just use the provided linkpath as it is.
-        resolved_linkpath = linkpath;
-    } else {
-        // Resize the string to the actual length of the resolved path
-        resolved_linkpath.resize(strlen(resolved_linkpath.c_str()));
-    }
-
-    if (symlink(resolved_target.c_str(), resolved_linkpath.c_str()) != 0) {
-        lua_pushstring(L, std::system_category().message(errno).c_str());
-        return 1;
+    std::optional<std::string> error = create_symlink(target, linkpath);
+    if (error) {
+        lua_pushnil(L);
+        lua_pushstring(L, error->c_str());
+        return 2;
     }
 
     lua_pushnil(L);

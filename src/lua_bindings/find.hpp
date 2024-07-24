@@ -5,6 +5,7 @@
 #include <string>
 #include <filesystem>
 #include <lua.hpp>
+#include <optional>
 
 namespace fs = std::filesystem;
 
@@ -34,9 +35,9 @@ struct FindOptions {
  * @param options The search options, including filters and depth limits.
  * @param depth The current depth of the search.
  * @param results The vector to store the search results.
- * @return A string containing an error message if any, or an empty string if successful.
+ * @return An optional string containing an error message if any, or an empty optional if successful.
  */
-std::string find(const fs::path& root, const FindOptions& options, int depth, std::vector<fs::path>& results);
+std::optional<std::string> find(const fs::path& root, const FindOptions& options, int depth, std::vector<fs::path>& results);
 
 /**
  * @brief Lua binding for the find function.

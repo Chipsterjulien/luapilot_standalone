@@ -1,58 +1,66 @@
 #include "sha3_512.hpp"
+#include "openssl_utils.hpp"
+#include "evp_md_ctx_raii.hpp"
 #include <openssl/evp.h>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
 #include <system_error>
+#include <cstring>  // Pour strerror
 
 /**
  * @brief Calculates the SHA-3 512 checksum of a file.
  *
  * @param path The path to the file.
- * @return A tuple containing the SHA-3 512 checksum as a hexadecimal string and an error message if any.
+ * @return An optional string containing the SHA-3 512 checksum, or nullopt if an error occurred.
  */
-std::tuple<std::string, std::string> sha3_512sum(const std::string &path) {
+std::optional<std::string> sha3_512sum(const std::string &path, std::string &error_message) {
     std::ifstream file(path, std::ifstream::binary);
     if (!file) {
-        return {"", std::make_error_code(std::errc::no_such_file_or_directory).message()};
+        error_message = std::make_error_code(std::errc::no_such_file_or_directory).message();
+        return std::nullopt;
     }
 
-    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-    if (mdctx == nullptr) {
-        return {"", std::make_error_code(std::errc::not_enough_memory).message()};
+    EVP_MD_CTX_RAII mdctx;
+    if (mdctx.get() == nullptr) {
+        error_message = "Error creating context: " + get_openssl_error();
+        return std::nullopt;
     }
 
-    const EVP_MD *md = EVP_sha3_512();  // Using SHA3-512 here
-    if (EVP_DigestInit_ex(mdctx, md, nullptr) != 1) {
-        EVP_MD_CTX_free(mdctx);
-        return {"", "Error initializing digest"};
+    const EVP_MD* md = EVP_sha3_512();
+    if (EVP_DigestInit_ex(mdctx.get(), md, nullptr) != 1) {
+        error_message = "Error initializing digest: " + get_openssl_error();
+        return std::nullopt;
     }
 
     char buffer[4096];
-    while (file.good()) {
-        file.read(buffer, sizeof(buffer));
-        if (EVP_DigestUpdate(mdctx, buffer, file.gcount()) != 1) {
-            EVP_MD_CTX_free(mdctx);
-            return {"", "Error updating digest"};
+    while (file.read(buffer, sizeof(buffer))) {
+        if (EVP_DigestUpdate(mdctx.get(), buffer, file.gcount()) != 1) {
+            error_message = "Error updating digest: " + get_openssl_error();
+            return std::nullopt;
+        }
+    }
+    if (file.gcount() > 0) {
+        if (EVP_DigestUpdate(mdctx.get(), buffer, file.gcount()) != 1) {
+            error_message = "Error updating digest: " + get_openssl_error();
+            return std::nullopt;
         }
     }
 
     unsigned char result[EVP_MAX_MD_SIZE];
     unsigned int result_len;
-    if (EVP_DigestFinal_ex(mdctx, result, &result_len) != 1) {
-        EVP_MD_CTX_free(mdctx);
-        return {"", "Error finalizing digest"};
+    if (EVP_DigestFinal_ex(mdctx.get(), result, &result_len) != 1) {
+        error_message = "Error finalizing digest: " + get_openssl_error();
+        return std::nullopt;
     }
-
-    EVP_MD_CTX_free(mdctx);
 
     std::ostringstream hexStream;
     hexStream << std::hex << std::setfill('0');
     for (unsigned int i = 0; i < result_len; ++i) {
-        hexStream << std::setw(2) << (int)result[i];
+        hexStream << std::setw(2) << static_cast<int>(result[i]);
     }
 
-    return {hexStream.str(), ""};
+    return hexStream.str();
 }
 
 /**
@@ -62,27 +70,26 @@ std::tuple<std::string, std::string> sha3_512sum(const std::string &path) {
  * @return 2 values: the SHA-3 512 checksum or nil, and an error message or nil.
  */
 int lua_sha3_512sum(lua_State *L) {
-    // Check if there is one argument passed
     int argc = lua_gettop(L);
     if (argc != 1) {
         return luaL_error(L, "Expected one argument");
     }
 
-    // Check that the argument is a string
     if (!lua_isstring(L, 1)) {
         return luaL_error(L, "Expected a string as argument");
     }
 
-    const char *path = luaL_checkstring(L, 1);
-    auto [sha3_512sum_str, err] = sha3_512sum(path);
+    const char* path = luaL_checkstring(L, 1);
+    std::string error_message;
+    auto result = sha3_512sum(path, error_message);
 
-    if (!err.empty()) {
+    if (!result.has_value()) {
         lua_pushnil(L);
-        lua_pushstring(L, err.c_str());
+        lua_pushstring(L, error_message.c_str());
         return 2;
     }
 
-    lua_pushstring(L, sha3_512sum_str.c_str());
+    lua_pushstring(L, result->c_str());
     lua_pushnil(L);
     return 2;
 }

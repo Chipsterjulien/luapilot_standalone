@@ -1,17 +1,18 @@
 #ifndef SHA512_HPP
 #define SHA512_HPP
 
+#include <openssl/evp.h>
+#include <optional>
 #include <string>
-#include <tuple>
 #include <lua.hpp>
 
 /**
  * @brief Calculates the SHA-512 checksum of a file.
  *
  * @param path The path to the file.
- * @return A tuple containing the SHA-512 checksum as a hexadecimal string and an error message if any.
+ * @return An optional string containing the SHA-512 checksum, or nullopt if an error occurred.
  */
-std::tuple<std::string, std::string> sha512sum(const std::string &path);
+std::optional<std::string> sha512sum(const std::string &path);
 
 /**
  * @brief Lua binding for the sha512sum function.

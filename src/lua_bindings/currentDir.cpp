@@ -1,37 +1,45 @@
 #include "currentDir.hpp"
 #include <filesystem>
-#include <system_error>
-#include <tuple>
+
+namespace fs = std::filesystem;
 
 /**
- * Get the current working directory.
- * @return A tuple containing the current directory path and an error message if any.
+ * @brief Get the current working directory.
+ *
+ * @return std::optional<std::string> The current directory path if successful,
+ *         or std::nullopt on failure.
  */
-std::tuple<std::string, std::string> currentDir() {
+std::optional<std::string> currentDir() {
     std::error_code ec;
-    auto path = std::filesystem::current_path(ec);
+    auto path = fs::current_path(ec);
     if (ec) {
-        return std::make_tuple("", "Error getting current directory: " + ec.message());
+        return std::nullopt;
     }
-    return std::make_tuple(path.string(), "");
+    return path.string();
 }
 
 /**
- * Lua binding for getting the current working directory.
+ * @brief Lua binding for getting the current working directory.
+ *
+ * This function is a Lua binding that exposes the currentDir function to Lua scripts.
+ * It returns the current directory path if successful, or an error message if it fails.
+ *
  * @param L The Lua state.
- * @return Number of return values (2: current directory path and error message).
- * Lua usage: currentDir, err = lua_currentDir()
+ * @return int Number of return values (2: current directory path and error message).
+ *
+ * @note Lua usage: currentDir, err = lua_currentDir()
  */
 int lua_currentDir(lua_State* L) {
-    auto [path, error] = currentDir();
+    std::error_code ec;
+    auto path = fs::current_path(ec);
 
-    lua_pushstring(L, path.c_str());
-    if (error.empty()) {
-        lua_pushnil(L); // No error, push nil
+    if (!ec) {
+        lua_pushstring(L, path.string().c_str()); // Chemin du répertoire
+        lua_pushnil(L);  // Pas d'erreur
     } else {
-        lua_pushstring(L, error.c_str());
+        lua_pushnil(L); // Pas de chemin
+        lua_pushstring(L, ec.message().c_str()); // Message d'erreur plus détaillé
     }
 
-    return 2; // Two return values (current directory path and error message)
+    return 2;
 }
-

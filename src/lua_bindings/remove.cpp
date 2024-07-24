@@ -1,7 +1,9 @@
 #include "remove.hpp"
-#include <cstdio>
+#include <filesystem>
 #include <string>
 #include <system_error>
+
+namespace fs = std::filesystem;
 
 /**
  * @brief Function to remove a file
@@ -14,9 +16,22 @@
  */
 std::string remove_file(const std::string& path) {
     std::error_code ec;
-    if (std::remove(path.c_str()) != 0) {
-        ec = std::error_code(errno, std::generic_category());
-        return ec.message();
+
+    // Check if the file exists
+    if (!fs::exists(path)) {
+        return "File does not exist: " + path;
+    }
+
+    // Attempt to remove the file
+    if (!fs::remove(path, ec)) {
+        switch (ec.value()) {
+            case static_cast<int>(std::errc::permission_denied):
+                return "Permission denied: " + path;
+            case static_cast<int>(std::errc::no_such_file_or_directory):
+                return "No such file or directory: " + path;
+            default:
+                return "Error removing file: " + path + " : " + ec.message();
+        }
     }
     return "";
 }

@@ -1,7 +1,9 @@
 #ifndef RMDIR_HPP
 #define RMDIR_HPP
 
+#include <filesystem>
 #include <string>
+#include <optional>
 #include <lua.hpp>
 
 /**
@@ -9,14 +11,14 @@
  * @param path The file or directory path to remove.
  * @return A string with the error message if any, or an empty string if successful.
  */
-std::string rmdir(const std::string& path);
+std::optional<std::string> rmdir(std::string_view path);
 
 /**
  * Remove a directory and all its contents.
  * @param path The directory path to remove.
  * @return A string with the error message if any, or an empty string if successful.
  */
-std::string rmdir_all(const std::string& path);
+std::optional<std::string> rmdir_all(std::string_view path);
 
 /**
  * Lua binding for removing a file or an empty directory.

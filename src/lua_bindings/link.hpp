@@ -2,11 +2,13 @@
 #define LINK_HPP
 
 #include <lua.hpp>
+#include <optional>
+#include <string>
 
 /**
  * @brief Creates a symbolic link.
  *
- * This function is exposed to Lua and creates a symbolic link at the specified path.
+ * This function is accessible from Lua et permet de créer un lien symbolique.
  *
  * @param L Lua state.
  * @return int Number of return values on the Lua stack.
