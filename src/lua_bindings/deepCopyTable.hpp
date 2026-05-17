@@ -8,43 +8,46 @@
  * @file deepCopyTable.hpp
  * @brief Déclarations pour la copie profonde des tables Lua.
  *
- * Ce fichier contient les déclarations des fonctions nécessaires pour effectuer
- * une copie profonde des tables Lua. La copie profonde gère les clés numériques et non numériques,
- * les métatables et évite les cycles pour ne pas provoquer de boucles infinies.
+ * La copie profonde préserve toutes les clés telles quelles (numériques,
+ * trouées, chaînes...), partage la métatable de la source, et gère
+ * correctement les cycles : si une table apparaît plusieurs fois dans le
+ * graphe source (y compris en se référençant elle-même), elle ne donne
+ * lieu qu'à UNE seule copie, réutilisée partout.
  */
 
-constexpr int MAX_DEPTH = 75; // Profondeur maximale pour la copie de table
-
-using VisitedMap = std::unordered_map<const void*, bool>;
+constexpr int MAX_DEPTH = 75; // Profondeur maximale de récursion (garde-fou)
 
 /**
- * @brief Copie profondément une table Lua de manière récursive.
+ * @brief Associe le pointeur d'une table source à la référence (registre Lua)
+ *        de sa copie déjà créée. Sert à la détection de cycles et au partage
+ *        des sous-tables communes.
+ */
+using VisitedMap = std::unordered_map<const void *, int>;
+
+/**
+ * @brief Copie profondément la table à l'index `srcIndex`.
  *
- * Cette fonction copie les clés numériques et non numériques, gère les métatables et évite les cycles
- * en suivant les tables déjà visitées.
+ * En cas de succès, la copie est poussée au sommet de la pile Lua.
+ * En cas d'échec (profondeur maximale dépassée), la pile est laissée
+ * inchangée.
  *
  * @param L L'état Lua.
- * @param srcIndex Index de la table source.
- * @param destIndex Index de la table de destination.
- * @param nextNumericKey La prochaine clé numérique à utiliser dans la table de destination.
+ * @param srcIndex Index de la table source (relatif ou absolu).
  * @param depth Profondeur actuelle de la récursion.
- * @param maxDepth Profondeur maximale autorisée pour la récursion.
- * @param visited Tables déjà visitées pour détecter les cycles.
- * @return True si la copie est réussie, false sinon.
+ * @param maxDepth Profondeur maximale autorisée.
+ * @param visited Tables déjà copiées (pointeur source -> référence de la copie).
+ * @return true si la copie a réussi (copie au sommet de la pile), false sinon.
  */
-bool deepCopyTable(lua_State *L, int srcIndex, int destIndex, int &nextNumericKey, int depth, int maxDepth, VisitedMap& visited);
+bool deepCopyTable(lua_State *L, int srcIndex, int depth, int maxDepth, VisitedMap &visited);
 
 /**
- * @brief Liaison Lua pour effectuer une copie profonde d'une table Lua.
- *
- * Cette fonction peut être appelée depuis Lua avec une table comme seul argument.
- * Elle retourne une copie profonde de la table d'entrée.
+ * @brief Liaison Lua pour effectuer une copie profonde d'une table.
  *
  * Usage Lua:
- *     copiedTable = deepCopyTable(originalTable)
+ *     copiedTable = luapilot.deepCopyTable(originalTable)
  *
  * @param L L'état Lua.
- * @return int Le nombre de valeurs retournées à Lua (1 dans ce cas: la table copiée).
+ * @return int Le nombre de valeurs retournées à Lua (1 : la table copiée).
  */
 int lua_deepCopyTable(lua_State *L);
 

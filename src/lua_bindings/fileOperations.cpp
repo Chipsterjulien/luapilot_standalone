@@ -27,7 +27,7 @@ std::optional<std::string> custom_copy_file(const std::filesystem::path& source,
     // Copy the file
     std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing, ec);
     if (ec) {
-        return "Error copying file: " + ec.message();
+        return "cannot copy file: " + ec.message();
     }
 
     return std::nullopt;

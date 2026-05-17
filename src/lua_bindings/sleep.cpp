@@ -1,4 +1,5 @@
 #include "sleep.hpp"
+#include "lua_utils.hpp"
 #include <thread>
 #include <chrono>
 #include <stdexcept>
@@ -29,35 +30,43 @@ std::chrono::duration<double> convert_to_duration(double duration, const std::st
  *   - duration: The amount of time to sleep.
  *   - unit: The unit of time (optional, default is seconds). Can be "s" for seconds, "ms" for milliseconds, "us" for microseconds.
  */
-int lua_sleep(lua_State* L) {
+int lua_sleep(lua_State *L)
+{
     int argc = lua_gettop(L);
-    if (argc < 1 || argc > 2) {
+    if (argc < 1 || argc > 2)
+    {
         return luaL_error(L, "Expected one or two arguments: duration and optional unit");
     }
-
-    if (!lua_isnumber(L, 1)) {
+    if (!lua_isnumber(L, 1))
+    {
         return luaL_argerror(L, 1, "Expected a number as the first argument for duration");
     }
 
     double duration = lua_tonumber(L, 1);
-    if (duration < 0) {
+    if (duration < 0)
+    {
         return luaL_argerror(L, 1, "Duration must be non-negative");
     }
 
     std::string unit = "s";
-    if (argc == 2) {
-        if (!lua_isstring(L, 2)) {
+    if (argc == 2)
+    {
+        if (!lua_isstring(L, 2))
+        {
             return luaL_argerror(L, 2, "Expected a string as the second argument for unit");
         }
         unit = lua_tostring(L, 2);
     }
 
-    try {
+    try
+    {
         auto duration_chrono = convert_to_duration(duration, unit);
         std::this_thread::sleep_for(duration_chrono);
-    } catch (const std::invalid_argument& e) {
-        return luaL_argerror(L, 2, e.what());
+    }
+    catch (const std::invalid_argument &e)
+    {
+        return push_fail(L, e.what());
     }
 
-    return 0;
+    return push_ok(L);
 }

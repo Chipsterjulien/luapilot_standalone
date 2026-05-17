@@ -1,9 +1,12 @@
 #include "lua_bindings/attributes.hpp"
+#include "lua_bindings/blake2b.hpp"
+#include "lua_bindings/blake2s.hpp"
 #include "lua_bindings/chdir.hpp"
 #include "lua_bindings/copy.hpp"
 #include "lua_bindings/copyTree.hpp"
 #include "lua_bindings/currentDir.hpp"
 #include "lua_bindings/deepCopyTable.hpp"
+#include "lua_bindings/exec.hpp"
 #include "lua_bindings/fileExists.hpp"
 #include "lua_bindings/fileSize.hpp"
 #include "lua_bindings/fileUtils.hpp"
@@ -11,6 +14,7 @@
 #include "lua_bindings/helloThere.hpp"
 #include "lua_bindings/isdir.hpp"
 #include "lua_bindings/isfile.hpp"
+#include "lua_bindings/json.hpp"
 #include "lua_bindings/link.hpp"
 #include "lua_bindings/listFiles.hpp"
 #include "lua_bindings/md5.hpp"
@@ -24,9 +28,11 @@
 #include "lua_bindings/remove.hpp"
 #include "lua_bindings/rmdir.hpp"
 #include "lua_bindings/sha1.hpp"
+#include "lua_bindings/sha256.hpp"
 #include "lua_bindings/sha3_256.hpp"
 #include "lua_bindings/sha3_512.hpp"
-#include "lua_bindings/sha256.hpp"
+#include "lua_bindings/sha3_384.hpp"
+#include "lua_bindings/sha384.hpp"
 #include "lua_bindings/sha512.hpp"
 #include "lua_bindings/sleep.hpp"
 #include "lua_bindings/split.hpp"
@@ -34,15 +40,17 @@
 #include "lua_bindings/touch.hpp"
 #include "lua_bindings/fileIterator.hpp"
 
-#include "project_core/loadLuaFile.hpp"
-#include "project_core/zip_utils.hpp"
+#include "project_core/bundled_modules.hpp"
 #include "project_core/create_executable.hpp"
+#include "project_core/embedded_searcher.hpp"
+#include "project_core/executable_path.hpp"
+#include "project_core/loadLuaFile.hpp"
 #include "project_core/help.hpp"
+#include "project_core/zip_utils.hpp"
 
 #include <iostream>
 #include <lua.hpp>
 #include <filesystem>
-#include <physfs.h>
 
 namespace fs = std::filesystem;
 
@@ -50,8 +58,8 @@ namespace fs = std::filesystem;
  * @brief Register LuaPilot functions to Lua state.
  * @param L Lua state.
  */
-void register_luapilot(lua_State *L) {
-    // Crée une nouvelle table Lua
+void register_luapilot(lua_State *L)
+{
     lua_newtable(L);
 
     lua_pushcfunction(L, lua_setattr);
@@ -74,6 +82,9 @@ void register_luapilot(lua_State *L) {
 
     lua_pushcfunction(L, lua_deepCopyTable);
     lua_setfield(L, -2, "deepCopyTable");
+
+    lua_pushcfunction(L, lua_exec);
+    lua_setfield(L, -2, "exec");
 
     lua_pushcfunction(L, lua_fileExists);
     lua_setfield(L, -2, "fileExists");
@@ -165,6 +176,18 @@ void register_luapilot(lua_State *L) {
     lua_pushcfunction(L, lua_sha512sum);
     lua_setfield(L, -2, "sha512sum");
 
+    lua_pushcfunction(L, lua_blake2b512sum);
+    lua_setfield(L, -2, "blake2b512sum");
+
+    lua_pushcfunction(L, lua_blake2s256sum);
+    lua_setfield(L, -2, "blake2s256sum");
+
+    lua_pushcfunction(L, lua_sha384sum);
+    lua_setfield(L, -2, "sha384sum");
+
+    lua_pushcfunction(L, lua_sha3_384sum);
+    lua_setfield(L, -2, "sha3_384sum");
+
     lua_pushcfunction(L, lua_sleep);
     lua_setfield(L, -2, "sleep");
 
@@ -177,124 +200,201 @@ void register_luapilot(lua_State *L) {
     lua_pushcfunction(L, lua_touch);
     lua_setfield(L, -2, "touch");
 
-    // Lie la fonction createFileIterator à la table sous le nom "createFileIterator"
     lua_pushcfunction(L, lua_createFileIterator);
     lua_setfield(L, -2, "createFileIterator");
 
-    // Enregistre la table globale "luapilot" dans l'état Lua
+    // Sous-table luapilot.json (encode/decode + sentinels null,
+    // empty_array). register_json attend la table luapilot au sommet de
+    // la pile, ce qui est le cas ici.
+    register_json(L);
+
     lua_setglobal(L, "luapilot");
 
-    luaopen_file_iterator(L);
+    // Enregistre la metatable "FileIterator" dans le registry Lua.
+    file_iterator_create_meta(L);
+    lua_pop(L, 1);
 }
 
-int main(int argc, char *argv[]) {
-    // Vérifie si une option d'aide est présente parmi les arguments
-    for (int i = 1; i < argc; ++i) {
-        std::string option = argv[i];
-        if (option == "--help" || option == "-h") {
-            printHelp(); // Affiche l'aide
+/**
+ * @brief Prepends a project's "?.lua" and "?/init.lua" to package.path,
+ *        so that require() can find sibling modules of main.lua.
+ */
+static void prepend_project_to_package_path(lua_State *L, const fs::path &projectDir)
+{
+    lua_getglobal(L, "package");
+    lua_getfield(L, -1, "path");
+
+    const char *current = lua_tostring(L, -1);
+    std::string oldPath = current ? current : "";
+    lua_pop(L, 1);
+
+    std::string newPath =
+        (projectDir / "?.lua").string() + ";" +
+        (projectDir / "?" / "init.lua").string() + ";" +
+        oldPath;
+
+    lua_pushstring(L, newPath.c_str());
+    lua_setfield(L, -2, "path");
+    lua_pop(L, 1); // pop package
+}
+
+/**
+ * @brief Exposes the process command line to Lua as the global `arg`
+ *        table, following the standard Lua standalone convention:
+ *        arg[0] is the "script", arg[1..n] the arguments after it, and
+ *        anything before the script gets negative indices.
+ *
+ *        Each argv[i] is stored at arg[i - script_index].
+ *
+ * Modes:
+ *   - packaged executable (script_index = 0):
+ *       arg[0] = binary, arg[1..n] = its arguments
+ *   - folder runner `./luapilot <dir> ...` (script_index = 1):
+ *       arg[-1] = luapilot binary, arg[0] = <dir>,
+ *       arg[1..n] = user arguments
+ *
+ * lua_rawseti is used deliberately (raw set, no metamethods) since we
+ * are building the table from scratch.
+ */
+static void push_lua_arg(lua_State *L, int argc, char *argv[], int script_index)
+{
+    lua_newtable(L);
+    for (int i = 0; i < argc; ++i)
+    {
+        lua_pushstring(L, argv[i]);
+        lua_rawseti(L, -2, i - script_index);
+    }
+    lua_setglobal(L, "arg");
+}
+
+int main(int argc, char *argv[])
+{
+    // === ÉTAPE 1 : IDENTITÉ (avant toute lecture de argv) ===========
+    // Un binaire « packagé » = un binaire qui contient un main.lua
+    // embarqué. Dans ce cas il EST l'application finale : LuaPilot ne
+    // doit intercepter AUCUN flag (--help, --create-exe, ...), tous
+    // appartiennent à l'application embarquée, quel que soit argc.
+    //
+    // On résout donc cette identité en testant la présence de l'archive
+    // AVANT d'interpréter le moindre argument. (Avant ce correctif, la
+    // détection se faisait sur `argc < 2` : un exécutable packagé lancé
+    // avec des arguments — ./mon_app --port 8080 — basculait à tort en
+    // mode outil et cherchait un dossier nommé "--port".)
+    {
+        // getExecutablePath() lit /proc/self/exe (chemin canonique du
+        // binaire courant) et PAS argv[0], qui peut n'être qu'un
+        // basename si l'exe est dans le PATH — auquel cas miniz ne
+        // saurait pas le retrouver sur le disque pour lire le zip.
+        std::string exePath;
+        try
+        {
+            exePath = getExecutablePath();
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "Erreur : impossible de localiser l'exécutable - "
+                      << e.what() << std::endl;
+            return 1;
+        }
+
+        // optional vide = pas de zip / pas de main.lua embarqué : ce
+        // n'est PAS une erreur, juste « je ne suis pas packagé » -> on
+        // bascule en mode outil LuaPilot (étape 2).
+        auto fileData = readEmbeddedFile(exePath, "main.lua");
+        if (fileData)
+        {
+            lua_State *L = luaL_newstate();
+            if (!L)
+            {
+                std::cerr << "Erreur : impossible d'allouer un état Lua" << std::endl;
+                return 1;
+            }
+            luaL_openlibs(L);
+            register_bundled_modules(L);
+            register_luapilot(L);
+            register_embedded_searcher(L, exePath.c_str());
+
+            // Binaire packagé = l'application elle-même est le script :
+            // arg[0] = binaire, arg[1..n] = ses arguments.
+            push_lua_arg(L, argc, argv, 0);
+
+            if (luaL_loadbuffer(L, fileData->data(), fileData->size(), "main.lua") || lua_pcall(L, 0, LUA_MULTRET, 0))
+            {
+                std::cerr << "Erreur : " << lua_tostring(L, -1) << std::endl;
+                lua_close(L);
+                return 1;
+            }
+
+            lua_close(L);
             return 0;
         }
+        // Pas packagé : on continue en mode outil ci-dessous.
     }
 
-    // Si aucun argument n'est fourni, initialise PhysFS et exécute le script Lua
-    if (argc < 2) {
-        // Initialiser PhysFS avec le chemin de l'exécutable
-        if (!initPhysFS(argv[0])) {
-            return 1;
-        }
+    // === ÉTAPE 2 : MODE OUTIL LUAPILOT (pas de main.lua embarqué) ====
 
-        // Nom de l'archive ZIP à monter
-        const char *archive = "embedded.zip";
+    // Outil lancé sans argument : on affiche l'aide. (Anciennement ce
+    // cas tombait dans la détection d'embarqué et émettait un message
+    // d'archive trompeur ; maintenant qu'on sait qu'on n'est pas
+    // packagé, l'aide est la réponse honnête.)
+    if (argc < 2)
+    {
+        printHelp();
+        return 1;
+    }
 
-        // Chemin du fichier main.lua dans l'archive montée
-        std::string mainLuaPath = "main.lua";
+    std::string option = argv[1];
 
-        // Monter l'archive ZIP intégrée
-        if (!mountZipFile(argv[0])) {
-            return 1;
-        }
-
-        // Vérifie si le fichier main.lua existe dans l'archive ZIP montée
-        if (!PHYSFS_exists(mainLuaPath.c_str())) {
-            std::cerr << "Erreur : main.lua introuvable dans l'archive ZIP" << std::endl;
-            PHYSFS_deinit(); // Désinitialise PhysFS
-            return 1;
-        }
-
-        // Crée un nouvel état Lua et ouvre les bibliothèques Lua standard
-        lua_State *L = luaL_newstate();
-        luaL_openlibs(L);
-
-        // Enregistre les fonctions Lua personnalisées
-        register_luapilot(L);
-
-        // Lecture du fichier main.lua depuis l'archive ZIP
-        char *fileData;
-        PHYSFS_File *file = PHYSFS_openRead(mainLuaPath.c_str());
-        PHYSFS_sint64 fileSize = PHYSFS_fileLength(file);
-        fileData = new char[fileSize];
-        PHYSFS_readBytes(file, fileData, fileSize);
-        PHYSFS_close(file);
-
-        // Charge et exécute le script Lua
-        if (luaL_loadbuffer(L, fileData, fileSize, mainLuaPath.c_str()) || lua_pcall(L, 0, LUA_MULTRET, 0)) {
-            std::cerr << "Erreur : " << lua_tostring(L, -1) << std::endl;
-            delete[] fileData;
-            lua_close(L);
-            PHYSFS_deinit();
-            return 1;
-        }
-
-        // Libère les ressources
-        delete[] fileData;
-        lua_close(L);
-        PHYSFS_deinit();
+    // --help / -h n'est reconnu QU'EN PREMIER argument. Plus loin
+    // (`luapilot mon_projet --help`) le flag appartient au projet, qui
+    // le lira via la table `arg` : sinon LuaPilot intercepterait un
+    // argument destiné au script. (Sans contrainte sur argc : c'est la
+    // POSITION qui compte, pas le nombre d'arguments.)
+    if (option == "--help" || option == "-h")
+    {
+        printHelp();
         return 0;
     }
 
-    // Gestion des options de ligne de commande
-    std::string option = argv[1];
-
-    // Option pour créer un exécutable
-    if (option == "--create-exe" || option == "-c") {
-        if (argc != 4) {
+    if (option == "--create-exe" || option == "-c")
+    {
+        if (argc != 4)
+        {
             std::cerr << "Usage : " << argv[0] << " --create-exe <dir> <output>" << std::endl;
             return 1;
         }
         std::string dir = argv[2];
         std::string output = argv[3];
-        createExecutableWithDir(dir, output); // Crée l'exécutable avec le répertoire spécifié
-        return 0;
+        return createExecutableWithDir(dir, output) ? 0 : 1;
     }
 
-    // Option pour afficher l'aide
-    if (option == "--help" || option == "-h") {
-        printHelp();
-        return 0;
-    }
-
-    // Chemin vers le script Lua à exécuter
+    // Mode "exécution depuis un dossier"
     std::string path = argv[1];
-    std::string mainLuaPath = fs::path(path) / "main.lua";
+    fs::path projectDir = fs::absolute(path);
+    std::string mainLuaPath = (projectDir / "main.lua").string();
 
-    // Vérifie si le fichier main.lua existe dans le répertoire spécifié
-    if (!fs::exists(mainLuaPath)) {
+    if (!fs::exists(mainLuaPath))
+    {
         std::cerr << "Erreur : main.lua introuvable dans le répertoire " << path << std::endl;
         return 1;
     }
 
-    // Crée un nouvel état Lua et ouvre les bibliothèques Lua standard
     lua_State *L = luaL_newstate();
+    if (!L)
+    {
+        std::cerr << "Erreur : impossible d'allouer un état Lua" << std::endl;
+        return 1;
+    }
     luaL_openlibs(L);
-
-    // Enregistre les fonctions Lua personnalisées
+    register_bundled_modules(L);
     register_luapilot(L);
+    prepend_project_to_package_path(L, projectDir);
 
-    // Charge et exécute le script Lua
-    loadLuaFile(L, mainLuaPath);
+    // Runner de dossier : le "script" est le dossier lancé.
+    // arg[-1] = binaire luapilot, arg[0] = <dir>, arg[1..n] = args.
+    push_lua_arg(L, argc, argv, 1);
 
-    // Ferme l'état Lua
+    bool ok = loadLuaFile(L, mainLuaPath);
     lua_close(L);
-    return 0;
+    return ok ? 0 : 1;
 }

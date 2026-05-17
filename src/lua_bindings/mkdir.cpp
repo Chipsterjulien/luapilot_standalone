@@ -1,4 +1,5 @@
 #include "mkdir.hpp"
+#include "lua_utils.hpp"
 #include <filesystem>
 #include <system_error>
 
@@ -34,7 +35,7 @@ std::optional<std::string> create_directory(const std::string& path, bool ignore
                     }
                     break;
                 default:
-                    return "Error creating directory: " + dir_path.string() + " - " + ec.message();
+                    return "cannot create directory '" + dir_path.string() + "': " + ec.message();
             }
         }
     }
@@ -53,25 +54,20 @@ std::optional<std::string> create_directory(const std::string& path, bool ignore
  * @param L The Lua state.
  * @return int Number of return values (1: error message or nil).
  */
-int lua_mkdir(lua_State* L) {
+int lua_mkdir(lua_State *L)
+{
     int argc = lua_gettop(L);
-    if (argc < 1) {
+    if (argc < 1)
+    {
         return luaL_error(L, "Expected one argument");
     }
-
-    if (!lua_isstring(L, 1)) {
+    if (!lua_isstring(L, 1))
+    {
         return luaL_error(L, "Expected a string as argument");
     }
 
-    const char* path = luaL_checkstring(L, 1);
+    const char *path = luaL_checkstring(L, 1);
     bool ignore_if_exists = (argc > 1) ? lua_toboolean(L, 2) : false;
 
-    auto error_message = create_directory(path, ignore_if_exists);
-
-    if (error_message) {
-        lua_pushstring(L, error_message->c_str());
-    } else {
-        lua_pushnil(L);
-    }
-    return 1;
+    return push_action_result(L, create_directory(path, ignore_if_exists));
 }

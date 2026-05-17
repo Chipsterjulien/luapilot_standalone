@@ -1,0 +1,13 @@
+.idea/
+.vscode/
+build/
+downloads/
+*.zip
+*.tar.gz
+*.o
+*.a
+*.so
+*.out
+*.log
+.DS_Store
+test/luapilot

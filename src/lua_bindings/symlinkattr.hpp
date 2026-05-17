@@ -4,19 +4,16 @@
 #include <lua.hpp>
 
 /**
- * @brief Changes the attributes of a symbolic link.
+ * @brief Lua binding: changes the owner and group of a symbolic link itself
+ *        (does not follow the link, unlike a regular chown).
  *
- * This function takes three arguments from the Lua stack:
- * 1. The path to the symbolic link.
- * 2. The new owner (UID).
- * 3. The new group (GID).
- *
- * If it fails, it returns the error message to Lua.
- * If successful, it returns nil to Lua.
+ * Lua usage: ok, err = luapilot.symlinkattr(path, owner_uid, group_gid)
+ *   - ok = true  on success, err = nil
+ *   - ok = nil   on failure, err = error message
  *
  * @param L Lua state.
- * @return int Number of return values on the Lua stack.
+ * @return int Number of return values on the Lua stack (2).
  */
-int lua_symlinkattr(lua_State* L);
+int lua_symlinkattr(lua_State *L);
 
 #endif // SYMLINKATTR_HPP

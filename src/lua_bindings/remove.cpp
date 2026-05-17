@@ -1,4 +1,5 @@
 #include "remove.hpp"
+#include "lua_utils.hpp"
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -30,7 +31,7 @@ std::string remove_file(const std::string& path) {
             case static_cast<int>(std::errc::no_such_file_or_directory):
                 return "No such file or directory: " + path;
             default:
-                return "Error removing file: " + path + " : " + ec.message();
+                return "cannot remove file '" + path + "': " + ec.message();
         }
     }
     return "";
@@ -46,24 +47,23 @@ std::string remove_file(const std::string& path) {
  * @param L Pointer to the Lua state
  * @return Number of return values on the Lua stack (1: error message or nil).
  */
-int lua_remove_file(lua_State* L) {
-    // Check if there is one argument passed
+int lua_remove_file(lua_State *L)
+{
     int argc = lua_gettop(L);
-    if (argc != 1) {
+    if (argc != 1)
+    {
         return luaL_error(L, "Expected one argument");
     }
-
-    if (!lua_isstring(L, 1)) {
+    if (!lua_isstring(L, 1))
+    {
         return luaL_error(L, "Expected a string as argument");
     }
 
-    const char* path = lua_tostring(L, 1);
+    const char *path = lua_tostring(L, 1);
     std::string error_message = remove_file(path);
-
-    if (error_message.empty()) {
-        lua_pushnil(L); // No error
-    } else {
-        lua_pushstring(L, error_message.c_str());
+    if (error_message.empty())
+    {
+        return push_ok(L);
     }
-    return 1;  // One return value (error message or nil)
+    return push_fail(L, error_message);
 }

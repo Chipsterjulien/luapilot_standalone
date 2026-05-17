@@ -65,7 +65,7 @@ int lua_genericFunction(lua_State* L, Func func) {
         lua_pushnil(L);
     } else {
         lua_pushnil(L);
-        lua_pushstring(L, "Error processing path");
+        lua_pushstring(L, "cannot extract path component");
     }
     return 2;
 }

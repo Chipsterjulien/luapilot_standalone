@@ -1,55 +1,39 @@
 #include "fileExists.hpp"
+#include "lua_utils.hpp"
 #include <filesystem>
 #include <system_error>
+#include <string>
+#include <string_view>
 
 namespace fs = std::filesystem;
 
-/**
- * @brief Check if a file exists and is a regular file.
- *
- * @param path The file path to check.
- * @return std::optional<std::string> An optional containing an error message if any.
- */
-std::optional<std::string> fileExists(std::string_view path) {
-    std::error_code ec;
-    fs::path fsPath(path);
-
-    // Combine existence and regular file checks into one using &&
-    if (!fs::exists(fsPath, ec) || !fs::is_regular_file(fsPath, ec)) {
-        if (ec) {
-            return "Error checking file: " + ec.message();
-        } else {
-            return "Path exists but is not a regular file: " + fsPath.string();
-        }
-    }
-
-    return std::nullopt; // File exists and is a regular file
-}
-
-/**
- * @brief Lua binding for checking if a file exists.
- *
- * @param L The Lua state.
- * @return int Number of return values (2: fileFound boolean and error message or nil).
- *
- * @note Lua usage: fileFound, err = lua_fileExists(path)
- *   - path: The file path to check.
- */
-int lua_fileExists(lua_State* L) {
-    // Check if there is one argument passed and it is a string
-    if (lua_gettop(L) != 1 || !lua_isstring(L, 1)) {
+int lua_fileExists(lua_State *L)
+{
+    if (lua_gettop(L) != 1 || !lua_isstring(L, 1))
+    {
         return luaL_error(L, "Expected one string argument");
     }
 
-    // Get the file path from the Lua arguments
-    std::string_view path = luaL_checkstring(L, 1);
+    size_t len;
+    const char *path_data = lua_tolstring(L, 1, &len);
+    fs::path path(std::string_view(path_data, len));
 
-    // Check if the file exists
-    auto error_message = fileExists(path);
+    std::error_code ec;
+    fs::file_status status = fs::status(path, ec);
 
-    // Push the result onto the Lua stack using the ternary operator for concise error handling
-    lua_pushboolean(L, !error_message.has_value());
-    lua_pushstring(L, error_message ? error_message->c_str() : nullptr);
+    // "N'existe pas" n'est PAS une erreur : c'est une réponse légitime (false).
+    // On ne remonte une vraie erreur que si ec est positionné ET que ce n'est
+    // pas un simple "fichier introuvable".
+    if (ec && ec != std::errc::no_such_file_or_directory)
+    {
+        return push_fail(L, "cannot check '" + path.string() + "': " + ec.message());
+    }
 
-    return 2; // Two return values (fileFound boolean and error message or nil)
+    // À ce stade : soit le fichier existe (status valide), soit il n'existe pas
+    // (status == not_found). is_regular_file gère les deux cas proprement.
+    bool is_regular = fs::is_regular_file(status);
+
+    lua_pushboolean(L, is_regular);
+    lua_pushnil(L);
+    return 2;
 }

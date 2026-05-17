@@ -1,30 +1,16 @@
 #ifndef FILEEXISTS_HPP
 #define FILEEXISTS_HPP
 
-#include <utility>
-#include <string>
-#include <filesystem>
-#include <optional>
-#include <string_view>
 #include <lua.hpp>
 
 /**
- * @brief Check if a file exists and is a regular file.
+ * @brief Lua binding for checking if a path is an existing regular file.
  *
- * @param path The file path to check.
- * @return std::optional<std::string> An optional containing an error message if any.
+ * Lua usage: exists, err = luapilot.fileExists(path)
+ *   - exists = true   : path is an existing regular file
+ *   - exists = false  : path does not exist, or is not a regular file
+ *   - exists = nil    : a filesystem error occurred (err holds the message)
  */
-std::optional<std::string> fileExists(std::string_view path);
-
-/**
- * @brief Lua binding for checking if a file exists.
- *
- * @param L The Lua state.
- * @return int Number of return values (2: fileFound boolean and error message or nil).
- *
- * @note Lua usage: fileFound, err = lua_fileExists(path)
- *   - path: The file path to check.
- */
-int lua_fileExists(lua_State* L);
+int lua_fileExists(lua_State *L);
 
 #endif // FILEEXISTS_HPP

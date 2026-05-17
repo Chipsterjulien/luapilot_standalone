@@ -1,4 +1,5 @@
 #include "rename.hpp"
+#include "lua_utils.hpp"
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -55,7 +56,7 @@ std::string rename_file(std::string_view old_path, std::string_view new_path) {
             case static_cast<int>(std::errc::file_exists):
                 return "File already exists at destination: " + std::string(new_path);
             default:
-                return "Error renaming file or directory: " + std::string(old_path) + " to " + std::string(new_path) + " : " + ec.message();
+                return "cannot rename '" + std::string(old_path) + "' to '" + std::string(new_path) + "': " + ec.message();
         }
     }
 
@@ -72,27 +73,25 @@ std::string rename_file(std::string_view old_path, std::string_view new_path) {
  * @param L Pointer to the Lua state
  * @return Number of return values on the Lua stack (1: error message or nil).
  */
-int lua_rename(lua_State* L) {
-    // Check if there are two arguments passed
+int lua_rename(lua_State *L)
+{
     int argc = lua_gettop(L);
-    if (argc != 2) {
+    if (argc != 2)
+    {
         return luaL_error(L, "Expected two arguments");
     }
-
-    if (!lua_isstring(L, 1) || !lua_isstring(L, 2)) {
+    if (!lua_isstring(L, 1) || !lua_isstring(L, 2))
+    {
         return luaL_error(L, "Expected two strings as arguments");
     }
 
-    const char* old_path = lua_tostring(L, 1);
-    const char* new_path = lua_tostring(L, 2);
+    const char *old_path = lua_tostring(L, 1);
+    const char *new_path = lua_tostring(L, 2);
 
     std::string error_message = rename_file(old_path, new_path);
-
-    if (error_message.empty()) {
-        lua_pushnil(L);
-    } else {
-        lua_pushstring(L, error_message.c_str());
+    if (error_message.empty())
+    {
+        return push_ok(L);
     }
-    return 1;  // One return value (error message or nil)
+    return push_fail(L, error_message);
 }
-

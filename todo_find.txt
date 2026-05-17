@@ -1,0 +1,10 @@
+TsT> Chipster find a une tonne d'option mais dans celles les plus utiles a ré-implementer je dirais qu'il y a
+<TsT> 1) le parcours d'arborescence avec limite de profondeur (-mindepth et -maxdepth)
+<TsT> 2) le filtrage de type de fichier (-type)
+<TsT> 3) le match des noms de fichiers (-name ou -iname pour l'insensitive)
+<TsT> 4) le match dans autre chose que juste le nom de fichier (-path)
+<TsT> 5) (moins connu mais important a mes yeux) l'option pour rester sur le meme filesystem (-mount aka -xdev)
+<TsT> 6) en shell script l'output avec séparateur NULL (-print0) mais en lua ca sans doute inutile puisque la donnée sera sans doute déjà bien gérée (si la réponse est dans une table les éléments sont déjà bien distinct)
+<TsT> au final je penses que la fonction find en lua aura surtout besoin d'être designée de facon a pouvoir ajouter des fonctions de filtrage sur chaque entrée
+<TsT> je crois que javais deja coder un find qui s'appuis sur lfs
+<TsT> https://github.com/tst2005/lua-lfs-find/

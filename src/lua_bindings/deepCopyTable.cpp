@@ -1,114 +1,119 @@
 #include "deepCopyTable.hpp"
-#include <unordered_map>
 #include <cassert>
 
-#define LUA_CHECK_STACK(L, n) assert(lua_gettop(L) >= (n))
-
 /**
- * @brief Recursively deep copies a Lua table.
+ * @brief Copie profondément la table à `srcIndex` (voir deepCopyTable.hpp).
  *
- * @param L The Lua state.
- * @param srcIndex Index of the source table.
- * @param destIndex Index of the destination table.
- * @param nextNumericKey The next numeric key to use in the destination table.
- * @param depth Current depth of recursion.
- * @param maxDepth Maximum allowed depth for recursion.
- * @param visited Tables already visited to detect cycles.
- * @return True if successful, false otherwise.
+ * Principe pour les cycles : la copie d'une table est enregistrée dans
+ * `visited` AVANT de parcourir ses éléments. Ainsi, si le parcours retombe
+ * sur la même table source (cycle direct ou indirect, ou sous-table
+ * partagée), on réutilise la copie déjà créée au lieu d'en refaire une.
  */
-bool deepCopyTable(lua_State *L, int srcIndex, int destIndex, int &nextNumericKey, int depth, int maxDepth, VisitedMap& visited) {
-    LUA_CHECK_STACK(L, 2);
+bool deepCopyTable(lua_State *L, int srcIndex, int depth, int maxDepth, VisitedMap &visited)
+{
+    assert(lua_istable(L, srcIndex));
 
-    if (depth > maxDepth) {
+    if (depth > maxDepth)
+    {
         return false;
     }
 
-    const void* srcPointer = lua_topointer(L, srcIndex);
-    if (visited.find(srcPointer) != visited.end()) {
-        lua_pushvalue(L, srcIndex);
-        lua_settable(L, destIndex);
+    // Index absolu : la pile va grandir, un index relatif deviendrait faux.
+    srcIndex = lua_absindex(L, srcIndex);
+
+    const void *srcPointer = lua_topointer(L, srcIndex);
+
+    // Déjà copiée ? On réutilise la copie existante (gère cycles + partage).
+    auto it = visited.find(srcPointer);
+    if (it != visited.end())
+    {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, it->second); // pousse la copie
         return true;
     }
 
-    visited[srcPointer] = true;
+    // Nouvelle table de destination.
+    lua_newtable(L);
+    int copyIndex = lua_absindex(L, -1);
 
-    lua_pushnil(L); // First key
-    while (lua_next(L, srcIndex) != 0) {
-        int valueIndex = lua_gettop(L);
+    // On enregistre la copie dans le registre AVANT de parcourir la source,
+    // pour que les références cycliques retrouvent cette copie-ci.
+    lua_pushvalue(L, copyIndex);              // duplique la copie
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX); // luaL_ref dépile le doublon
+    visited[srcPointer] = ref;
+
+    // Parcours de toutes les paires (clé, valeur) de la source.
+    lua_pushnil(L);
+    while (lua_next(L, srcIndex) != 0)
+    {
+        // Pile : ..., copy, key, value
+        int valueIndex = lua_absindex(L, -1);
         int keyIndex = valueIndex - 1;
 
-        if (lua_type(L, keyIndex) != LUA_TNUMBER) {
-            lua_pushvalue(L, keyIndex);
-            if (lua_istable(L, valueIndex)) {
-                lua_newtable(L);
-                if (!deepCopyTable(L, valueIndex, lua_gettop(L), nextNumericKey, depth + 1, maxDepth, visited)) {
-                    return false;
-                }
-                lua_settable(L, destIndex);
-            } else {
-                lua_pushvalue(L, valueIndex);
-                lua_settable(L, destIndex);
-            }
-        }
-        lua_pop(L, 1);
-    }
+        // On duplique la clé (l'originale doit rester pour lua_next).
+        // Les clés sont réutilisées telles quelles, pas copiées en profondeur.
+        lua_pushvalue(L, keyIndex); // ..., copy, key, value, keyDup
 
-    for (int i = 1;; ++i) {
-        lua_rawgeti(L, srcIndex, i);
-        if (lua_isnil(L, -1)) {
-            lua_pop(L, 1);
-            break;
-        }
-
-        if (lua_istable(L, -1)) {
-            lua_newtable(L);
-            if (!deepCopyTable(L, lua_gettop(L) - 1, lua_gettop(L), nextNumericKey, depth + 1, maxDepth, visited)) {
+        // Préparation de la valeur copiée, posée au sommet.
+        if (lua_istable(L, valueIndex))
+        {
+            if (!deepCopyTable(L, valueIndex, depth + 1, maxDepth, visited))
+            {
+                // Échec en profondeur : on restaure la pile de ce niveau
+                // (keyDup, value, key, copy) avant de propager l'échec.
+                lua_pop(L, 4);
                 return false;
             }
-            lua_rawseti(L, destIndex, nextNumericKey++);
-        } else {
-            lua_pushvalue(L, -1);
-            lua_rawseti(L, destIndex, nextNumericKey++);
+            // ..., copy, key, value, keyDup, valueCopy
+        }
+        else
+        {
+            lua_pushvalue(L, valueIndex); // ..., copy, key, value, keyDup, valueCopy
         }
 
-        lua_pop(L, 1);
+        // copy[keyDup] = valueCopy ; lua_settable dépile keyDup et valueCopy.
+        lua_settable(L, copyIndex); // ..., copy, key, value
+
+        lua_pop(L, 1); // retire value, garde key
+        // ..., copy, key
     }
 
-    if (lua_getmetatable(L, srcIndex)) {
-        lua_setmetatable(L, destIndex);
+    // La métatable est PARTAGÉE avec la source (comportement standard d'un
+    // deep copy : on ne recopie pas la métatable elle-même).
+    if (lua_getmetatable(L, srcIndex))
+    {
+        lua_setmetatable(L, copyIndex);
     }
 
+    // La copie est au sommet de la pile.
     return true;
 }
 
-/**
- * @brief Lua binding for deep copying a Lua table.
- *
- * This function can be called from Lua with a table as the only argument.
- * It returns a deep copy of the input table.
- *
- * Lua usage:
- *     copiedTable = deepCopyTable(originalTable)
- *
- * @param L The Lua state.
- * @return int The number of values returned to Lua (1 in this case: the copied table).
- */
-int lua_deepCopyTable(lua_State *L) {
-    if (lua_gettop(L) != 1) {
+int lua_deepCopyTable(lua_State *L)
+{
+    if (lua_gettop(L) != 1)
+    {
         return luaL_error(L, "Expected one argument (a table)");
     }
-
-    if (!lua_istable(L, 1)) {
+    if (!lua_istable(L, 1))
+    {
         return luaL_error(L, "Argument must be a table");
     }
 
-    lua_newtable(L);
-
-    int nextNumericKey = 1;
     VisitedMap visited;
-    if (!deepCopyTable(L, 1, lua_gettop(L), nextNumericKey, 0, MAX_DEPTH, visited)) {
-        return luaL_error(L, "Table is too deep to copy");
+    bool ok = deepCopyTable(L, 1, 0, MAX_DEPTH, visited);
+
+    // Libère toutes les références registre créées pour la détection de
+    // cycles, qu'on ait réussi ou échoué : sinon fuite dans le registre Lua.
+    for (const auto &entry : visited)
+    {
+        luaL_unref(L, LUA_REGISTRYINDEX, entry.second);
     }
 
+    if (!ok)
+    {
+        return luaL_error(L, "Table is too deep to copy (max depth %d exceeded)", MAX_DEPTH);
+    }
+
+    // deepCopyTable a poussé la copie au sommet de la pile.
     return 1;
 }

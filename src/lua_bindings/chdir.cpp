@@ -1,4 +1,5 @@
 #include "chdir.hpp"
+#include "lua_utils.hpp"
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -20,12 +21,12 @@ std::optional<std::string> chdir(const fs::path& path) {
     // Convert relative path to absolute path and then to canonical path
     fs::path absolute_path = fs::absolute(path, ec);
     if (ec) {
-        return "Error resolving absolute path for '" + path.string() + "': " + ec.message();
+        return "cannot resolve absolute path for '" + path.string() + "': " + ec.message();
     }
 
     fs::path canonical_path = fs::canonical(absolute_path, ec);
     if (ec) {
-        return "Error resolving canonical path for '" + absolute_path.string() + "': " + ec.message();
+        return "cannot resolve canonical path '" + absolute_path.string() + "': " + ec.message();
     }
 
     // Check if the path is a directory
@@ -36,7 +37,7 @@ std::optional<std::string> chdir(const fs::path& path) {
     // Change current working directory
     fs::current_path(canonical_path, ec);
     if (ec) {
-        return "Error changing directory to '" + canonical_path.string() + "': " + ec.message();
+        return "cannot change directory to '" + canonical_path.string() + "': " + ec.message();
     }
     return std::nullopt;
 }
@@ -49,24 +50,16 @@ std::optional<std::string> chdir(const fs::path& path) {
  * @note Lua usage: error_message = lua_chdir(path)
  *   - path: The directory path to change to.
  */
-int lua_chdir(lua_State* L) {
-    // Check if there is one string argument
+int lua_chdir(lua_State *L)
+{
     size_t len;
-    const char* path_cstr = luaL_checklstring(L, 1, &len);
-    if (!path_cstr) {
+    const char *path_cstr = luaL_checklstring(L, 1, &len);
+    if (!path_cstr)
+    {
         return luaL_error(L, "Expected one string argument");
     }
 
     fs::path path(std::string_view(path_cstr, len));
 
-    // Change directory
-    auto result = chdir(path);
-    if (result) {
-        lua_pushnil(L);
-        lua_pushlstring(L, result->c_str(), result->size()); // Error, push error message
-        return 2;
-    } else {
-        lua_pushnil(L); // Success, push nil
-        return 1;
-    }
+    return push_action_result(L, chdir(path));
 }

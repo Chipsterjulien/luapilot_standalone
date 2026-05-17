@@ -1,0 +1,21 @@
+[ ] Implémenter les fonctions zip, unzip, tar, untar …
+
+
+[x] os.path.join()
+[x] os.path.exists()
+[x] os.path.isdir()
+[x] os.path.isfile()
+[x] os.remove()
+[x] os.rename()
+[x] shutil.copy()
+[x] shutil.move()
+[x] md5sum
+[x] shasum
+[x] Uniformiser et tout mettre en C++ 23
+[x] Utiliser #include <system_error> partout (tout ce qui est avant moveTree.cpp)
+[x] Vérifier que je passe bien le bon nombre de paramètre à la fonction lua avant d'aller plus loin dans le code
+[x] Utiliser return luaL_error(L, "Table must contain only strings"); quand c'est possible au lieu d'avoir 2 lignes de code pour faire la même chose
+[x] Refaire les fonctions du project_core
+
+
+

@@ -1,95 +1,151 @@
 #include "mode.hpp"
+#include "lua_utils.hpp"
 #include <filesystem>
 #include <system_error>
+#include <string>
+#include <optional>
 #include <lua.hpp>
 
 namespace fs = std::filesystem;
 
+namespace
+{
+
+    /**
+     * @brief Résout le mode demandé en valeur numérique, quelle que soit la forme
+     *        passée côté Lua.
+     *
+     * Accepte :
+     *   - une string  : interprétée en base 8 ("755" -> 0o755). Réflexe chmod.
+     *   - un nombre   : pris tel quel (l'utilisateur a déjà la valeur décimale,
+     *                   p.ex. via tonumber("755", 8)).
+     *
+     * @return le mode (0..07777) en cas de succès, ou un message d'erreur.
+     */
+    std::optional<long> resolve_mode(lua_State *L, int index, std::string &error_out)
+    {
+        if (lua_type(L, index) == LUA_TSTRING)
+        {
+            const char *mode_str = lua_tostring(L, index);
+
+            // Refuse une chaîne vide.
+            if (mode_str[0] == '\0')
+            {
+                error_out = "mode string is empty";
+                return std::nullopt;
+            }
+
+            char *endptr = nullptr;
+            long mode = std::strtol(mode_str, &endptr, 8);
+
+            // strtol s'arrête au premier caractère invalide. Si endptr ne pointe
+            // pas sur le '\0' final, c'est qu'il y avait un caractère non-octal
+            // (un '8', un '9', une lettre, un espace...).
+            if (*endptr != '\0')
+            {
+                error_out = "invalid octal mode string: '" + std::string(mode_str) + "'";
+                return std::nullopt;
+            }
+
+            return mode;
+        }
+
+        if (lua_type(L, index) == LUA_TNUMBER)
+        {
+            // On exige un entier : un mode 0.5 n'a aucun sens.
+            if (!lua_isinteger(L, index))
+            {
+                error_out = "numeric mode must be an integer";
+                return std::nullopt;
+            }
+            return static_cast<long>(lua_tointeger(L, index));
+        }
+
+        error_out = "mode must be a string (e.g. \"755\") or an integer";
+        return std::nullopt;
+    }
+
+} // namespace
+
 /**
  * @brief Changes the permissions of a file or directory.
  *
- * This function takes two arguments from the Lua stack:
- * 1. The path to the file or directory.
- * 2. The new permissions (mode) in octal format.
- *
- * If it fails, it returns the error message to Lua.
- * If successful, it returns nil to Lua.
+ * Lua usage:
+ *   ok, err = luapilot.setMode(path, "755")   -- string, lue en octal
+ *   ok, err = luapilot.setMode(path, 493)     -- nombre, pris tel quel
  *
  * @param L Lua state.
- * @return int Number of return values on the Lua stack.
+ * @return int Number of return values on the Lua stack (2: ok/nil, err/nil).
  */
-int lua_setmode(lua_State* L) {
-    // Check if there is one argument passed
+int lua_setmode(lua_State *L)
+{
     int argc = lua_gettop(L);
-    if (argc != 2) {
-        return luaL_error(L, "Expected two arguments");
+    if (argc != 2)
+    {
+        return luaL_error(L, "Expected two arguments: path and mode");
+    }
+    if (!lua_isstring(L, 1))
+    {
+        return luaL_error(L, "Expected a string as first argument (path)");
     }
 
-    // Check that the argument is a string
-    if (!lua_isstring(L, 1)) {
-        return luaL_error(L, "Expected a string as first argument");
+    const char *path = luaL_checkstring(L, 1);
+
+    std::string mode_error;
+    auto mode_opt = resolve_mode(L, 2, mode_error);
+    if (!mode_opt)
+    {
+        return push_fail(L, mode_error);
     }
 
-    if (!lua_isinteger(L, 2)) {
-        return luaL_error(L, "Expected an integer as second argument");
-    }
-
-    const char* path = luaL_checkstring(L, 1);
-    const char* mode_str = luaL_checkstring(L, 2);
-
-    // Convert the mode string to an octal mode_t value
-    char *endptr;
-    mode_t mode = static_cast<mode_t>(strtol(mode_str, &endptr, 8));
-    if (*endptr != '\0') {
-        return luaL_error(L, "Invalid mode value");
+    long mode = *mode_opt;
+    if (mode < 0 || mode > 07777)
+    {
+        return push_fail(L, "mode out of range (must be between 0 and 0o7777)");
     }
 
     std::error_code ec;
     fs::permissions(path, static_cast<fs::perms>(mode), ec);
-    if (ec) {
-        lua_pushstring(L, ec.message().c_str());
-        return 1;
+    if (ec)
+    {
+        return push_fail(L, ec.message());
     }
-
-    lua_pushnil(L);
-    return 1;
+    return push_ok(L);
 }
 
 /**
  * @brief Gets the permissions of a file or directory.
  *
- * This function takes one argument from the Lua stack:
- * 1. The path to the file or directory.
- *
- * If it fails, it returns the error message to Lua.
- * If successful, it returns the permissions (mode) in octal format.
+ * Lua usage: mode, err = luapilot.getMode(path)
+ *   - mode : permission bits as an integer (0..0o777)
  *
  * @param L Lua state.
- * @return int Number of return values on the Lua stack.
+ * @return int Number of return values on the Lua stack (2: mode/nil, err/nil).
  */
-int lua_getmode(lua_State* L) {
-    // Check if there is one argument passed
+int lua_getmode(lua_State *L)
+{
     int argc = lua_gettop(L);
-    if (argc != 1) {
+    if (argc != 1)
+    {
         return luaL_error(L, "Expected one argument");
     }
-
-    // Check that the argument is a string
-    if (!lua_isstring(L, 1)) {
+    if (!lua_isstring(L, 1))
+    {
         return luaL_error(L, "Expected a string as argument");
     }
 
-    const char* path = luaL_checkstring(L, 1);
+    const char *path = luaL_checkstring(L, 1);
 
     std::error_code ec;
     auto perms = fs::status(path, ec).permissions();
-    if (ec) {
+    if (ec)
+    {
         lua_pushnil(L);
         lua_pushstring(L, ec.message().c_str());
         return 2;
     }
 
-    lua_pushinteger(L, static_cast<int>(perms) & 0777); // Mask to get only the permission bits
+    lua_pushinteger(L, static_cast<int>(perms) & 0777);
     lua_pushnil(L);
     return 2;
 }

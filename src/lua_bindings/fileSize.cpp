@@ -45,7 +45,7 @@ int lua_fileSize(lua_State* L) {
         std::error_code ec;
         fs::path filePath(path);
         bool fileExists = fs::exists(filePath, ec); // Check existence and get the error code
-        std::string error_message = ec ? "Error: " + ec.message() : (fileExists ? "File is not a regular file." : "File does not exist.");
+        std::string error_message = ec ? ec.message() : (fileExists ? "path is not a regular file" : "path does not exist");
         lua_pushnil(L);
         lua_pushstring(L, error_message.c_str());
     }

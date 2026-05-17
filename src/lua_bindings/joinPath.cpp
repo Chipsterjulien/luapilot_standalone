@@ -12,44 +12,59 @@
  * @param segments Reference to the vector where segments will be stored
  * @return Error message if any, otherwise an empty optional
  */
-std::optional<std::string> get_segments(lua_State* L, std::vector<std::string>& segments) {
-    if (lua_istable(L, 1)) {
-        if (lua_rawlen(L, 1) < 2) {
+std::optional<std::string> get_segments(lua_State *L, std::vector<std::string> &segments)
+{
+    if (lua_istable(L, 1))
+    {
+        if (lua_rawlen(L, 1) < 2)
+        {
             return "Table must contain at least two strings";
         }
 
         lua_pushnil(L);
-        while (lua_next(L, 1) != 0) {
-            if (lua_isstring(L, -1)) {
-                size_t len;
-                const char* segment = lua_tolstring(L, -1, &len);
-                if (len == 0) {
-                    return "Segments cannot be empty";
-                }
-                segments.emplace_back(segment, len);
-            } else {
+        while (lua_next(L, 1) != 0)
+        {
+            // Pile : ..., table, key, value
+            // Toute sortie anticipée doit pop key+value pour ne pas laisser
+            // de débris au-dessus des valeurs de retour du binding.
+            if (!lua_isstring(L, -1))
+            {
+                lua_pop(L, 2);
                 return "Table contains non-string elements";
             }
-            lua_pop(L, 1);
+            size_t len;
+            const char *segment = lua_tolstring(L, -1, &len);
+            if (len == 0)
+            {
+                lua_pop(L, 2);
+                return "Segments cannot be empty";
+            }
+            segments.emplace_back(segment, len);
+            lua_pop(L, 1); // pop value, keep key for lua_next
         }
-    } else {
+    }
+    else
+    {
         int n = lua_gettop(L);
-        if (n < 2) {
+        if (n < 2)
+        {
             return "Expected at least two string arguments";
         }
 
-        segments.reserve(n); // Reserve space for performance
-        for (int i = 1; i <= n; ++i) {
-            if (lua_isstring(L, i)) {
-                size_t len;
-                const char* segment = lua_tolstring(L, i, &len);
-                if (len == 0) {
-                    return "Segments cannot be empty";
-                }
-                segments.emplace_back(segment, len);
-            } else {
+        segments.reserve(n);
+        for (int i = 1; i <= n; ++i)
+        {
+            if (!lua_isstring(L, i))
+            {
                 return "All arguments must be strings";
             }
+            size_t len;
+            const char *segment = lua_tolstring(L, i, &len);
+            if (len == 0)
+            {
+                return "Segments cannot be empty";
+            }
+            segments.emplace_back(segment, len);
         }
     }
 
@@ -65,21 +80,28 @@ std::optional<std::string> get_segments(lua_State* L, std::vector<std::string>& 
  * @param segments Vector of strings representing the path segments
  * @return A std::optional<std::string> representing the complete joined path or an error message
  */
-std::optional<std::string> join(const std::vector<std::string>& segments) {
-    if (segments.empty()) {
+std::optional<std::string> join(const std::vector<std::string> &segments)
+{
+    if (segments.empty())
+    {
         return "No segments provided";
     }
 
     std::string path = segments.front();
 
-    for (size_t i = 1; i < segments.size(); ++i) {
-        const auto& segment = segments[i];
-        if (segment.empty()) {
+    for (size_t i = 1; i < segments.size(); ++i)
+    {
+        const auto &segment = segments[i];
+        if (segment.empty())
+        {
             return "Empty segment found";
         }
-        if (path.back() != '/' && segment.front() != '/') {
+        if (path.back() != '/' && segment.front() != '/')
+        {
             path += '/';
-        } else if (path.back() == '/' && segment.front() == '/') {
+        }
+        else if (path.back() == '/' && segment.front() == '/')
+        {
             path.pop_back();
         }
         path += segment;
@@ -94,28 +116,31 @@ std::optional<std::string> join(const std::vector<std::string>& segments) {
  * This function is called from Lua to join multiple path segments.
  * It can take either a Lua table containing strings representing path segments
  * or multiple string arguments representing path segments.
- * It returns a single string representing the complete path.
  *
  * @param L Pointer to the Lua state
- * @return Number of return values on the Lua stack (1 on success: the joined path, or nil and an error message on failure)
+ * @return Number of return values on the Lua stack
+ *         (1 on success: the joined path, or 2 (nil + error message) on failure)
  */
-int lua_joinPath(lua_State* L) {
+int lua_joinPath(lua_State *L)
+{
     std::vector<std::string> segments;
     auto error = get_segments(L, segments);
 
-    if (error) {
+    if (error)
+    {
         lua_pushnil(L);
         lua_pushstring(L, error->c_str());
-        return 2; // Return nil and error message
+        return 2;
     }
 
     auto result = join(segments);
-    if (!result) {
+    if (!result)
+    {
         lua_pushnil(L);
         lua_pushstring(L, result.value_or("Unknown error").c_str());
-        return 2; // Return nil and error message
+        return 2;
     }
 
     lua_pushstring(L, result->c_str());
-    return 1; // Return the joined path
+    return 1;
 }

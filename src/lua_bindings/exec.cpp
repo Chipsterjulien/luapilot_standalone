@@ -1,0 +1,704 @@
+#include "exec.hpp"
+#include "lua_utils.hpp"
+
+#include <string>
+#include <vector>
+#include <utility>
+#include <cmath>
+#include <cstring>
+#include <cerrno>
+#include <csignal>
+#include <ctime>
+
+#include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <sys/wait.h>
+
+namespace
+{
+
+    // Plafond par défaut, PAR FLUX (stdout et stderr séparément), de la
+    // sortie capturée. Protège la RAM contre une commande intarissable.
+    // Surchargable via opts.max_output.
+    constexpr size_t DEFAULT_MAX_OUTPUT = 10 * 1024 * 1024; // 10 Mio
+
+    // Borne haute FONCTIONNELLE de max_output : 2 Gio. Au-delà, capturer
+    // en RAM n'a plus de sens (mieux vaut un fichier / du streaming).
+    // 2 Gio == 2^31, exactement représentable en double : la comparaison
+    // double évite à la fois l'UB du cast d'une valeur délirante et le
+    // piège de SIZE_MAX (non représentable exactement en double, qui
+    // arrondit au-dessus et laisserait passer un dépassement).
+    constexpr size_t MAX_MAX_OUTPUT = 2ull * 1024 * 1024 * 1024; // 2 Gio
+
+    // Construit argv depuis cmd + la table Lua à l'index `idx`.
+    // argv[0] = cmd. Renvoie false et remplit `err` en cas d'argument invalide.
+    bool collect_args(lua_State *L, int idx, const std::string &cmd,
+                      std::vector<std::string> &out, std::string &err)
+    {
+        out.push_back(cmd); // argv[0] = nom du programme
+
+        if (lua_isnoneornil(L, idx))
+        {
+            return true; // pas d'arguments, valide
+        }
+        if (!lua_istable(L, idx))
+        {
+            err = "args must be a table";
+            return false;
+        }
+
+        lua_Integer n = luaL_len(L, idx);
+        for (lua_Integer i = 1; i <= n; ++i)
+        {
+            lua_geti(L, idx, i);
+            if (lua_type(L, -1) != LUA_TSTRING)
+            {
+                lua_pop(L, 1);
+                err = "args must contain only strings";
+                return false;
+            }
+            out.push_back(lua_tostring(L, -1));
+            lua_pop(L, 1);
+        }
+        return true;
+    }
+
+    // Lit opts.cwd, opts.env, opts.stdin et opts.timeout depuis la table `idx`.
+    bool collect_opts(lua_State *L, int idx,
+                      std::string &cwd, bool &has_cwd,
+                      std::vector<std::pair<std::string, std::string>> &env,
+                      std::string &stdin_data, bool &has_stdin,
+                      double &timeout, bool &has_timeout,
+                      size_t &max_output,
+                      std::string &err)
+    {
+        has_cwd = false;
+        has_stdin = false;
+        has_timeout = false;
+        if (lua_isnoneornil(L, idx))
+        {
+            return true; // pas d'options
+        }
+        if (!lua_istable(L, idx))
+        {
+            err = "opts must be a table";
+            return false;
+        }
+
+        // opts.cwd
+        lua_getfield(L, idx, "cwd");
+        if (!lua_isnil(L, -1))
+        {
+            if (lua_type(L, -1) != LUA_TSTRING)
+            {
+                lua_pop(L, 1);
+                err = "opts.cwd must be a string";
+                return false;
+            }
+            cwd = lua_tostring(L, -1);
+            has_cwd = true;
+        }
+        lua_pop(L, 1);
+
+        // opts.stdin
+        lua_getfield(L, idx, "stdin");
+        if (!lua_isnil(L, -1))
+        {
+            if (lua_type(L, -1) != LUA_TSTRING)
+            {
+                lua_pop(L, 1);
+                err = "opts.stdin must be a string";
+                return false;
+            }
+            size_t len;
+            const char *data = lua_tolstring(L, -1, &len);
+            stdin_data.assign(data, len);
+            has_stdin = true;
+        }
+        lua_pop(L, 1);
+
+        // opts.timeout (en secondes, > 0)
+        lua_getfield(L, idx, "timeout");
+        if (!lua_isnil(L, -1))
+        {
+            if (lua_type(L, -1) != LUA_TNUMBER)
+            {
+                lua_pop(L, 1);
+                err = "opts.timeout must be a number";
+                return false;
+            }
+            timeout = lua_tonumber(L, -1);
+            if (timeout <= 0)
+            {
+                lua_pop(L, 1);
+                err = "opts.timeout must be greater than 0";
+                return false;
+            }
+            has_timeout = true;
+        }
+        lua_pop(L, 1);
+
+        // opts.max_output (octets, > 0). Plafond PAR FLUX de la sortie
+        // capturée. Absent -> défaut appliqué par l'appelant.
+        lua_getfield(L, idx, "max_output");
+        if (!lua_isnil(L, -1))
+        {
+            if (lua_type(L, -1) != LUA_TNUMBER)
+            {
+                lua_pop(L, 1);
+                err = "opts.max_output must be a number";
+                return false;
+            }
+            double mo = lua_tonumber(L, -1);
+            if (mo <= 0)
+            {
+                lua_pop(L, 1);
+                err = "opts.max_output must be greater than 0";
+                return false;
+            }
+            if (std::floor(mo) != mo)
+            {
+                lua_pop(L, 1);
+                err = "opts.max_output must be an integer number of bytes";
+                return false;
+            }
+            if (mo > static_cast<double>(MAX_MAX_OUTPUT))
+            {
+                lua_pop(L, 1);
+                err = "opts.max_output too large (max 2 GiB; redirect to "
+                      "a file or stream beyond that)";
+                return false;
+            }
+            max_output = static_cast<size_t>(mo);
+        }
+        lua_pop(L, 1);
+
+        // opts.env
+        lua_getfield(L, idx, "env");
+        if (!lua_isnil(L, -1))
+        {
+            if (!lua_istable(L, -1))
+            {
+                lua_pop(L, 1);
+                err = "opts.env must be a table";
+                return false;
+            }
+            int env_idx = lua_gettop(L); // index ABSOLU de la table env
+            lua_pushnil(L);
+            while (lua_next(L, env_idx) != 0)
+            {
+                if (lua_type(L, -2) != LUA_TSTRING ||
+                    lua_type(L, -1) != LUA_TSTRING)
+                {
+                    lua_pop(L, 3); // value, key, env_table
+                    err = "opts.env must map strings to strings";
+                    return false;
+                }
+                env.emplace_back(lua_tostring(L, -2), lua_tostring(L, -1));
+                lua_pop(L, 1); // pop value, keep key pour lua_next
+            }
+        }
+        lua_pop(L, 1); // pop env table (ou le nil)
+
+        return true;
+    }
+
+    // Lit tout ce qui est disponible sur un fd non-bloquant.
+    // Renvoie false si EOF ou erreur (le fd est terminé), true s'il reste ouvert.
+    //
+    // `buffer` ne dépasse jamais `max_bytes` : on garde les PREMIERS
+    // octets, on jette le surplus et on positionne `truncated`. Crucial :
+    // même une fois la limite atteinte, on CONTINUE à lire le pipe pour
+    // le vider — sinon le process bloquerait sur write() (pipe plein) et
+    // on réintroduirait le deadlock que le test "grosse sortie sans
+    // deadlock" couvre justement. On jette, mais on draine.
+    bool drain_fd(int fd, std::string &buffer, size_t max_bytes, bool &truncated)
+    {
+        char tmp[4096];
+        while (true)
+        {
+            ssize_t n = read(fd, tmp, sizeof(tmp));
+            if (n > 0)
+            {
+                size_t got = static_cast<size_t>(n);
+                if (buffer.size() < max_bytes)
+                {
+                    size_t room = max_bytes - buffer.size();
+                    if (got <= room)
+                    {
+                        buffer.append(tmp, got);
+                    }
+                    else
+                    {
+                        buffer.append(tmp, room);
+                        truncated = true; // surplus jeté
+                    }
+                }
+                else
+                {
+                    truncated = true; // budget déjà atteint : on draine et jette
+                }
+                // on NE s'arrête PAS : il faut continuer à lire pour
+                // vider le pipe (anti-deadlock).
+            }
+            else if (n == 0)
+            {
+                return false; // EOF
+            }
+            else
+            {
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                {
+                    return true; // plus rien pour l'instant, fd encore ouvert
+                }
+                return false; // vraie erreur de lecture
+            }
+        }
+    }
+
+    // Renvoie un instant monotone en millisecondes.
+    long long now_ms()
+    {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return static_cast<long long>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000;
+    }
+
+    // Tue tout le groupe de processus de l'enfant (l'enfant ET ses
+    // descendants) : sans ça, une commande qui lance des sous-processus
+    // laisserait des petits-enfants vivants après un timeout, et ceux-ci
+    // gardant le pipe stdout ouvert, exec resterait bloqué.
+    //
+    // L'enfant a fait setpgid(0,0) -> son pgid == son pid, donc
+    // kill(-pid) vise le groupe entier. Repli sur l'enfant seul si le
+    // groupe n'existe pas (les DEUX setpgid ayant échoué, cas très rare).
+    void kill_group(pid_t pid, int sig)
+    {
+        if (kill(-pid, sig) != 0 && errno == ESRCH)
+        {
+            kill(pid, sig);
+        }
+    }
+
+} // namespace
+
+int lua_exec(lua_State *L)
+{
+    // --- validation des arguments Lua -------------------------------
+    if (lua_gettop(L) < 1 || lua_type(L, 1) != LUA_TSTRING)
+    {
+        return luaL_error(L, "Expected a string as first argument (command)");
+    }
+    std::string cmd = lua_tostring(L, 1);
+
+    std::string err;
+
+    std::vector<std::string> args;
+    if (!collect_args(L, 2, cmd, args, err))
+    {
+        return push_fail(L, err);
+    }
+
+    std::string cwd;
+    bool has_cwd = false;
+    std::vector<std::pair<std::string, std::string>> env;
+    std::string stdin_data;
+    bool has_stdin = false;
+    double timeout_sec = 0.0;
+    bool has_timeout = false;
+    size_t max_output = DEFAULT_MAX_OUTPUT;
+    if (!collect_opts(L, 3, cwd, has_cwd, env, stdin_data, has_stdin,
+                      timeout_sec, has_timeout, max_output, err))
+    {
+        return push_fail(L, err);
+    }
+
+    // Tableau argv terminé par NULL pour execvp.
+    std::vector<char *> argv;
+    argv.reserve(args.size() + 1);
+    for (auto &a : args)
+    {
+        argv.push_back(const_cast<char *>(a.c_str()));
+    }
+    argv.push_back(nullptr);
+
+    // --- création des pipes -----------------------------------------
+    int pipe_in[2], pipe_out[2], pipe_err[2], pipe_exec[2];
+
+    auto close_pair = [](int p[2])
+    { close(p[0]); close(p[1]); };
+
+    if (pipe(pipe_in) != 0)
+    {
+        return push_fail(L, std::string("pipe() failed: ") + std::strerror(errno));
+    }
+    if (pipe(pipe_out) != 0)
+    {
+        close_pair(pipe_in);
+        return push_fail(L, std::string("pipe() failed: ") + std::strerror(errno));
+    }
+    if (pipe(pipe_err) != 0)
+    {
+        close_pair(pipe_in);
+        close_pair(pipe_out);
+        return push_fail(L, std::string("pipe() failed: ") + std::strerror(errno));
+    }
+    if (pipe(pipe_exec) != 0)
+    {
+        close_pair(pipe_in);
+        close_pair(pipe_out);
+        close_pair(pipe_err);
+        return push_fail(L, std::string("pipe() failed: ") + std::strerror(errno));
+    }
+    fcntl(pipe_exec[1], F_SETFD, fcntl(pipe_exec[1], F_GETFD) | FD_CLOEXEC);
+
+    // Ignorer SIGPIPE le temps de l'appel (voir v2), restauré à la fin.
+    struct sigaction sa_ign, sa_old;
+    std::memset(&sa_ign, 0, sizeof(sa_ign));
+    sa_ign.sa_handler = SIG_IGN;
+    sigemptyset(&sa_ign.sa_mask);
+    sigaction(SIGPIPE, &sa_ign, &sa_old);
+
+    // --- fork -------------------------------------------------------
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        std::string msg = std::string("fork() failed: ") + std::strerror(errno);
+        close_pair(pipe_in);
+        close_pair(pipe_out);
+        close_pair(pipe_err);
+        close_pair(pipe_exec);
+        sigaction(SIGPIPE, &sa_old, nullptr);
+        return push_fail(L, msg);
+    }
+
+    if (pid == 0)
+    {
+        // ===== processus enfant =====
+        // Propre groupe de processus (pgid == pid) : permettra de tuer
+        // tout l'arbre (enfant + descendants) via kill(-pid) au timeout.
+        // Échec non fatal — on exécute quand même.
+        setpgid(0, 0);
+
+        dup2(pipe_in[0], STDIN_FILENO);
+        dup2(pipe_out[1], STDOUT_FILENO);
+        dup2(pipe_err[1], STDERR_FILENO);
+
+        close_pair(pipe_in);
+        close_pair(pipe_out);
+        close_pair(pipe_err);
+        close(pipe_exec[0]);
+
+        if (has_cwd)
+        {
+            if (chdir(cwd.c_str()) != 0)
+            {
+                int e = errno;
+                ssize_t wr = write(pipe_exec[1], &e, sizeof(e));
+                (void)wr;
+                _exit(127);
+            }
+        }
+
+        for (auto &kv : env)
+        {
+            setenv(kv.first.c_str(), kv.second.c_str(), 1);
+        }
+
+        execvp(cmd.c_str(), argv.data());
+
+        int e = errno;
+        ssize_t wr = write(pipe_exec[1], &e, sizeof(e));
+        (void)wr;
+        _exit(127);
+    }
+
+    // ===== processus parent =====
+    // Refait setpgid côté parent : idempotent avec celui de l'enfant,
+    // ferme la course (selon l'ordonnancement, l'un des deux l'établit
+    // en premier). Erreurs (ESRCH si l'enfant a déjà exec/terminé,
+    // EACCES) volontairement ignorées.
+    setpgid(pid, pid);
+
+    close(pipe_in[0]);
+    close(pipe_out[1]);
+    close(pipe_err[1]);
+    close(pipe_exec[1]);
+
+    // --- détection d'un échec de lancement --------------------------
+    int launch_errno = 0;
+    ssize_t en;
+    do
+    {
+        en = read(pipe_exec[0], &launch_errno, sizeof(launch_errno));
+    } while (en < 0 && errno == EINTR);
+    close(pipe_exec[0]);
+
+    if (en > 0)
+    {
+        close(pipe_in[1]);
+        close(pipe_out[0]);
+        close(pipe_err[0]);
+        int status;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+        {
+        }
+        sigaction(SIGPIPE, &sa_old, nullptr);
+        return push_fail(L, std::string("cannot launch '") + cmd + "': " +
+                                std::strerror(launch_errno));
+    }
+
+    // --- I/O concurrente, avec deadline éventuelle ------------------
+    std::string out_buf, err_buf;
+    bool out_truncated = false, err_truncated = false;
+
+    fcntl(pipe_out[0], F_SETFL, fcntl(pipe_out[0], F_GETFL) | O_NONBLOCK);
+    fcntl(pipe_err[0], F_SETFL, fcntl(pipe_err[0], F_GETFL) | O_NONBLOCK);
+    fcntl(pipe_in[1], F_SETFL, fcntl(pipe_in[1], F_GETFL) | O_NONBLOCK);
+
+    size_t stdin_off = 0;
+    bool in_open = has_stdin;
+    if (!has_stdin)
+    {
+        close(pipe_in[1]);
+    }
+
+    bool out_open = true, err_open = true;
+
+    // Gestion du timeout : on calcule un instant limite monotone.
+    // `timed_out` retient si on a déclenché l'arrêt forcé.
+    // `phase_kill` : false = on attend encore SIGTERM, true = SIGTERM déjà
+    //   envoyé, on laisse un court délai de grâce avant SIGKILL.
+    const long long deadline = has_timeout
+                                   ? now_ms() + static_cast<long long>(timeout_sec * 1000.0)
+                                   : 0;
+    const long long grace_ms = 2000; // délai de grâce après SIGTERM
+    long long kill_deadline = 0;
+    bool timed_out = false;
+    bool phase_kill = false;
+    bool sigkill_sent = false;        // SIGKILL déjà envoyé : ne plus re-signaler
+                                      // ni jamais bloquer le poll.
+    long long post_kill_deadline = 0; // borne dure : on abandonne le
+                                      // drainage passé ce délai.
+
+    while (out_open || err_open || in_open)
+    {
+        int poll_timeout = -1; // -1 = bloquant (cas sans timeout)
+
+        if (has_timeout)
+        {
+            if (sigkill_sent)
+            {
+                // SIGKILL déjà envoyé. On draine encore un peu (un
+                // process en train de mourir peut produire de la sortie
+                // utile), poll borné donc jamais bloquant. MAIS la
+                // boucle ne se termine que sur EOF des pipes : si un
+                // descendant a échappé au groupe (les DEUX setpgid
+                // ratés, cas quasi impossible) et garde un fd ouvert,
+                // l'EOF n'arrive jamais. Borne DURE post-SIGKILL : passé
+                // ce délai, on sort de la boucle.
+                //
+                // On ne ferme PAS les pipes ici : les close() en aval
+                // s'en chargent une seule fois. Les fermer maintenant
+                // exposerait à un double-close (et à fermer le mauvais
+                // fd si le numéro a été réattribué entre-temps).
+                //
+                // HONNÊTETÉ : dans ce cas extrême, la sortie capturée
+                // peut être INCOMPLÈTE sans que stdout_truncated /
+                // stderr_truncated soit positionné. Ces flags signifient
+                // "limite max_output atteinte", PAS "abandon post-kill"
+                // — causes distinctes, on ne les mélange pas. Pas de
+                // champ d'API dédié : ce scénario suppose un double
+                // échec de setpgid, trop marginal pour alourdir l'API.
+                if (now_ms() >= post_kill_deadline)
+                {
+                    break;
+                }
+                poll_timeout = 100;
+            }
+            else
+            {
+                long long limit = phase_kill ? kill_deadline : deadline;
+                long long remaining = limit - now_ms();
+                if (remaining <= 0)
+                {
+                    if (!phase_kill)
+                    {
+                        // Délai dépassé : on demande poliment au process
+                        // de s'arrêter, puis on laisse un court sursis.
+                        kill_group(pid, SIGTERM);
+                        timed_out = true;
+                        phase_kill = true;
+                        kill_deadline = now_ms() + grace_ms;
+                        continue; // recalcule pour le prochain poll
+                    }
+                    else
+                    {
+                        // S'accroche malgré SIGTERM : on force, UNE fois.
+                        kill_group(pid, SIGKILL);
+                        sigkill_sent = true;
+                        // Borne dure : au-delà, on abandonne le drainage
+                        // (cf. branche sigkill_sent ci-dessus). Même 2 s
+                        // que la grâce SIGTERM, par cohérence.
+                        post_kill_deadline = now_ms() + grace_ms;
+                        // On ne sort PAS tout de suite : on continue à
+                        // drainer jusqu'à EOF ou jusqu'à cette deadline.
+                        poll_timeout = 100;
+                    }
+                }
+                else
+                {
+                    poll_timeout = (remaining > 1000000)
+                                       ? 1000000
+                                       : static_cast<int>(remaining);
+                }
+            }
+        }
+
+        struct pollfd fds[3];
+        fds[0].fd = out_open ? pipe_out[0] : -1;
+        fds[0].events = POLLIN;
+        fds[0].revents = 0;
+
+        fds[1].fd = err_open ? pipe_err[0] : -1;
+        fds[1].events = POLLIN;
+        fds[1].revents = 0;
+
+        fds[2].fd = in_open ? pipe_in[1] : -1;
+        fds[2].events = POLLOUT;
+        fds[2].revents = 0;
+
+        int pr = poll(fds, 3, poll_timeout);
+        if (pr < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            break; // erreur de poll : on arrête
+        }
+        if (pr == 0)
+        {
+            // poll a expiré sans événement : on reboucle, le bloc
+            // de gestion du timeout en haut décidera quoi faire.
+            continue;
+        }
+
+        // --- stdout ---
+        if (out_open && (fds[0].revents & (POLLIN | POLLHUP | POLLERR)))
+        {
+            if (!drain_fd(pipe_out[0], out_buf, max_output, out_truncated))
+            {
+                out_open = false;
+            }
+        }
+
+        // --- stderr ---
+        if (err_open && (fds[1].revents & (POLLIN | POLLHUP | POLLERR)))
+        {
+            if (!drain_fd(pipe_err[0], err_buf, max_output, err_truncated))
+            {
+                err_open = false;
+            }
+        }
+
+        // --- stdin ---
+        if (in_open && (fds[2].revents & (POLLOUT | POLLERR | POLLHUP)))
+        {
+            size_t remaining = stdin_data.size() - stdin_off;
+            if (remaining == 0)
+            {
+                close(pipe_in[1]);
+                in_open = false;
+            }
+            else
+            {
+                ssize_t wn = write(pipe_in[1],
+                                   stdin_data.data() + stdin_off, remaining);
+                if (wn > 0)
+                {
+                    stdin_off += static_cast<size_t>(wn);
+                    if (stdin_off == stdin_data.size())
+                    {
+                        close(pipe_in[1]);
+                        in_open = false;
+                    }
+                }
+                else if (wn < 0)
+                {
+                    if (errno == EINTR ||
+                        errno == EAGAIN || errno == EWOULDBLOCK)
+                    {
+                        // réessaiera au prochain tour de poll
+                    }
+                    else
+                    {
+                        close(pipe_in[1]);
+                        in_open = false;
+                    }
+                }
+            }
+        }
+    }
+
+    close(pipe_out[0]);
+    close(pipe_err[0]);
+    // pipe_in[1] déjà fermé dans tous les chemins ci-dessus.
+
+    // --- code de sortie ---------------------------------------------
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+    {
+    }
+
+    sigaction(SIGPIPE, &sa_old, nullptr);
+
+    int exit_code;
+    if (WIFEXITED(status))
+    {
+        exit_code = WEXITSTATUS(status);
+    }
+    else if (WIFSIGNALED(status))
+    {
+        exit_code = 128 + WTERMSIG(status);
+    }
+    else
+    {
+        exit_code = -1;
+    }
+
+    // --- table résultat ---------------------------------------------
+    lua_newtable(L);
+
+    lua_pushlstring(L, out_buf.data(), out_buf.size());
+    lua_setfield(L, -2, "stdout");
+
+    lua_pushlstring(L, err_buf.data(), err_buf.size());
+    lua_setfield(L, -2, "stderr");
+
+    lua_pushinteger(L, exit_code);
+    lua_setfield(L, -2, "code");
+
+    // Champ `timed_out` : true si le process a été arrêté pour dépassement
+    // du délai. Permet de distinguer "a fini seul" de "a été tué".
+    lua_pushboolean(L, timed_out ? 1 : 0);
+    lua_setfield(L, -2, "timed_out");
+
+    // Flags de troncature SÉPARÉS par flux : si seul stderr explose, on
+    // sait que stdout est complet (et inversement). La sortie présente
+    // est les PREMIERS octets ; le process, lui, a tourné normalement
+    // (on a continué à drainer), `code` reflète sa vraie fin.
+    lua_pushboolean(L, out_truncated ? 1 : 0);
+    lua_setfield(L, -2, "stdout_truncated");
+
+    lua_pushboolean(L, err_truncated ? 1 : 0);
+    lua_setfield(L, -2, "stderr_truncated");
+
+    lua_pushnil(L); // pas d'erreur
+    return 2;
+}
