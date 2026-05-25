@@ -1,0 +1,233 @@
+// toml++ est header-only, single-file ; inclus dans cette seule TU.
+// (Pattern strict miroir de http.cpp et de l'usage nlohmann/json.)
+//
+// On force le mode NOEXCEPT de toml++ : en mode par défaut (avec
+// exceptions C++ activées côté compilateur), toml::parse LÈVE
+// toml::parse_error sur entrée invalide, et parse_result devient un
+// alias direct de toml::table. Ce comportement contredit notre
+// contrat (val, err) qui interdit toute exception traversant vers
+// Lua. En forçant TOML_EXCEPTIONS=0 ici, toml::parse renvoie un VRAI
+// parse_result distinct, qu'on peut tester via operator bool() et
+// dont on extrait .error() / .table() proprement.
+// Define LOCAL à cette TU (avant l'include) -> aucune influence sur
+// les autres unités de compilation.
+#define TOML_EXCEPTIONS 0
+#include <toml++/toml.hpp>
+
+#include "toml.hpp"
+#include "lua_utils.hpp"
+
+#include <cstdint>
+#include <exception>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <string_view>
+
+namespace
+{
+
+    // Pré-déclaration : la conversion est récursive (tables/arrays).
+    void push_toml_node(lua_State *L, const toml::node &node);
+
+    // --- helpers de formatage ISO 8601 pour les types temporels ----
+    //
+    // toml++ expose `date`, `time`, `date_time` ; on les rend en
+    // strings ISO 8601 (décision TOML-3). On utilise std::ostringstream
+    // pour bénéficier du operator<< natif de toml++ qui produit déjà
+    // le bon format ISO. Plus simple et plus sûr que de reformatter à
+    // la main (toml++ gère les fractions de seconde, l'offset, etc.).
+
+    std::string date_to_iso(const toml::date &d)
+    {
+        std::ostringstream oss;
+        oss << d;
+        return oss.str();
+    }
+
+    std::string time_to_iso(const toml::time &t)
+    {
+        std::ostringstream oss;
+        oss << t;
+        return oss.str();
+    }
+
+    std::string date_time_to_iso(const toml::date_time &dt)
+    {
+        std::ostringstream oss;
+        oss << dt;
+        return oss.str();
+    }
+
+    // --- conversion table TOML -> table Lua à clés string ----------
+
+    void push_toml_table(lua_State *L, const toml::table &tbl)
+    {
+        lua_newtable(L);
+        for (const auto &[key, value] : tbl)
+        {
+            // key est un toml::key (wrapper sur string_view) ; .str()
+            // donne un string_view contenant la clé d'origine.
+            std::string_view k = key.str();
+            push_toml_node(L, value);
+            lua_setfield(L, -2, std::string(k).c_str());
+        }
+    }
+
+    // --- conversion array TOML -> séquence Lua à clés 1..n ----------
+
+    void push_toml_array(lua_State *L, const toml::array &arr)
+    {
+        lua_newtable(L);
+        lua_Integer i = 1;
+        for (const auto &elem : arr)
+        {
+            push_toml_node(L, elem);
+            lua_rawseti(L, -2, i++);
+        }
+    }
+
+    // --- dispatch principal ----------------------------------------
+
+    void push_toml_node(lua_State *L, const toml::node &node)
+    {
+        // Le test des types se fait via is_X() ; la récupération de
+        // la valeur via value<T>() (qui renvoie std::optional<T>).
+        if (node.is_table())
+        {
+            push_toml_table(L, *node.as_table());
+            return;
+        }
+        if (node.is_array())
+        {
+            push_toml_array(L, *node.as_array());
+            return;
+        }
+        if (node.is_string())
+        {
+            // value<string> : copie ; on passe par value_or pour
+            // éviter optional (le is_string() garantit la présence).
+            auto v = node.value<std::string>();
+            if (v.has_value())
+            {
+                lua_pushlstring(L, v->data(), v->size());
+            }
+            else
+            {
+                lua_pushstring(L, ""); // défensif : ne devrait jamais arriver
+            }
+            return;
+        }
+        if (node.is_integer())
+        {
+            auto v = node.value<int64_t>();
+            lua_pushinteger(L, v.value_or(0));
+            return;
+        }
+        if (node.is_floating_point())
+        {
+            auto v = node.value<double>();
+            lua_pushnumber(L, v.value_or(0.0));
+            return;
+        }
+        if (node.is_boolean())
+        {
+            auto v = node.value<bool>();
+            lua_pushboolean(L, v.value_or(false) ? 1 : 0);
+            return;
+        }
+        // Types temporels : ISO 8601 (décision TOML-3).
+        if (node.is_date())
+        {
+            auto v = node.value<toml::date>();
+            std::string s = v.has_value() ? date_to_iso(*v) : "";
+            lua_pushlstring(L, s.data(), s.size());
+            return;
+        }
+        if (node.is_time())
+        {
+            auto v = node.value<toml::time>();
+            std::string s = v.has_value() ? time_to_iso(*v) : "";
+            lua_pushlstring(L, s.data(), s.size());
+            return;
+        }
+        if (node.is_date_time())
+        {
+            auto v = node.value<toml::date_time>();
+            std::string s = v.has_value() ? date_time_to_iso(*v) : "";
+            lua_pushlstring(L, s.data(), s.size());
+            return;
+        }
+        // Garde-fou : type non reconnu (ne devrait pas arriver, la
+        // liste ci-dessus couvre tous les types TOML). On pousse nil
+        // plutôt que de planter — invariant : ne jamais propager
+        // d'exception ni laisser un état de pile incohérent.
+        lua_pushnil(L);
+    }
+
+} // namespace
+
+int lua_toml_decode(lua_State *L)
+{
+    // Mauvais usage (arg absent ou pas une string) -> luaL_error.
+    // luaL_checktype lève strictement (pas de coercion silencieuse
+    // sur les nombres comme luaL_checkstring le ferait). C'est
+    // important : on a appris au Chantier 4 que luaL_checkstring
+    // accepte les numbers ; ici on veut un comportement strict pour
+    // un decode de string TOML.
+    luaL_checktype(L, 1, LUA_TSTRING);
+    size_t len = 0;
+    const char *s = lua_tolstring(L, 1, &len);
+    std::string_view src(s, len);
+
+    try
+    {
+        toml::parse_result result = toml::parse(src);
+        if (!result)
+        {
+            // result.error() est un toml::parse_error qui expose
+            // .description() et .source() (région avec ligne/col).
+            const toml::parse_error &err = result.error();
+            const auto &src_region = err.source();
+            std::string msg = "toml: ";
+            msg.append(err.description());
+            msg += " (line ";
+            msg += std::to_string(src_region.begin.line);
+            msg += ", col ";
+            msg += std::to_string(src_region.begin.column);
+            msg += ")";
+            return push_fail(L, msg);
+        }
+        // Succès : result se convertit implicitement en toml::table&.
+        // (Un document TOML a TOUJOURS une table racine, jamais un
+        // scalaire ; cohérent avec la décision TOML-4.)
+        const toml::table &root = result.table();
+        push_toml_table(L, root);
+        lua_pushnil(L);
+        return 2;
+    }
+    catch (const std::exception &e)
+    {
+        // En mode noexcept (par défaut, sans TOML_EXCEPTIONS=1),
+        // toml::parse ne lève pas ; mais une exception interne dans
+        // la conversion en Lua (allocation, etc.) pourrait encore
+        // survenir. Invariant : aucune exception ne traverse.
+        return push_fail(L, std::string("toml: ") + e.what());
+    }
+    catch (...)
+    {
+        return push_fail(L, "toml: unknown error");
+    }
+}
+
+void register_toml(lua_State *L)
+{
+    // Précondition : table luapilot au sommet (-1), comme
+    // register_json / register_http.
+    lua_newtable(L);
+
+    lua_pushcfunction(L, lua_toml_decode);
+    lua_setfield(L, -2, "decode");
+
+    lua_setfield(L, -2, "toml");
+}

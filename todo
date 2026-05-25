@@ -16,6 +16,28 @@
 [x] Vérifier que je passe bien le bon nombre de paramètre à la fonction lua avant d'aller plus loin dans le code
 [x] Utiliser return luaL_error(L, "Table must contain only strings"); quand c'est possible au lieu d'avoir 2 lignes de code pour faire la même chose
 [x] Refaire les fonctions du project_core
+[ ] Dette de test post-Chantier 1/2 (à durcir avant ou intercalé entre chantiers) :
+    - http.post(url, opts) sans body : forme à 2 args avec opts en 2e position
+    - URLs malformées subtiles : "http://:8080/", "http:///path", IPv6 brut, ...
+    - argparse : positionnel avec choices (supporté par le code, non couvert par le harnais)
+    - argparse : positionnel avec convert
+    - autres trous d'aveugle révélés à l'usage
 
+[ ] Durcir split_url (http.cpp) : exiger un host non vide dans l'authority
+    (actuellement "http://:8080/" passe le parse et n'échoue qu'au transport ;
+     test n°3 de la dette documente la limite).
 
+[ ] TLS sockets (luapilot.socket.tls_*) :
+    - Prioritaire avant workers (nouvel ordre acté).
+    - Cas d'usage déclenchant : bot IRC sur Libera.Chat port 6697.
+    - OpenSSL déjà lié (réutilisé par http). Cadrage à faire :
+      vérification cert par défaut, SNI + hostname check, TLS 1.2 min,
+      méthode d'élévation (connect_tls direct + starttls sur socket
+      existant pour SMTP/IMAP), gestion SSL_WANT_READ, fermeture propre.
+    - Évaluer un wrapper header-only avant de coder à la main 600+ lignes.
 
+[ ] Workers (concurrence d'I/O, dernier gros chantier de la 1.x) :
+    - À découper en sous-livraisons : spawn/join, channels, pools/map.
+    - Chantier majeur : cadrage substantiel attendu (modèle de threading,
+      partage mémoire, sérialisation des messages, terminaison propre).
+    - À attaquer APRÈS TLS sockets (nouvel ordre acté).

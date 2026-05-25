@@ -23,6 +23,19 @@ if(NOT JSON_INCLUDE)
     message(FATAL_ERROR "JSON_INCLUDE not set (nlohmann/json header dir)")
 endif()
 
+# cpp-httplib : header-only, fourni par build_local.sh. TLS activé
+# localement dans src/lua_bindings/http.cpp (CPPHTTPLIB_OPENSSL_SUPPORT),
+# pas en define global ici : httplib.h n'est inclus que dans cette TU.
+if(NOT HTTPLIB_INCLUDE)
+    message(FATAL_ERROR "HTTPLIB_INCLUDE not set (cpp-httplib header dir)")
+endif()
+
+# toml++ : header-only, fourni par build_local.sh. C++17 minimum
+# satisfait (projet en C++23). Pas de TLS, pas de threads.
+if(NOT TOMLPP_INCLUDE)
+    message(FATAL_ERROR "TOMLPP_INCLUDE not set (toml++ header dir)")
+endif()
+
 # Dossier des headers générés (embedded_inspect.hpp et co)
 # Doit être créé et peuplé par build_local.sh AVANT le cmake.
 if(NOT GENERATED_INCLUDE)
@@ -45,6 +58,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${LUA_INCLUDE}
     ${MINIZ_INCLUDE}
     ${JSON_INCLUDE}
+    ${HTTPLIB_INCLUDE}
+    ${TOMLPP_INCLUDE}
     ${GENERATED_INCLUDE}
     ${PROJECT_SOURCE_DIR}/src
 )

@@ -165,6 +165,52 @@ JSON_INSTALL_DIR="${JSON_BUILD_DIR}/${JSON_DIR}"
 # #include <nlohmann/json.hpp> fonctionne avec JSON_INSTALL_DIR seul
 # ajouté aux include paths.
 JSON_INCLUDE_FILE="${JSON_INSTALL_DIR}/nlohmann/json.hpp"
+# cpp-httplib : header-only, un seul fichier httplib.h téléchargé
+# depuis le tag de release GitHub (raw). Même mécanique que
+# nlohmann/json. TLS : CPPHTTPLIB_OPENSSL_SUPPORT est défini dans le
+# SEUL .cpp qui inclut httplib.h (src/lua_bindings/http.cpp), pas ici,
+# pour garder la macro locale ; on réutilise libssl/libcrypto déjà
+# liés (OpenSSL 3.x, requis par cpp-httplib >= 3.0). Aucune nouvelle
+# dépendance TLS.
+#
+# IMPORTANT : on épingle un TAG DE RELEASE réel (pas master). Le
+# CPPHTTPLIB_VERSION du header peut précéder le tag publié ; en cas de
+# doute, vérifier que le tag v${HTTPLIB_VERSION} existe bien dans
+# https://github.com/yhirose/cpp-httplib/releases . Le checksum ne
+# peut être stable que sur un tag figé.
+HTTPLIB_VERSION="0.45.0"
+HTTPLIB_DIR="cpp-httplib-${HTTPLIB_VERSION}"
+HTTPLIB_HEADER="httplib.h"
+HTTPLIB_URL="https://raw.githubusercontent.com/yhirose/cpp-httplib/v${HTTPLIB_VERSION}/httplib.h"
+# Checksum OBLIGATOIRE (build refusé tant qu'il est vide, comme les
+# autres deps). Calcule-le depuis la source OFFICIELLE :
+#   wget -qO- https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.45.0/httplib.h | sha256sum
+HTTPLIB_SHA256="fdb5586b7bb9abbc21d1a6ccce6caf891e26895c5bb2461596ad993df097cbbb"
+HTTPLIB_BUILD_DIR="${BUILD_DIR}/httplib"
+HTTPLIB_INSTALL_DIR="${HTTPLIB_BUILD_DIR}/${HTTPLIB_DIR}"
+# Header posé à plat dans HTTPLIB_INSTALL_DIR : #include <httplib.h>
+# fonctionne avec ce seul dossier ajouté aux include paths.
+HTTPLIB_INCLUDE_FILE="${HTTPLIB_INSTALL_DIR}/httplib.h"
+#
+# toml++ : header-only, single-file (toml.hpp amalgamé à la racine du
+# repo). Même mécanique que nlohmann/json — on télécharge le seul
+# fichier toml.hpp depuis un tag de release GitHub et on le pose sous
+# un sous-dossier toml++/ pour que `#include <toml++/toml.hpp>`
+# (include canonique communauté) fonctionne avec TOMLPP_INSTALL_DIR
+# seul ajouté aux include paths. C++17 minimum (le projet est en
+# C++23, donc OK). Pas de TLS, pas de threads, zéro dépendance.
+TOMLPP_VERSION="3.4.0"
+TOMLPP_DIR="tomlplusplus-${TOMLPP_VERSION}"
+TOMLPP_HEADER="toml.hpp"
+TOMLPP_URL="https://raw.githubusercontent.com/marzer/tomlplusplus/v${TOMLPP_VERSION}/toml.hpp"
+# Checksum OBLIGATOIRE (build refusé tant qu'il est vide, comme les
+# autres deps). Calcule-le depuis la source OFFICIELLE :
+#   wget -qO- https://raw.githubusercontent.com/marzer/tomlplusplus/v3.4.0/toml.hpp | sha256sum
+TOMLPP_SHA256="6b5172ad4dd6519aec67b919181fa7a38a2234131e5b2afa232dfe444819783e"
+TOMLPP_BUILD_DIR="${BUILD_DIR}/tomlpp"
+TOMLPP_INSTALL_DIR="${TOMLPP_BUILD_DIR}/${TOMLPP_DIR}"
+# Sous-dossier toml++/ pour matcher l'include canonique de la lib.
+TOMLPP_INCLUDE_FILE="${TOMLPP_INSTALL_DIR}/toml++/toml.hpp"
 #
 GENERATED_DIR="${BUILD_DIR}/generated"
 
@@ -239,6 +285,47 @@ if [ ! -f "${JSON_INCLUDE_FILE}" ]; then
     echo "nlohmann/json ${JSON_VERSION} installé."
 fi
 
+# Installer cpp-httplib (header-only) si nécessaire
+if [ ! -f "${HTTPLIB_INCLUDE_FILE}" ]; then
+    echo "Installation de cpp-httplib ${HTTPLIB_VERSION}..."
+    mkdir -p "${HTTPLIB_INSTALL_DIR}"
+
+    if [ ! -f "${DOWNLOAD_DIR}/${HTTPLIB_DIR}-${HTTPLIB_HEADER}" ]; then
+        echo "Téléchargement de cpp-httplib ${HTTPLIB_VERSION}..."
+        if ! wget "${HTTPLIB_URL}" -O "${DOWNLOAD_DIR}/${HTTPLIB_DIR}-${HTTPLIB_HEADER}"; then
+            echo "Échec du téléchargement de cpp-httplib."
+            rm -f "${DOWNLOAD_DIR}/${HTTPLIB_DIR}-${HTTPLIB_HEADER}"
+            exit 1
+        fi
+    fi
+
+    # Vérifié même si déjà en cache (cache empoisonné).
+    verify_sha256 "${DOWNLOAD_DIR}/${HTTPLIB_DIR}-${HTTPLIB_HEADER}" "${HTTPLIB_SHA256}" "cpp-httplib"
+
+    cp "${DOWNLOAD_DIR}/${HTTPLIB_DIR}-${HTTPLIB_HEADER}" "${HTTPLIB_INCLUDE_FILE}"
+    echo "cpp-httplib ${HTTPLIB_VERSION} installé."
+fi
+
+# Installer toml++ (header-only single-file) si nécessaire
+if [ ! -f "${TOMLPP_INCLUDE_FILE}" ]; then
+    echo "Installation de toml++ ${TOMLPP_VERSION}..."
+    mkdir -p "${TOMLPP_INSTALL_DIR}/toml++"
+
+    if [ ! -f "${DOWNLOAD_DIR}/${TOMLPP_DIR}-${TOMLPP_HEADER}" ]; then
+        echo "Téléchargement de toml++ ${TOMLPP_VERSION}..."
+        if ! wget "${TOMLPP_URL}" -O "${DOWNLOAD_DIR}/${TOMLPP_DIR}-${TOMLPP_HEADER}"; then
+            echo "Échec du téléchargement de toml++."
+            rm -f "${DOWNLOAD_DIR}/${TOMLPP_DIR}-${TOMLPP_HEADER}"
+            exit 1
+        fi
+    fi
+
+    # Vérifié même si déjà en cache (cache empoisonné).
+    verify_sha256 "${DOWNLOAD_DIR}/${TOMLPP_DIR}-${TOMLPP_HEADER}" "${TOMLPP_SHA256}" "toml++"
+
+    cp "${DOWNLOAD_DIR}/${TOMLPP_DIR}-${TOMLPP_HEADER}" "${TOMLPP_INCLUDE_FILE}"
+    echo "toml++ ${TOMLPP_VERSION} installé."
+fi
 
 # Télécharger Lua si nécessaire
 if [ ! -f "$DOWNLOAD_DIR/$LUA_TAR" ]; then
@@ -349,6 +436,14 @@ bash "${SCRIPT_DIR}/tools/embed_lua_module.sh" \
     "${SCRIPT_DIR}/vendor/inspect.lua" \
     "${GENERATED_DIR}/embedded_inspect.hpp" \
     "inspect"
+bash "${SCRIPT_DIR}/tools/embed_lua_module.sh" \
+    "${SCRIPT_DIR}/vendor/argparse.lua" \
+    "${GENERATED_DIR}/embedded_argparse.hpp" \
+    "argparse"
+bash "${SCRIPT_DIR}/tools/embed_lua_module.sh" \
+    "${SCRIPT_DIR}/vendor/logging.lua" \
+    "${GENERATED_DIR}/embedded_logging.hpp" \
+    "logging"
 
 cmake "$SCRIPT_DIR" \
     -DLUA_LIB="$LUA_LIB" \
@@ -358,6 +453,8 @@ cmake "$SCRIPT_DIR" \
     -DMINIZ_SRC="${MINIZ_C}" \
     -DMINIZ_INCLUDE="${MINIZ_INSTALL_DIR}" \
     -DJSON_INCLUDE="${JSON_INSTALL_DIR}" \
+    -DHTTPLIB_INCLUDE="${HTTPLIB_INSTALL_DIR}" \
+    -DTOMLPP_INCLUDE="${TOMLPP_INSTALL_DIR}" \
     -DGENERATED_INCLUDE="${GENERATED_DIR}"
 if [ $? -ne 0 ]; then
     echo "Échec de la configuration avec CMake."

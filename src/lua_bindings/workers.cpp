@@ -1,0 +1,898 @@
+#include "workers.hpp"
+#include "lua_utils.hpp"
+#include "../project_core/bundled_modules.hpp"
+#include "../project_core/embedded_searcher.hpp"
+
+#include <pthread.h>
+
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <mutex>
+#include <string>
+#include <unordered_set>
+
+#include <nlohmann/json.hpp>
+
+// Forward déclaration de register_luapilot, défini dans main.cpp.
+// Pas d'extern "C" : fonction C++ standard, le linker la résout par
+// mangling C++ comme partout dans le codebase.
+void register_luapilot(lua_State *L);
+
+namespace
+{
+
+    using nlohmann::json;
+
+    // État porté par l'userdata Lua. La thread worker écrit result_json
+    // ou err_msg PUIS publie status atomiquement ; le parent lit status
+    // atomiquement puis result_json / err_msg sous garantie de visibilité
+    // via la release/acquire de l'atomic.
+    struct Worker
+    {
+        pthread_t tid;
+        bool tid_valid;
+
+        // Statut atomique :
+        //   0 = running
+        //   1 = done (succès, result_json prêt)
+        //   2 = error (échec, err_msg prêt)
+        std::atomic<int> status;
+
+        // True une fois que join() ou poll()=="done"/"error" a consommé
+        // le résultat. Sert au __gc à savoir si la thread a déjà été
+        // rejointe (pour ne pas joindre 2 fois).
+        std::atomic<bool> joined;
+
+        // Sérialisé en sortie de la thread, lu par join()/poll().
+        std::string result_json;
+        std::string err_msg;
+
+        // Lecture seule pour la thread après spawn. Mémoire stable
+        // pendant toute la durée de vie de la thread.
+        std::string code;
+        std::string args_json;
+    };
+
+    constexpr const char *WORKER_META = "LuapilotWorker";
+
+    constexpr int WORKER_RUNNING = 0;
+    constexpr int WORKER_DONE = 1;
+    constexpr int WORKER_ERROR = 2;
+
+    // Contexte d'init pour le require() utilisateur dans les workers.
+    // Rempli par set_workers_init_context() depuis main.cpp avant tout
+    // spawn, lu par worker_thread_main() pour configurer le lua_State
+    // enfant exactement comme le parent.
+    //
+    // Si projectDir/exePath sont vides ou embedded == false sans
+    // projectDir, le worker fonctionnera mais require() utilisateur
+    // échouera (le code utilisateur ne peut tester ça que via spawn).
+    struct WorkerInitContext
+    {
+        std::string projectDir; // mode dossier
+        std::string exePath;    // mode embarqué
+        bool embedded;
+        bool initialized;
+    };
+    WorkerInitContext g_init_ctx = {"", "", false, false};
+
+    // Profondeur max pour les arborescences LÉGITIMES (sans cycle).
+    // Les cycles sont détectés séparément via un set des tables déjà
+    // visitées (cf. visited dans lua_table_to_json) — refus immédiat
+    // dès la 2ème rencontre, pas attendre 32 niveaux. La limite ci-
+    // dessous protège uniquement contre les arborescences pathologiques
+    // très profondes mais sans cycle réel. 32 est très défensif :
+    // au-delà, on consomme trop de pile C++ via la récursion, ce qui
+    // a déclenché des SIGSEGV sur Linux x86_64 avec pile par défaut
+    // 8 MB déjà partiellement consommée par Lua + OpenSSL.
+    constexpr int MAX_SERIALIZATION_DEPTH = 32;
+
+    Worker *check_worker(lua_State *L, int idx)
+    {
+        return static_cast<Worker *>(luaL_checkudata(L, idx, WORKER_META));
+    }
+
+    // ==================================================================
+    // Sérialisation Lua -> JSON
+    // ==================================================================
+    //
+    // Conventions (alignées avec luapilot.json mais implémentation
+    // indépendante — décision Option 2) :
+    //   nil           -> null
+    //   boolean       -> true/false
+    //   integer       -> nombre JSON (mais perte de distinction au reload)
+    //   float         -> nombre JSON (NaN/Inf -> refus dur)
+    //   string        -> string JSON (UTF-8 requis, sinon refus)
+    //   table séq 1..n -> array
+    //   table clés str -> object
+    //   table mixte / à trous -> refus dur (cohérent avec luapilot.json)
+    //   function / userdata / thread -> refus dur
+    //   cycle -> refus IMMÉDIAT via set des pointeurs de tables visitées
+    //
+    // La fonction renvoie true en succès, false avec err rempli.
+    // La pile Lua reste exactement comme à l'entrée.
+    //
+    // `visited` est un set des pointeurs de tables actuellement en cours
+    // de traversée. Une table est insérée à l'entrée de
+    // lua_table_to_json et retirée à la sortie. Si une table dont le
+    // pointeur est déjà dedans est rencontrée, c'est un cycle -> refus.
+
+    bool lua_to_json(lua_State *L, int idx, json &out,
+                     std::string &err, int depth,
+                     std::unordered_set<const void *> &visited);
+
+    // Vérifie qu'une string Lua est UTF-8 valide (au moins acceptable
+    // pour nlohmann::json). On utilise la fonction utilitaire de
+    // nlohmann elle-même via un cast après accept : on tente le dump
+    // d'une string-only et on regarde si ça réussit. Implémentation
+    // directe plus rapide pour les chaînes : on accepte tout ce qui
+    // n'a pas d'octet NUL ET respecte les règles UTF-8 basiques.
+    //
+    // CORRECTIF (post-revue ChatGPT) : on refuse explicitement '\0'.
+    // Techniquement '\0' est UTF-8 valide (un seul octet < 0x80), mais
+    // sémantiquement c'est du binaire ; et côté désérialisation, les
+    // clés d'objet JSON qu'on pousse via lua_setfield seraient tronquées
+    // au NUL. Pour cohérence "pas de strings binaires", refus dur.
+    bool is_valid_utf8(const char *s, size_t len)
+    {
+        size_t i = 0;
+        while (i < len)
+        {
+            unsigned char c = static_cast<unsigned char>(s[i]);
+            if (c == 0)
+                return false;
+            if (c < 0x80)
+            {
+                i += 1;
+                continue;
+            }
+            size_t cont = 0;
+            if ((c & 0xE0) == 0xC0)
+                cont = 1;
+            else if ((c & 0xF0) == 0xE0)
+                cont = 2;
+            else if ((c & 0xF8) == 0xF0)
+                cont = 3;
+            else
+                return false;
+            if (i + cont >= len)
+                return false;
+            for (size_t k = 1; k <= cont; ++k)
+            {
+                unsigned char cc = static_cast<unsigned char>(s[i + k]);
+                if ((cc & 0xC0) != 0x80)
+                    return false;
+            }
+            i += cont + 1;
+        }
+        return true;
+    }
+
+    // Sérialise une table Lua à l'index `idx` (absolu attendu).
+    // Détermine array vs object selon les clés. Détecte les cycles via
+    // `visited` : si la table est déjà en cours de traversée, refus
+    // immédiat. Sinon on l'enregistre, on traverse, et on la retire en
+    // fin de fonction (RAII garantirait ça mieux mais on a plusieurs
+    // chemins de sortie ; on utilise un guard manuel discipliné).
+    bool lua_table_to_json(lua_State *L, int idx, json &out,
+                           std::string &err, int depth,
+                           std::unordered_set<const void *> &visited)
+    {
+        // Détection de cycle : si on revoit la même table, c'est circulaire.
+        const void *table_id = lua_topointer(L, idx);
+        if (table_id != nullptr)
+        {
+            if (visited.find(table_id) != visited.end())
+            {
+                err = "workers: spawn: table contains a cycle "
+                      "(not serializable)";
+                return false;
+            }
+            visited.insert(table_id);
+        }
+
+        // Helper pour garantir le retrait de la table de visited sur
+        // tous les chemins de sortie (success ET failure).
+        struct VisitedGuard
+        {
+            std::unordered_set<const void *> &set;
+            const void *key;
+            bool inserted;
+            ~VisitedGuard()
+            {
+                if (inserted && key != nullptr)
+                    set.erase(key);
+            }
+        } guard{visited, table_id, table_id != nullptr};
+
+        // Compter les clés et déterminer si c'est une séquence 1..n.
+        lua_Integer n = luaL_len(L, idx);
+        bool is_array = (n > 0);
+        if (is_array)
+        {
+            // Vérifier qu'on a bien 1..n sans trou ni clé non-int.
+            // Stratégie : itérer tout, et vérifier que toutes les clés
+            // entières sont dans [1, n] et qu'il n'y a aucune clé non
+            // entière. (lua's `#` n'est pas fiable pour les tables à
+            // trous.)
+            bool has_non_int_key = false;
+            lua_Integer max_int_key = 0;
+            lua_Integer int_count = 0;
+            lua_pushnil(L);
+            while (lua_next(L, idx) != 0)
+            {
+                if (lua_type(L, -2) == LUA_TNUMBER &&
+                    lua_isinteger(L, -2))
+                {
+                    lua_Integer k = lua_tointeger(L, -2);
+                    if (k < 1)
+                    {
+                        has_non_int_key = true;
+                    }
+                    else
+                    {
+                        if (k > max_int_key)
+                            max_int_key = k;
+                        ++int_count;
+                    }
+                }
+                else
+                {
+                    has_non_int_key = true;
+                }
+                lua_pop(L, 1);
+                if (has_non_int_key)
+                {
+                    lua_pop(L, 1);
+                    break;
+                }
+            }
+            if (has_non_int_key || int_count != max_int_key)
+            {
+                is_array = false;
+            }
+            else
+            {
+                n = max_int_key;
+            }
+        }
+
+        if (is_array)
+        {
+            out = json::array();
+            for (lua_Integer i = 1; i <= n; ++i)
+            {
+                lua_geti(L, idx, i);
+                json elem;
+                if (!lua_to_json(L, lua_gettop(L), elem, err, depth + 1,
+                                 visited))
+                {
+                    lua_pop(L, 1);
+                    return false;
+                }
+                out.push_back(std::move(elem));
+                lua_pop(L, 1);
+            }
+            return true;
+        }
+
+        // Object : toutes les clés doivent être strings.
+        out = json::object();
+        lua_pushnil(L);
+        while (lua_next(L, idx) != 0)
+        {
+            if (lua_type(L, -2) != LUA_TSTRING)
+            {
+                err = "workers: spawn: table key must be a string "
+                      "(non-array table)";
+                lua_pop(L, 2);
+                return false;
+            }
+            size_t klen = 0;
+            const char *kp = lua_tolstring(L, -2, &klen);
+            if (!is_valid_utf8(kp, klen))
+            {
+                err = "workers: spawn: table key contains "
+                      "non-UTF-8 bytes";
+                lua_pop(L, 2);
+                return false;
+            }
+            std::string key(kp, klen);
+            json val;
+            if (!lua_to_json(L, lua_gettop(L), val, err, depth + 1,
+                             visited))
+            {
+                lua_pop(L, 2);
+                return false;
+            }
+            out[key] = std::move(val);
+            lua_pop(L, 1);
+        }
+        return true;
+    }
+
+    bool lua_to_json(lua_State *L, int idx, json &out,
+                     std::string &err, int depth,
+                     std::unordered_set<const void *> &visited)
+    {
+        if (depth > MAX_SERIALIZATION_DEPTH)
+        {
+            err = "workers: spawn: value too deeply nested";
+            return false;
+        }
+        idx = lua_absindex(L, idx);
+        int t = lua_type(L, idx);
+        switch (t)
+        {
+        case LUA_TNIL:
+            out = nullptr;
+            return true;
+        case LUA_TBOOLEAN:
+            out = static_cast<bool>(lua_toboolean(L, idx));
+            return true;
+        case LUA_TNUMBER:
+            if (lua_isinteger(L, idx))
+            {
+                out = static_cast<int64_t>(lua_tointeger(L, idx));
+                return true;
+            }
+            else
+            {
+                double d = lua_tonumber(L, idx);
+                if (std::isnan(d) || std::isinf(d))
+                {
+                    err = "workers: spawn: number is NaN or Inf "
+                          "(not representable in JSON)";
+                    return false;
+                }
+                out = d;
+                return true;
+            }
+        case LUA_TSTRING:
+        {
+            size_t len = 0;
+            const char *s = lua_tolstring(L, idx, &len);
+            if (!is_valid_utf8(s, len))
+            {
+                err = "workers: spawn: string contains non-UTF-8 "
+                      "bytes (not transferable to worker)";
+                return false;
+            }
+            out = std::string(s, len);
+            return true;
+        }
+        case LUA_TTABLE:
+            return lua_table_to_json(L, idx, out, err, depth, visited);
+        case LUA_TFUNCTION:
+            err = "workers: spawn: cannot transfer a function "
+                  "(use spawn(string_code) only)";
+            return false;
+        case LUA_TUSERDATA:
+            err = "workers: spawn: cannot transfer a userdata "
+                  "(e.g. socket, file handle) to a worker";
+            return false;
+        case LUA_TTHREAD:
+            err = "workers: spawn: cannot transfer a coroutine "
+                  "to a worker";
+            return false;
+        default:
+            err = "workers: spawn: unsupported Lua type for transfer";
+            return false;
+        }
+    }
+
+    // ==================================================================
+    // Désérialisation JSON -> Lua
+    // ==================================================================
+    //
+    // Empile la valeur sur la pile Lua. Renvoie true en succès, false
+    // avec err rempli en cas de structure invalide (ne devrait pas
+    // arriver en pratique car le JSON vient de notre propre serialize,
+    // mais on garde un filet).
+
+    bool json_to_lua(lua_State *L, const json &j,
+                     std::string &err, int depth)
+    {
+        if (depth > MAX_SERIALIZATION_DEPTH)
+        {
+            err = "workers: result too deeply nested";
+            return false;
+        }
+        if (j.is_null())
+        {
+            lua_pushnil(L);
+            return true;
+        }
+        if (j.is_boolean())
+        {
+            lua_pushboolean(L, j.get<bool>() ? 1 : 0);
+            return true;
+        }
+        if (j.is_number_integer())
+        {
+            lua_pushinteger(L,
+                            static_cast<lua_Integer>(j.get<int64_t>()));
+            return true;
+        }
+        if (j.is_number_unsigned())
+        {
+            uint64_t v = j.get<uint64_t>();
+            if (v <= static_cast<uint64_t>(LUA_MAXINTEGER))
+            {
+                lua_pushinteger(L, static_cast<lua_Integer>(v));
+            }
+            else
+            {
+                lua_pushnumber(L, static_cast<lua_Number>(v));
+            }
+            return true;
+        }
+        if (j.is_number_float())
+        {
+            lua_pushnumber(L, j.get<double>());
+            return true;
+        }
+        if (j.is_string())
+        {
+            const std::string &s = j.get_ref<const std::string &>();
+            lua_pushlstring(L, s.data(), s.size());
+            return true;
+        }
+        if (j.is_array())
+        {
+            lua_createtable(L, static_cast<int>(j.size()), 0);
+            lua_Integer idx = 1;
+            for (const auto &elem : j)
+            {
+                if (!json_to_lua(L, elem, err, depth + 1))
+                {
+                    lua_pop(L, 1);
+                    return false;
+                }
+                lua_seti(L, -2, idx++);
+            }
+            return true;
+        }
+        if (j.is_object())
+        {
+            lua_createtable(L, 0, static_cast<int>(j.size()));
+            for (auto it = j.begin(); it != j.end(); ++it)
+            {
+                if (!json_to_lua(L, it.value(), err, depth + 1))
+                {
+                    lua_pop(L, 1);
+                    return false;
+                }
+                lua_setfield(L, -2, it.key().c_str());
+            }
+            return true;
+        }
+        err = "workers: unsupported JSON type in result";
+        return false;
+    }
+
+    // ==================================================================
+    // Thread worker
+    // ==================================================================
+    //
+    // Tourne dans une pthread. Crée son propre lua_State neuf, ouvre la
+    // stdlib + luapilot.* via register_luapilot, désérialise args dans
+    // le global "worker.args" puis "worker.args" via le namespace
+    // "worker", charge code, exécute en pcall, sérialise le résultat.
+    //
+    // Tout est encapsulé en pcall : aucune erreur Lua ne tue le process.
+    // En cas de crash C++ dans le code de l'utilisateur (très rare avec
+    // pcall en place), c'est la thread qui meurt et on remontera "error"
+    // avec un message générique.
+
+    void *worker_thread_main(void *arg)
+    {
+        Worker *w = static_cast<Worker *>(arg);
+
+        lua_State *L = luaL_newstate();
+        if (!L)
+        {
+            w->err_msg = "workers: failed to create lua_State for worker";
+            w->status.store(WORKER_ERROR, std::memory_order_release);
+            return nullptr;
+        }
+        luaL_openlibs(L);
+
+        // Charger luapilot.* + modules bundlés (inspect, argparse, logging).
+        // L'ORDRE COMPTE : register_bundled_modules pose package.preload
+        // pour les modules bundlés, et doit être appelé AVANT toute
+        // exécution de require() — donc avant register_luapilot ne
+        // l'utilise et avant le code utilisateur.
+        register_bundled_modules(L);
+        register_luapilot(L);
+
+        // CORRECTIF (post-revue ChatGPT) : appliquer la même config de
+        // require() que le parent, pour que require("mymod") trouve les
+        // modules utilisateur depuis un worker. Sans ça, seuls les
+        // modules bundlés (via package.preload) marchaient.
+        if (g_init_ctx.initialized)
+        {
+            if (g_init_ctx.embedded && !g_init_ctx.exePath.empty())
+            {
+                // Mode embarqué : pose un searcher qui lit depuis le ZIP
+                // appendu au binaire. Même fonction publique que le
+                // parent utilise.
+                register_embedded_searcher(L, g_init_ctx.exePath.c_str());
+            }
+            else if (!g_init_ctx.projectDir.empty())
+            {
+                // Mode dossier : préfixe ?.lua et ?/init.lua à
+                // package.path. Pure manipulation de pile Lua, pas
+                // d'évaluation de string utilisateur (sûr si projectDir
+                // contient des caractères spéciaux).
+                const std::string &d = g_init_ctx.projectDir;
+                lua_getglobal(L, "package"); // pile: package
+                lua_getfield(L, -1, "path"); // pile: package, oldpath
+                const char *oldpath = lua_tostring(L, -1);
+                std::string newpath = d + "/?.lua;" + d + "/?/init.lua;" + (oldpath ? oldpath : "");
+                lua_pop(L, 1);                      // pile: package
+                lua_pushstring(L, newpath.c_str()); // pile: package, newpath
+                lua_setfield(L, -2, "path");        // pile: package
+                lua_pop(L, 1);                      // pile: <vide>
+            }
+        }
+
+        // Préparer worker.args via le namespace "worker" (décision W-7).
+        // worker = { args = <args_json désérialisé> }
+        lua_newtable(L); // worker = {}
+        std::string err;
+        if (w->args_json.empty() || w->args_json == "null")
+        {
+            lua_pushnil(L);
+        }
+        else
+        {
+            try
+            {
+                json args_j = json::parse(w->args_json);
+                if (!json_to_lua(L, args_j, err, 0))
+                {
+                    w->err_msg = err;
+                    w->status.store(WORKER_ERROR,
+                                    std::memory_order_release);
+                    lua_close(L);
+                    return nullptr;
+                }
+            }
+            catch (const std::exception &e)
+            {
+                w->err_msg = std::string(
+                                 "workers: internal: failed to parse args_json: ") +
+                             e.what();
+                w->status.store(WORKER_ERROR,
+                                std::memory_order_release);
+                lua_close(L);
+                return nullptr;
+            }
+        }
+        lua_setfield(L, -2, "args"); // worker.args = ...
+        lua_setglobal(L, "worker");  // _G.worker = ...
+
+        // arg = nil dans le worker (décision W-7).
+        lua_pushnil(L);
+        lua_setglobal(L, "arg");
+
+        // Charger et exécuter le code de l'utilisateur en pcall.
+        // CORRECTIF (post-revue ChatGPT) : luaL_loadbuffer avec size
+        // explicite plutôt que luaL_loadstring (qui ferait un strlen et
+        // tronquerait au premier NUL). Et chunkname "worker" plutôt que
+        // toute la source : messages d'erreur Lua plus lisibles si le
+        // code est long.
+        int rc = luaL_loadbuffer(L, w->code.data(), w->code.size(),
+                                 "worker");
+        if (rc != LUA_OK)
+        {
+            const char *m = lua_tostring(L, -1);
+            w->err_msg = m ? std::string(m)
+                           : "workers: failed to load code (no message)";
+            w->status.store(WORKER_ERROR, std::memory_order_release);
+            lua_close(L);
+            return nullptr;
+        }
+        // Exécution du code en pcall, 1 seul résultat récupéré.
+        // DÉCISION DOCUMENTÉE (post-revue ChatGPT) : si le worker fait
+        // `return a, b, c`, seul `a` traverse à :join() / :poll().
+        // Les valeurs supplémentaires sont silencieusement écartées.
+        // Pour rendre plusieurs valeurs, l'utilisateur doit les wrapper :
+        //   return { a, b, c }   -- côté worker
+        //   local ok, t = w:join()  -- t = { a, b, c } côté parent
+        // C'est la convention la plus simple, cohérente avec le modèle
+        // "un worker calcule UNE chose et la rend".
+        rc = lua_pcall(L, 0, 1, 0);
+        if (rc != LUA_OK)
+        {
+            const char *m = lua_tostring(L, -1);
+            w->err_msg = m ? std::string(m)
+                           : "workers: worker raised error (no message)";
+            w->status.store(WORKER_ERROR, std::memory_order_release);
+            lua_close(L);
+            return nullptr;
+        }
+
+        // Sérialiser le résultat.
+        json result_j;
+        std::unordered_set<const void *> result_visited;
+        if (!lua_to_json(L, -1, result_j, err, 0, result_visited))
+        {
+            // L'utilisateur a retourné un truc non sérialisable.
+            w->err_msg = std::string(
+                             "workers: worker return value is not transferable: ") +
+                         err;
+            w->status.store(WORKER_ERROR, std::memory_order_release);
+            lua_close(L);
+            return nullptr;
+        }
+        try
+        {
+            w->result_json = result_j.dump();
+        }
+        catch (const std::exception &e)
+        {
+            w->err_msg = std::string(
+                             "workers: internal: result_json dump failed: ") +
+                         e.what();
+            w->status.store(WORKER_ERROR, std::memory_order_release);
+            lua_close(L);
+            return nullptr;
+        }
+
+        lua_close(L);
+        w->status.store(WORKER_DONE, std::memory_order_release);
+        return nullptr;
+    }
+
+    // ==================================================================
+    // Fonctions exposées
+    // ==================================================================
+
+    int lua_workers_spawn(lua_State *L)
+    {
+        size_t code_len = 0;
+        const char *code = luaL_checklstring(L, 1, &code_len);
+
+        // Vérification de type sur args et opts (les contenus sont
+        // validés via la sérialisation).
+        if (!lua_isnoneornil(L, 2) && !lua_istable(L, 2))
+        {
+            return luaL_error(L,
+                              "workers.spawn: args must be a table");
+        }
+        if (!lua_isnoneornil(L, 3) && !lua_istable(L, 3))
+        {
+            return luaL_error(L,
+                              "workers.spawn: opts must be a table");
+        }
+
+        // Sérialiser args -> JSON.
+        std::string args_json_str = "null";
+        if (lua_istable(L, 2))
+        {
+            json args_j;
+            std::string err;
+            std::unordered_set<const void *> args_visited;
+            if (!lua_to_json(L, 2, args_j, err, 0, args_visited))
+            {
+                return push_fail(L, err);
+            }
+            try
+            {
+                args_json_str = args_j.dump();
+            }
+            catch (const std::exception &e)
+            {
+                return push_fail(L,
+                                 std::string("workers: failed to dump args: ") + e.what());
+            }
+        }
+
+        // Créer le userdata Worker AVANT pthread_create : si pthread
+        // échoue, on libère en utilisant le __gc normal (pas de leak).
+        Worker *w = static_cast<Worker *>(
+            lua_newuserdata(L, sizeof(Worker)));
+        new (w) Worker();
+        w->tid_valid = false;
+        w->status.store(WORKER_RUNNING, std::memory_order_relaxed);
+        w->joined.store(false, std::memory_order_relaxed);
+        w->code.assign(code, code_len);
+        w->args_json = std::move(args_json_str);
+        luaL_getmetatable(L, WORKER_META);
+        lua_setmetatable(L, -2);
+
+        int rc = pthread_create(&w->tid, nullptr, worker_thread_main, w);
+        if (rc != 0)
+        {
+            // userdata sera __gc'd par Lua (rien à joindre puisque
+            // tid_valid reste false).
+            lua_pop(L, 1);
+            return push_fail(L,
+                             std::string("workers: pthread_create failed: ") + std::strerror(rc));
+        }
+        w->tid_valid = true;
+
+        return 1; // userdata Worker au sommet
+    }
+
+    int worker_join(lua_State *L)
+    {
+        Worker *w = check_worker(L, 1);
+
+        if (w->joined.load(std::memory_order_acquire))
+        {
+            lua_pushboolean(L, 0);
+            lua_pushstring(L,
+                           "workers: join: result already consumed");
+            return 2;
+        }
+
+        if (w->tid_valid)
+        {
+            pthread_join(w->tid, nullptr);
+            w->tid_valid = false; // évite double join via __gc
+        }
+
+        w->joined.store(true, std::memory_order_release);
+
+        int st = w->status.load(std::memory_order_acquire);
+        if (st == WORKER_DONE)
+        {
+            lua_pushboolean(L, 1);
+            // Désérialiser le résultat. json_to_lua laisse la pile
+            // propre en cas d'échec (nettoyage interne). On rend
+            // (true, nil) si la désérialisation échoue : politique
+            // "on a annoncé success, on ne recule pas" — un échec
+            // ici serait un bug de notre sérialisation, pas de
+            // l'utilisateur.
+            try
+            {
+                json r = json::parse(w->result_json);
+                std::string err;
+                if (!json_to_lua(L, r, err, 0))
+                {
+                    lua_pushnil(L);
+                }
+            }
+            catch (...)
+            {
+                lua_pushnil(L);
+            }
+            return 2;
+        }
+        // WORKER_ERROR (ou running anormal — ne devrait pas se produire
+        // après pthread_join).
+        lua_pushboolean(L, 0);
+        lua_pushstring(L, w->err_msg.c_str());
+        return 2;
+    }
+
+    int worker_poll(lua_State *L)
+    {
+        Worker *w = check_worker(L, 1);
+
+        if (w->joined.load(std::memory_order_acquire))
+        {
+            // Politique : si déjà consommé, on rend "error" pour signaler
+            // qu'on ne peut plus poll. Cohérent avec join() qui rend
+            // (false, "already consumed").
+            lua_pushstring(L, "error");
+            lua_pushstring(L,
+                           "workers: poll: result already consumed");
+            return 2;
+        }
+
+        int st = w->status.load(std::memory_order_acquire);
+        if (st == WORKER_RUNNING)
+        {
+            lua_pushstring(L, "running");
+            lua_pushnil(L);
+            return 2;
+        }
+
+        // st == WORKER_DONE ou WORKER_ERROR : rejoindre la thread
+        // (rapide, elle a déjà fini) et marquer consommé.
+        if (w->tid_valid)
+        {
+            pthread_join(w->tid, nullptr);
+            w->tid_valid = false;
+        }
+        w->joined.store(true, std::memory_order_release);
+
+        if (st == WORKER_DONE)
+        {
+            lua_pushstring(L, "done");
+            try
+            {
+                json r = json::parse(w->result_json);
+                std::string err;
+                if (!json_to_lua(L, r, err, 0))
+                {
+                    lua_pushnil(L);
+                }
+            }
+            catch (...)
+            {
+                lua_pushnil(L);
+            }
+            return 2;
+        }
+
+        // WORKER_ERROR
+        lua_pushstring(L, "error");
+        lua_pushstring(L, w->err_msg.c_str());
+        return 2;
+    }
+
+    int worker_gc(lua_State *L)
+    {
+        Worker *w = static_cast<Worker *>(
+            luaL_testudata(L, 1, WORKER_META));
+        if (!w)
+            return 0;
+
+        // Filet de sécurité : si l'utilisateur n'a jamais join/poll,
+        // on attend la thread ici. Bloque potentiellement le GC, mais
+        // c'est la bonne chose à faire (pas de leak, pas de fd ouvert
+        // sur le lua_State enfant).
+        if (w->tid_valid)
+        {
+            pthread_join(w->tid, nullptr);
+            w->tid_valid = false;
+        }
+        // Appel explicite du destructeur (libère std::string + atomic).
+        w->~Worker();
+        return 0;
+    }
+
+    int worker_tostring(lua_State *L)
+    {
+        Worker *w = check_worker(L, 1);
+        char buf[80];
+        int st = w->status.load(std::memory_order_acquire);
+        const char *sname = (st == WORKER_RUNNING) ? "running"
+                            : (st == WORKER_DONE)  ? "done"
+                                                   : "error";
+        std::snprintf(buf, sizeof(buf), "Worker(%s)", sname);
+        lua_pushstring(L, buf);
+        return 1;
+    }
+
+} // namespace
+
+void register_workers(lua_State *L)
+{
+    luaL_newmetatable(L, WORKER_META);
+    {
+        lua_pushvalue(L, -1);
+        lua_setfield(L, -2, "__index");
+        lua_pushcfunction(L, worker_gc);
+        lua_setfield(L, -2, "__gc");
+        lua_pushcfunction(L, worker_tostring);
+        lua_setfield(L, -2, "__tostring");
+        lua_pushcfunction(L, worker_join);
+        lua_setfield(L, -2, "join");
+        lua_pushcfunction(L, worker_poll);
+        lua_setfield(L, -2, "poll");
+    }
+    lua_pop(L, 1);
+
+    lua_newtable(L);
+    lua_pushcfunction(L, lua_workers_spawn);
+    lua_setfield(L, -2, "spawn");
+    lua_setfield(L, -2, "workers");
+}
+
+void set_workers_init_context(const std::string &projectDir,
+                              const std::string &exePath,
+                              bool embedded)
+{
+    g_init_ctx.projectDir = projectDir;
+    g_init_ctx.exePath = exePath;
+    g_init_ctx.embedded = embedded;
+    g_init_ctx.initialized = true;
+}

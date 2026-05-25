@@ -12,6 +12,7 @@
 #include "lua_bindings/fileUtils.hpp"
 #include "lua_bindings/find.hpp"
 #include "lua_bindings/helloThere.hpp"
+#include "lua_bindings/http.hpp"
 #include "lua_bindings/isdir.hpp"
 #include "lua_bindings/isfile.hpp"
 #include "lua_bindings/json.hpp"
@@ -35,9 +36,13 @@
 #include "lua_bindings/sha384.hpp"
 #include "lua_bindings/sha512.hpp"
 #include "lua_bindings/sleep.hpp"
+#include "lua_bindings/socket.hpp"
 #include "lua_bindings/split.hpp"
+#include "lua_bindings/sys.hpp"
 #include "lua_bindings/symlinkattr.hpp"
+#include "lua_bindings/toml.hpp"
 #include "lua_bindings/touch.hpp"
+#include "lua_bindings/workers.hpp"
 #include "lua_bindings/fileIterator.hpp"
 
 #include "project_core/bundled_modules.hpp"
@@ -208,6 +213,32 @@ void register_luapilot(lua_State *L)
     // la pile, ce qui est le cas ici.
     register_json(L);
 
+    // Sous-table luapilot.http (request/get/post). Même précondition de
+    // pile que register_json (table luapilot au sommet).
+    register_http(L);
+
+    // Sous-table luapilot.toml (decode). Même précondition de pile
+    // que register_json / register_http (table luapilot au sommet).
+    register_toml(L);
+
+    // Sous-table luapilot.socket (connect/listen + métatable
+    // LuapilotSocket dans le registry). Même précondition de pile
+    // (table luapilot au sommet) ; register_socket pose en passant
+    // la métatable dans le registry, mais laisse la pile inchangée.
+    register_socket(L);
+
+    // Sous-table luapilot.workers (spawn + métatable LuapilotWorker
+    // dans le registry). Même précondition de pile (table luapilot
+    // au sommet) ; register_workers pose la métatable dans le
+    // registry et laisse la pile inchangée. Chantier 8.
+    register_workers(L);
+
+    // Fonctions utilitaires plates sous luapilot.* (which, env, setenv,
+    // hostname, uname, pid). register_sys NE crée PAS de sous-table :
+    // pose les fonctions directement sur luapilot. Même précondition
+    // de pile (table luapilot au sommet).
+    register_sys(L);
+
     lua_setglobal(L, "luapilot");
 
     // Enregistre la metatable "FileIterator" dans le registry Lua.
@@ -314,6 +345,11 @@ int main(int argc, char *argv[])
             register_luapilot(L);
             register_embedded_searcher(L, exePath.c_str());
 
+            // Workers (Chantier 8) : indiquer le mode d'exécution
+            // pour que require() utilisateur fonctionne aussi dans
+            // les workers (cf. set_workers_init_context).
+            set_workers_init_context("", exePath, true);
+
             // Binaire packagé = l'application elle-même est le script :
             // arg[0] = binaire, arg[1..n] = ses arguments.
             push_lua_arg(L, argc, argv, 0);
@@ -389,6 +425,11 @@ int main(int argc, char *argv[])
     register_bundled_modules(L);
     register_luapilot(L);
     prepend_project_to_package_path(L, projectDir);
+
+    // Workers (Chantier 8) : indiquer le mode d'exécution pour que
+    // require() utilisateur fonctionne aussi dans les workers
+    // (cf. set_workers_init_context).
+    set_workers_init_context(projectDir.string(), "", false);
 
     // Runner de dossier : le "script" est le dossier lancé.
     // arg[-1] = binaire luapilot, arg[0] = <dir>, arg[1..n] = args.

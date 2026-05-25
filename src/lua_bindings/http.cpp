@@ -1,0 +1,668 @@
+// CPPHTTPLIB_OPENSSL_SUPPORT doit être défini AVANT l'include de
+// httplib.h, et UNIQUEMENT dans cette unité de compilation (seule TU
+// qui inclut httplib.h) : la macro reste locale, pas de define global.
+// Réutilise libssl/libcrypto déjà liés (cf. CMakeLists / build_local).
+#define CPPHTTPLIB_OPENSSL_SUPPORT
+#include <httplib.h>
+
+#include "http.hpp"
+#include "lua_utils.hpp"
+
+#include <cctype>
+#include <cstddef>
+#include <ctime>
+#include <exception>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace
+{
+
+    std::string to_lower(std::string s)
+    {
+        for (char &c : s)
+        {
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        return s;
+    }
+
+    bool is_unreserved(unsigned char c)
+    {
+        return std::isalnum(c) != 0 || c == '-' || c == '_' ||
+               c == '.' || c == '~';
+    }
+
+    // Percent-encodage RFC 3986 : seuls les "unreserved" passent tels
+    // quels, tout le reste devient %HH (hex majuscule).
+    std::string percent_encode(const std::string &in)
+    {
+        static const char *hex = "0123456789ABCDEF";
+        std::string out;
+        out.reserve(in.size() * 3);
+        for (unsigned char c : in)
+        {
+            if (is_unreserved(c))
+            {
+                out.push_back(static_cast<char>(c));
+            }
+            else
+            {
+                out.push_back('%');
+                out.push_back(hex[c >> 4]);
+                out.push_back(hex[c & 0x0F]);
+            }
+        }
+        return out;
+    }
+
+    // Lit une valeur Lua (string OU number) à `idx` dans `out`.
+    // Renvoie false si le type n'est ni l'un ni l'autre. Pour un
+    // number, on copie d'abord (lua_pushvalue) : lua_tolstring
+    // convertit en place, ce qui corromprait une clé pendant lua_next.
+    bool lua_value_to_string(lua_State *L, int idx, std::string &out)
+    {
+        int t = lua_type(L, idx);
+        if (t == LUA_TSTRING)
+        {
+            size_t len = 0;
+            const char *s = lua_tolstring(L, idx, &len);
+            out.assign(s, len);
+            return true;
+        }
+        if (t == LUA_TNUMBER)
+        {
+            lua_pushvalue(L, idx);
+            size_t len = 0;
+            const char *s = lua_tolstring(L, -1, &len);
+            out.assign(s, len);
+            lua_pop(L, 1);
+            return true;
+        }
+        return false;
+    }
+
+    struct UrlParts
+    {
+        std::string origin; // scheme://authority
+        std::string target; // /path?query (fragment retiré)
+    };
+
+    // Découpe une URL http(s) absolue. Renvoie false + remplit `err`
+    // sur URL malformée ou scheme non http(s) : condition runtime,
+    // donc (nil, err), pas luaL_error.
+    // Extrait le host depuis une authority (déjà sans scheme:// et
+    // sans path/query/fragment). Gère IPv6 littéral entre crochets :
+    //   "example.com"          -> host "example.com", port absent
+    //   "example.com:8080"     -> host "example.com", port "8080"
+    //   "example.com:"         -> host "example.com", port absent (vide accepté)
+    //   "[::1]"                -> host "::1", port absent
+    //   "[::1]:8080"           -> host "::1", port "8080"
+    //   ":8080"                -> host "" (REJET attendu côté caller)
+    //   "[]:8080"              -> host "" (REJET attendu côté caller)
+    //   "[]"                   -> host "" (REJET attendu côté caller)
+    //
+    // Ne valide PAS le format du host (pas de check DNS/IP/RFC). On
+    // détecte uniquement le cas "host vide", qui est le bug exact
+    // qu'on visait (SU-1 : strictness minimaliste).
+    std::string extract_host(const std::string &authority)
+    {
+        if (authority.empty())
+        {
+            return std::string();
+        }
+        if (authority.front() == '[')
+        {
+            // IPv6 littéral : host = entre [ et ]
+            auto rb = authority.find(']');
+            if (rb == std::string::npos || rb == 1)
+            {
+                // pas de ] fermante, ou [] (vide entre crochets)
+                return std::string();
+            }
+            return authority.substr(1, rb - 1);
+        }
+        // Sinon : host = jusqu'au premier ':' ou toute l'authority.
+        auto colon = authority.find(':');
+        if (colon == std::string::npos)
+        {
+            return authority;
+        }
+        return authority.substr(0, colon);
+    }
+
+    bool split_url(const std::string &url, UrlParts &parts,
+                   std::string &err)
+    {
+        auto scheme_end = url.find("://");
+        if (scheme_end == std::string::npos)
+        {
+            err = "http: invalid url (missing scheme)";
+            return false;
+        }
+        std::string scheme = to_lower(url.substr(0, scheme_end));
+        if (scheme != "http" && scheme != "https")
+        {
+            err = "http: unsupported scheme '" + scheme +
+                  "' (only http/https)";
+            return false;
+        }
+        size_t authority_start = scheme_end + 3;
+        size_t pos = authority_start;
+        while (pos < url.size() && url[pos] != '/' &&
+               url[pos] != '?' && url[pos] != '#')
+        {
+            ++pos;
+        }
+        if (pos == authority_start)
+        {
+            err = "http: invalid url (missing host)";
+            return false;
+        }
+
+        // SU-1/SU-3 : durcir le check "host vide". Avant : seule
+        // l'authority strictement vide (entre :// et /) était
+        // détectée. Maintenant : on extrait le host de l'authority
+        // (avec support IPv6 [::]) et on refuse si vide. Couvre :
+        //   - "http://:8080/"      (port sans host)
+        //   - "http://[]:8080/"    (brackets IPv6 vides)
+        //   - "http://[]"          (brackets vides + pas de port)
+        std::string authority = url.substr(authority_start,
+                                           pos - authority_start);
+        if (extract_host(authority).empty())
+        {
+            err = "http: invalid url (missing host)";
+            return false;
+        }
+
+        parts.origin = url.substr(0, pos);
+
+        std::string rest = url.substr(pos);
+        auto frag = rest.find('#');
+        if (frag != std::string::npos)
+        {
+            rest = rest.substr(0, frag); // jamais envoyé au serveur
+        }
+        if (rest.empty() || rest[0] != '/')
+        {
+            rest = "/" + rest;
+        }
+        parts.target = rest;
+        return true;
+    }
+
+    // Ajoute opts.query (table à `qidx`) au target. (nil, err) si une
+    // clé/valeur n'est pas string/number.
+    bool append_query(lua_State *L, int qidx, std::string &target,
+                      std::string &err)
+    {
+        qidx = lua_absindex(L, qidx);
+        std::string qs;
+        lua_pushnil(L);
+        while (lua_next(L, qidx) != 0)
+        {
+            if (lua_type(L, -2) != LUA_TSTRING)
+            {
+                lua_pop(L, 2);
+                err = "http: query keys must be strings";
+                return false;
+            }
+            size_t klen = 0;
+            const char *ks = lua_tolstring(L, -2, &klen);
+            std::string k(ks, klen);
+            std::string v;
+            if (!lua_value_to_string(L, -1, v))
+            {
+                lua_pop(L, 2);
+                err = "http: query values must be strings or numbers";
+                return false;
+            }
+            if (!qs.empty())
+            {
+                qs.push_back('&');
+            }
+            qs += percent_encode(k);
+            qs.push_back('=');
+            qs += percent_encode(v);
+            lua_pop(L, 1); // garde la clé pour lua_next
+        }
+        if (qs.empty())
+        {
+            return true;
+        }
+        target.push_back(target.find('?') != std::string::npos ? '&' : '?');
+        target += qs;
+        return true;
+    }
+
+    // Empile (result, nil). Pile inchangée par ailleurs.
+    int push_response(lua_State *L, const httplib::Result &res)
+    {
+        lua_newtable(L);
+
+        lua_pushinteger(L, res->status);
+        lua_setfield(L, -2, "status");
+
+        // Binaire-safe : le corps peut contenir des octets nuls.
+        lua_pushlstring(L, res->body.data(), res->body.size());
+        lua_setfield(L, -2, "body");
+
+        lua_newtable(L);
+        for (const auto &h : res->headers)
+        {
+            std::string key = to_lower(h.first); // dernière valeur gagne
+            lua_pushlstring(L, h.second.data(), h.second.size());
+            lua_setfield(L, -2, key.c_str());
+        }
+        lua_setfield(L, -2, "headers");
+
+        lua_pushnil(L);
+        return 2;
+    }
+
+    // Cœur partagé. `opts_idx` = table d'options sur la pile.
+    int http_perform(lua_State *L, int opts_idx)
+    {
+        opts_idx = lua_absindex(L, opts_idx);
+
+        // --- url (requis) ---------------------------------------------
+        lua_getfield(L, opts_idx, "url");
+        if (lua_type(L, -1) != LUA_TSTRING)
+        {
+            lua_pop(L, 1);
+            return luaL_error(L, "http: 'url' (string) is required");
+        }
+        std::string url = lua_tostring(L, -1);
+        lua_pop(L, 1);
+
+        // --- method (optionnel, défaut GET) ---------------------------
+        std::string method = "GET";
+        lua_getfield(L, opts_idx, "method");
+        if (!lua_isnil(L, -1))
+        {
+            if (lua_type(L, -1) != LUA_TSTRING)
+            {
+                lua_pop(L, 1);
+                return luaL_error(L, "http: 'method' must be a string");
+            }
+            method = lua_tostring(L, -1);
+            for (char &c : method)
+            {
+                c = static_cast<char>(
+                    std::toupper(static_cast<unsigned char>(c)));
+            }
+        }
+        lua_pop(L, 1);
+
+        // --- body (optionnel) -----------------------------------------
+        std::string body;
+        bool has_body = false;
+        lua_getfield(L, opts_idx, "body");
+        if (!lua_isnil(L, -1))
+        {
+            if (lua_type(L, -1) != LUA_TSTRING)
+            {
+                lua_pop(L, 1);
+                return luaL_error(L, "http: 'body' must be a string");
+            }
+            size_t blen = 0;
+            const char *bs = lua_tolstring(L, -1, &blen);
+            body.assign(bs, blen);
+            has_body = true;
+        }
+        lua_pop(L, 1);
+
+        // --- timeout (optionnel, secondes > 0) ------------------------
+        bool has_timeout = false;
+        double timeout_s = 0.0;
+        lua_getfield(L, opts_idx, "timeout");
+        if (!lua_isnil(L, -1))
+        {
+            if (lua_type(L, -1) != LUA_TNUMBER)
+            {
+                lua_pop(L, 1);
+                return luaL_error(L, "http: 'timeout' must be a number");
+            }
+            timeout_s = lua_tonumber(L, -1);
+            has_timeout = true;
+        }
+        lua_pop(L, 1);
+        if (has_timeout && !(timeout_s > 0.0))
+        {
+            return push_fail(L, "http: timeout must be > 0");
+        }
+
+        // --- verify (optionnel, défaut true) --------------------------
+        bool verify = true;
+        lua_getfield(L, opts_idx, "verify");
+        if (!lua_isnil(L, -1))
+        {
+            verify = lua_toboolean(L, -1) != 0;
+        }
+        lua_pop(L, 1);
+
+        // --- ca_cert (optionnel) --------------------------------------
+        std::string ca_cert;
+        bool has_ca = false;
+        lua_getfield(L, opts_idx, "ca_cert");
+        if (!lua_isnil(L, -1))
+        {
+            if (lua_type(L, -1) != LUA_TSTRING)
+            {
+                lua_pop(L, 1);
+                return luaL_error(L, "http: 'ca_cert' must be a string");
+            }
+            ca_cert = lua_tostring(L, -1);
+            has_ca = true;
+        }
+        lua_pop(L, 1);
+
+        // --- follow_redirects (optionnel, défaut false) ---------------
+        bool follow = false;
+        lua_getfield(L, opts_idx, "follow_redirects");
+        if (!lua_isnil(L, -1))
+        {
+            follow = lua_toboolean(L, -1) != 0;
+        }
+        lua_pop(L, 1);
+
+        // --- headers (table optionnelle) ------------------------------
+        // Content-Type est extrait pour les méthodes à corps : il est
+        // passé via l'argument content_type dédié de httplib (évite un
+        // header dupliqué). Pour les méthodes sans corps, tous les
+        // headers passent tels quels.
+        std::vector<std::pair<std::string, std::string>> hdrs;
+        std::string content_type;
+        bool has_ct = false;
+        lua_getfield(L, opts_idx, "headers");
+        if (!lua_isnil(L, -1))
+        {
+            if (lua_type(L, -1) != LUA_TTABLE)
+            {
+                lua_pop(L, 1);
+                return luaL_error(L, "http: 'headers' must be a table");
+            }
+            int hidx = lua_absindex(L, -1);
+            lua_pushnil(L);
+            while (lua_next(L, hidx) != 0)
+            {
+                if (lua_type(L, -2) != LUA_TSTRING)
+                {
+                    lua_pop(L, 2);
+                    return push_fail(L, "http: header names must be strings");
+                }
+                std::string hk = lua_tostring(L, -2);
+                std::string hv;
+                if (!lua_value_to_string(L, -1, hv))
+                {
+                    lua_pop(L, 2);
+                    return push_fail(
+                        L, "http: header values must be strings or numbers");
+                }
+                bool is_body_method =
+                    (method == "POST" || method == "PUT" ||
+                     method == "PATCH" || method == "DELETE");
+                if (is_body_method && to_lower(hk) == "content-type")
+                {
+                    content_type = hv;
+                    has_ct = true;
+                }
+                else
+                {
+                    hdrs.emplace_back(hk, hv);
+                }
+                lua_pop(L, 1);
+            }
+        }
+        lua_pop(L, 1);
+
+        // --- url + query ----------------------------------------------
+        UrlParts parts;
+        std::string err;
+        if (!split_url(url, parts, err))
+        {
+            return push_fail(L, err);
+        }
+        lua_getfield(L, opts_idx, "query");
+        if (!lua_isnil(L, -1))
+        {
+            if (lua_type(L, -1) != LUA_TTABLE)
+            {
+                lua_pop(L, 1);
+                return luaL_error(L, "http: 'query' must be a table");
+            }
+            if (!append_query(L, -1, parts.target, err))
+            {
+                lua_pop(L, 1);
+                return push_fail(L, err);
+            }
+        }
+        lua_pop(L, 1);
+
+        // --- méthode autorisée ? --------------------------------------
+        if (method != "GET" && method != "HEAD" && method != "OPTIONS" &&
+            method != "POST" && method != "PUT" && method != "PATCH" &&
+            method != "DELETE")
+        {
+            return push_fail(L, "http: unsupported method '" + method + "'");
+        }
+
+        // Pas de comportement muet : un body sur une méthode sans
+        // corps est signalé, pas silencieusement ignoré.
+        if (has_body &&
+            (method == "GET" || method == "HEAD" || method == "OPTIONS"))
+        {
+            return push_fail(L,
+                             "http: body not allowed for " + method);
+        }
+
+        // --- exécution -------------------------------------------------
+        // try/catch : aucune exception C++ ne doit traverser vers Lua
+        // (invariant de correction). Le ctor Client peut lever, les
+        // appels réseau aussi selon les cas.
+        try
+        {
+            httplib::Client cli(parts.origin);
+            cli.set_follow_location(follow);
+            cli.enable_server_certificate_verification(verify);
+            if (has_ca)
+            {
+                cli.set_ca_cert_path(ca_cert);
+            }
+            if (has_timeout)
+            {
+                // Timeout GLOBAL de bout en bout, équivalent --max-time
+                // de curl (cpp-httplib v0.45.0+).
+                double ms = timeout_s * 1000.0;
+                size_t ms_int = (ms < 1.0) ? 1 : static_cast<size_t>(ms);
+                cli.set_max_timeout(ms_int);
+
+                // CORRECTIF (diagnostic terrain Ubuntu) : set_max_timeout
+                // couvre les phases applicatives de cpp-httplib (envoi
+                // requête, réception réponse) mais PAS toujours la phase
+                // connect() qui peut bloquer dans le noyau bien plus
+                // longtemps. Cas reproduit : http://[::1]:1/ sur Ubuntu
+                // avec IPv6 loopback partiellement configuré -> connect()
+                // bloque ~60s+ malgré set_max_timeout(1s).
+                //
+                // Solution belt+suspenders : poser AUSSI un connection
+                // timeout dédié. cpp-httplib v0.45.0 expose
+                // set_connection_timeout(seconds, microseconds).
+                // En cumulé : la première limite atteinte gagne.
+                time_t conn_s = static_cast<time_t>(timeout_s);
+                time_t conn_us =
+                    static_cast<time_t>((timeout_s - conn_s) * 1e6);
+                // Plancher 1 ms : si timeout_s < 0.001, conn_s et
+                // conn_us seraient tous deux à 0 -> connection_timeout
+                // de 0 = pas de timeout, on évite ce piège.
+                if (conn_s == 0 && conn_us < 1000)
+                {
+                    conn_us = 1000;
+                }
+                cli.set_connection_timeout(conn_s, conn_us);
+            }
+
+            httplib::Headers headers;
+            for (const auto &kv : hdrs)
+            {
+                headers.emplace(kv.first, kv.second);
+            }
+
+            if (has_body && !has_ct)
+            {
+                content_type = "application/octet-stream";
+            }
+
+            // finish() factorise le tri (échec transport vs réponse) ;
+            // prend le Result par valeur (move depuis le prvalue).
+            auto finish = [&](httplib::Result res) -> int
+            {
+                if (!res)
+                {
+                    return push_fail(L, std::string("http: ") +
+                                            httplib::to_string(res.error()));
+                }
+                return push_response(L, res);
+            };
+
+            if (method == "GET")
+            {
+                return finish(cli.Get(parts.target, headers));
+            }
+            if (method == "HEAD")
+            {
+                return finish(cli.Head(parts.target, headers));
+            }
+            if (method == "OPTIONS")
+            {
+                return finish(cli.Options(parts.target, headers));
+            }
+            if (method == "POST")
+            {
+                return finish(
+                    cli.Post(parts.target, headers, body, content_type));
+            }
+            if (method == "PUT")
+            {
+                return finish(
+                    cli.Put(parts.target, headers, body, content_type));
+            }
+            if (method == "PATCH")
+            {
+                return finish(
+                    cli.Patch(parts.target, headers, body, content_type));
+            }
+            // DELETE (seule restante : déjà filtrée plus haut)
+            return finish(
+                cli.Delete(parts.target, headers, body, content_type));
+        }
+        catch (const std::exception &e)
+        {
+            return push_fail(L, std::string("http: ") + e.what());
+        }
+        catch (...)
+        {
+            return push_fail(L, "http: unknown error");
+        }
+    }
+
+    // Copie superficielle d'une table source (index `src`) dans la
+    // table au sommet de la pile (`dst` absolu). Utilisé par get/post
+    // pour fusionner les opts fournies.
+    void shallow_merge(lua_State *L, int src, int dst)
+    {
+        src = lua_absindex(L, src);
+        lua_pushnil(L);
+        while (lua_next(L, src) != 0)
+        {
+            lua_pushvalue(L, -2); // copie de la clé
+            lua_insert(L, -2);    // ... clé, clécopie, valeur
+            lua_settable(L, dst); // dst[clécopie] = valeur
+        }
+    }
+
+} // namespace
+
+int lua_http_request(lua_State *L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    return http_perform(L, 1);
+}
+
+int lua_http_get(lua_State *L)
+{
+    const char *url = luaL_checkstring(L, 1);
+
+    lua_newtable(L);
+    int dst = lua_gettop(L);
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        shallow_merge(L, 2, dst);
+    }
+    lua_pushstring(L, url);
+    lua_setfield(L, dst, "url");
+    lua_pushstring(L, "GET");
+    lua_setfield(L, dst, "method");
+    return http_perform(L, dst);
+}
+
+int lua_http_post(lua_State *L)
+{
+    const char *url = luaL_checkstring(L, 1);
+
+    int body_type = lua_type(L, 2);
+    int opts_arg = 3;
+    bool have_body = false;
+    if (body_type == LUA_TSTRING)
+    {
+        have_body = true;
+    }
+    else if (body_type == LUA_TTABLE)
+    {
+        // forme post(url, opts) : 2e arg = opts, pas de corps
+        opts_arg = 2;
+    }
+    else if (body_type != LUA_TNONE && body_type != LUA_TNIL)
+    {
+        return luaL_error(L, "http: post body must be a string");
+    }
+
+    lua_newtable(L);
+    int dst = lua_gettop(L);
+    if (!lua_isnoneornil(L, opts_arg))
+    {
+        luaL_checktype(L, opts_arg, LUA_TTABLE);
+        shallow_merge(L, opts_arg, dst);
+    }
+    lua_pushstring(L, url);
+    lua_setfield(L, dst, "url");
+    lua_pushstring(L, "POST");
+    lua_setfield(L, dst, "method");
+    if (have_body)
+    {
+        size_t blen = 0;
+        const char *bs = lua_tolstring(L, 2, &blen);
+        lua_pushlstring(L, bs, blen);
+        lua_setfield(L, dst, "body");
+    }
+    return http_perform(L, dst);
+}
+
+void register_http(lua_State *L)
+{
+    // Précondition : table luapilot au sommet (-1), comme register_json.
+    lua_newtable(L);
+
+    lua_pushcfunction(L, lua_http_request);
+    lua_setfield(L, -2, "request");
+
+    lua_pushcfunction(L, lua_http_get);
+    lua_setfield(L, -2, "get");
+
+    lua_pushcfunction(L, lua_http_post);
+    lua_setfield(L, -2, "post");
+
+    lua_setfield(L, -2, "http");
+}
