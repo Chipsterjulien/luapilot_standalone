@@ -17,8 +17,8 @@ If you want to compile the project, do this:
 1. **Clone the repository:**
 
 ```sh
-git clone https://github.com/Chipsterjulien/LuaPilot.git
-cd LuaPilot
+git clone https://github.com/Chipsterjulien/luapilot_standalone.git
+cd luapilot_standalone
 ```
 
 2. **Build the project locally:**
