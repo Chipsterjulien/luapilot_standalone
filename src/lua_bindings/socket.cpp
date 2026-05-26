@@ -6,6 +6,7 @@
 #include <climits>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -46,10 +47,10 @@ namespace
     //              mais aucune fonction ne le branche encore.
     struct Sock
     {
-        int fd;          // -1 si fermé
-        bool listening;  // true si listen(), false si connect()/accept()
-        int timeout_ms;  // 0 = pas de timeout (bloquant infini)
-        SSL *ssl;        // nullptr en TCP brut, non-null après TLS handshake
+        int fd;         // -1 si fermé
+        bool listening; // true si listen(), false si connect()/accept()
+        int timeout_ms; // 0 = pas de timeout (bloquant infini)
+        SSL *ssl;       // nullptr en TCP brut, non-null après TLS handshake
     };
 
     Sock *check_sock(lua_State *L, int idx)
@@ -158,7 +159,8 @@ namespace
             return 0;
         }
         auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(
-            deadline - now).count();
+                         deadline - now)
+                         .count();
         // delta est positif par construction (now < deadline) ; on
         // borne à INT_MAX pour le cast vers int de poll().
         if (delta > INT_MAX)
@@ -308,71 +310,90 @@ namespace
     //
     // NB : aucune exception, aucun goto. Politique RAII manuelle sur
     // SSL_CTX (libéré seulement si erreur de config en cours d'init).
+    // CORRECTIF (post-revue Gemini) : init thread-safe.
+    // Avant les workers, l'init était lazy ("if (g_tls_ctx) return")
+    // mais ce pattern est cassé en multi-thread : deux workers qui
+    // appellent connect_tls() exactement en même temps peuvent
+    // tomber dans la branche d'allocation tous les deux, leaker
+    // un SSL_CTX, et provoquer une race sur la configuration.
+    //
+    // std::call_once garantit que la fermeture passée est exécutée
+    // exactement une fois, peu importe le nombre de threads
+    // concurrents. Les autres threads bloquent jusqu'à la fin de
+    // l'init, puis voient le résultat.
+    std::once_flag g_tls_init_flag;
+    bool g_tls_init_success = false;
+    std::string g_tls_init_err;
+
     bool init_openssl_ctx(std::string &err)
     {
-        if (g_tls_ctx != nullptr)
-        {
-            return true; // déjà initialisé
-        }
+        std::call_once(g_tls_init_flag, []()
+                       {
+            // Premier appel idempotent depuis OpenSSL 1.1.0.
+            OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS |
+                                 OPENSSL_INIT_LOAD_CRYPTO_STRINGS,
+                             nullptr);
 
-        // Premier appel idempotent depuis OpenSSL 1.1.0.
-        OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS |
-                             OPENSSL_INIT_LOAD_CRYPTO_STRINGS,
-                         nullptr);
+            SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
+            if (ctx == nullptr)
+            {
+                g_tls_init_err = format_tls_error("SSL_CTX_new failed");
+                g_tls_init_success = false;
+                return;
+            }
 
-        SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
-        if (ctx == nullptr)
+            // TLS 1.2 minimum (TLS-D). TLS 1.3 sera négocié
+            // automatiquement si dispo des deux côtés.
+            if (SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION) != 1)
+            {
+                g_tls_init_err = format_tls_error(
+                    "set_min_proto_version(TLS1_2) failed");
+                SSL_CTX_free(ctx);
+                g_tls_init_success = false;
+                return;
+            }
+
+            // Verify paths système : /etc/ssl/certs sur Linux,
+            // équivalent sur autres BSD. Cohérent avec http.
+            if (SSL_CTX_set_default_verify_paths(ctx) != 1)
+            {
+                g_tls_init_err = format_tls_error(
+                    "set_default_verify_paths failed");
+                SSL_CTX_free(ctx);
+                g_tls_init_success = false;
+                return;
+            }
+
+            // Vérification activée par défaut (TLS-C : verify=true).
+            // verify_cb = nullptr : comportement OpenSSL par défaut
+            // (rejette si verify_result != X509_V_OK).
+            SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+
+            // AUTO_RETRY : SSL_read/SSL_write gèrent les
+            // renégociations transparentes sans renvoyer WANT_READ/
+            // WANT_WRITE à l'appli.
+            SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
+
+            g_tls_ctx = ctx;
+            g_tls_init_success = true; });
+
+        if (!g_tls_init_success)
         {
-            err = format_tls_error("SSL_CTX_new failed");
+            err = g_tls_init_err;
             return false;
         }
-
-        // TLS 1.2 minimum (TLS-D). TLS 1.3 sera négocié automatiquement
-        // si dispo des deux côtés. SSL_CTX_set_min_proto_version
-        // retourne 1 en succès.
-        if (SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION) != 1)
-        {
-            err = format_tls_error("set_min_proto_version(TLS1_2) failed");
-            SSL_CTX_free(ctx);
-            return false;
-        }
-
-        // Verify paths système : /etc/ssl/certs sur Linux, équivalent
-        // sur autres BSD. Cohérent avec ce qui marche déjà pour http.
-        if (SSL_CTX_set_default_verify_paths(ctx) != 1)
-        {
-            err = format_tls_error("set_default_verify_paths failed");
-            SSL_CTX_free(ctx);
-            return false;
-        }
-
-        // Vérification activée par défaut (TLS-C : verify=true).
-        // verify_cb = nullptr : utilise le comportement OpenSSL par
-        // défaut (rejette si verify_result != X509_V_OK). On lira
-        // SSL_get_verify_result() en cas d'échec handshake pour donner
-        // un message lisible.
-        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
-
-        // AUTO_RETRY : SSL_read/SSL_write gèrent les renégociations
-        // transparentes sans renvoyer WANT_READ/WANT_WRITE à l'appli.
-        // Sans ce flag, une renégociation au milieu d'une lecture
-        // applicative ferait remonter WANT_READ alors qu'on a déjà
-        // attendu POLLIN.
-        SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
-
-        g_tls_ctx = ctx;
         return true;
     }
 
     // Structure de configuration TLS (mappe les opts Lua TLS-3).
     struct TlsOptions
     {
-        bool verify = true;        // TLS-C : verify ON par défaut
-        std::string ca_cert;       // chemin fichier PEM (optionnel)
-        std::string ca_path;       // chemin dossier (optionnel)
-        std::string hostname;      // override (vide = utiliser host)
-        std::string min_version;   // "1.2" (défaut) ou "1.3"
-        int timeout_ms = 0;        // 0 = bloquant infini
+        bool verify = true;      // TLS-C : verify ON par défaut
+        std::string ca_cert;     // chemin fichier PEM (optionnel)
+        std::string ca_path;     // chemin dossier (optionnel)
+        std::string hostname;    // override (vide = utiliser host)
+        std::string min_version; // "1.2" (défaut) ou "1.3"
+        int timeout_ms = 0;      // 0 = bloquant infini
     };
 
     // Lit les opts depuis une table Lua à l'index donné (ou nil/absent).
@@ -704,10 +725,10 @@ namespace
 
     // Codes retour des helpers TLS (au-dessus de toute valeur ssize_t
     // positive valide).
-    constexpr int TLS_IO_EOF        =  0;
-    constexpr int TLS_IO_WANT_READ  = -1;
+    constexpr int TLS_IO_EOF = 0;
+    constexpr int TLS_IO_WANT_READ = -1;
     constexpr int TLS_IO_WANT_WRITE = -2;
-    constexpr int TLS_IO_FATAL      = -3;
+    constexpr int TLS_IO_FATAL = -3;
 
     // Effectue UN appel SSL_write. Convention de retour ci-dessus.
     // ERR_clear_error() AVANT l'appel : SSL_get_error consulte la pile
@@ -804,8 +825,8 @@ namespace
     {
         struct addrinfo hints;
         std::memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_UNSPEC;        // IPv4 ou IPv6
-        hints.ai_socktype = SOCK_STREAM;    // TCP
+        hints.ai_family = AF_UNSPEC;     // IPv4 ou IPv6
+        hints.ai_socktype = SOCK_STREAM; // TCP
         if (passive)
         {
             hints.ai_flags = AI_PASSIVE;
@@ -838,7 +859,7 @@ namespace
         if (s->listening)
         {
             return push_fail(L,
-                "socket: send: cannot send on a listening socket");
+                             "socket: send: cannot send on a listening socket");
         }
 
         // Boucle d'écriture : send() peut écrire partiellement, on
@@ -910,8 +931,10 @@ namespace
                 if (rc == TLS_IO_WANT_READ)
                 {
                     int wr = wait_ready_deadline(s->fd, POLLIN, deadline);
-                    if (wr == 0) return push_fail(L, "timeout");
-                    if (wr < 0)  return push_errno_fail(L, "send");
+                    if (wr == 0)
+                        return push_fail(L, "timeout");
+                    if (wr < 0)
+                        return push_errno_fail(L, "send");
                     continue;
                 }
                 if (rc == TLS_IO_WANT_WRITE)
@@ -970,7 +993,7 @@ namespace
         if (n > MAX_RECV_SIZE)
         {
             return push_fail(L,
-                "socket: recv: count exceeds 16 MB cap");
+                             "socket: recv: count exceeds 16 MB cap");
         }
         if (s->fd < 0)
         {
@@ -979,7 +1002,7 @@ namespace
         if (s->listening)
         {
             return push_fail(L,
-                "socket: recv: cannot recv on a listening socket");
+                             "socket: recv: cannot recv on a listening socket");
         }
 
         // CORRECTIF (post-revue ChatGPT) : symétrie avec send(),
@@ -1033,8 +1056,10 @@ namespace
                 if (rc == TLS_IO_WANT_WRITE)
                 {
                     int wr = wait_ready_deadline(s->fd, POLLOUT, deadline);
-                    if (wr == 0) return push_fail(L, "timeout");
-                    if (wr < 0)  return push_errno_fail(L, "recv");
+                    if (wr == 0)
+                        return push_fail(L, "timeout");
+                    if (wr < 0)
+                        return push_errno_fail(L, "recv");
                     continue;
                 }
                 return push_fail(L, tls_err); // FATAL
@@ -1081,7 +1106,7 @@ namespace
         if (s->listening)
         {
             return push_fail(L,
-                "socket: recv_line: cannot recv on a listening socket");
+                             "socket: recv_line: cannot recv on a listening socket");
         }
 
         // DEADLINE GLOBALE : la lecture ligne-par-ligne peut faire
@@ -1122,8 +1147,10 @@ namespace
                 if (rc == TLS_IO_WANT_WRITE)
                 {
                     int wr = wait_ready_deadline(s->fd, POLLOUT, deadline);
-                    if (wr == 0) return push_fail(L, "timeout");
-                    if (wr < 0)  return push_errno_fail(L, "recv_line");
+                    if (wr == 0)
+                        return push_fail(L, "timeout");
+                    if (wr < 0)
+                        return push_errno_fail(L, "recv_line");
                     continue;
                 }
                 if (rc == TLS_IO_FATAL)
@@ -1182,7 +1209,7 @@ namespace
         if (s->listening)
         {
             return push_fail(L,
-                "socket: recv_all: cannot recv on a listening socket");
+                             "socket: recv_all: cannot recv on a listening socket");
         }
 
         // DEADLINE GLOBALE : on lit jusqu'à EOF, donc potentiellement
@@ -1220,8 +1247,10 @@ namespace
                 if (rc == TLS_IO_WANT_WRITE)
                 {
                     int wr = wait_ready_deadline(s->fd, POLLOUT, deadline);
-                    if (wr == 0) return push_fail(L, "timeout");
-                    if (wr < 0)  return push_errno_fail(L, "recv_all");
+                    if (wr == 0)
+                        return push_fail(L, "timeout");
+                    if (wr < 0)
+                        return push_errno_fail(L, "recv_all");
                     continue;
                 }
                 if (rc == TLS_IO_FATAL)
@@ -1265,7 +1294,7 @@ namespace
         if (!s->listening)
         {
             return push_fail(L,
-                "socket: accept: socket is not listening");
+                             "socket: accept: socket is not listening");
         }
 
         // DEADLINE GLOBALE : accept() bloque jusqu'à arrivée d'un
@@ -1350,13 +1379,13 @@ namespace
         if (std::isnan(t) || !std::isfinite(t))
         {
             return push_fail(L,
-                "socket: set_timeout: value must be finite "
-                "(not NaN or inf)");
+                             "socket: set_timeout: value must be finite "
+                             "(not NaN or inf)");
         }
         if (t < 0.0)
         {
             return push_fail(L,
-                "socket: set_timeout: value must be >= 0 (0 disables)");
+                             "socket: set_timeout: value must be >= 0 (0 disables)");
         }
         // t = 0 -> timeout_ms = 0 -> bloquant infini (cf. make_deadline).
         // sinon : conversion secondes -> millisecondes, plancher 1 ms
@@ -1374,7 +1403,7 @@ namespace
             if (ms > static_cast<double>(INT_MAX))
             {
                 return push_fail(L,
-                    "socket: set_timeout: value too large");
+                                 "socket: set_timeout: value too large");
             }
             s->timeout_ms = (ms < 1.0) ? 1 : static_cast<int>(ms);
         }
@@ -1420,7 +1449,7 @@ namespace
             return push_errno_fail(L, "peer");
         }
         return push_addr_table(L,
-            reinterpret_cast<struct sockaddr *>(&ss), slen);
+                               reinterpret_cast<struct sockaddr *>(&ss), slen);
     }
 
     int sock_sockname(lua_State *L)
@@ -1439,7 +1468,7 @@ namespace
             return push_errno_fail(L, "sockname");
         }
         return push_addr_table(L,
-            reinterpret_cast<struct sockaddr *>(&ss), slen);
+                               reinterpret_cast<struct sockaddr *>(&ss), slen);
     }
 
     // __gc : filet de sécurité. Si l'utilisateur a oublié :close(),
@@ -1476,8 +1505,8 @@ namespace
         else
         {
             std::snprintf(buf, sizeof(buf),
-                "socket (%s, fd=%d)",
-                s->listening ? "listening" : "stream", s->fd);
+                          "socket (%s, fd=%d)",
+                          s->listening ? "listening" : "stream", s->fd);
         }
         lua_pushstring(L, buf);
         return 1;
@@ -1571,8 +1600,7 @@ namespace
             // Récupérer le statut réel de connect via SO_ERROR
             int soerr = 0;
             socklen_t slen = sizeof(soerr);
-            if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &slen) < 0
-                || soerr != 0)
+            if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &slen) < 0 || soerr != 0)
             {
                 last_errno = (soerr != 0) ? soerr : errno;
                 ::close(fd);
@@ -1651,13 +1679,13 @@ int lua_socket_connect(lua_State *L)
     if (port < 0 || port > 65535)
     {
         return push_fail(L,
-            "socket: connect: port must be in [0, 65535]");
+                         "socket: connect: port must be in [0, 65535]");
     }
 
     int timeout_ms = 0;
     std::string err;
     if (!parse_positional_timeout(L, 3, &timeout_ms, err,
-                                   "socket: connect"))
+                                  "socket: connect"))
     {
         return push_fail(L, err);
     }
@@ -1701,7 +1729,7 @@ int lua_socket_connect_tls(lua_State *L)
     if (port < 0 || port > 65535)
     {
         return push_fail(L,
-            "socket: connect_tls: port must be in [0, 65535]");
+                         "socket: connect_tls: port must be in [0, 65535]");
     }
 
     std::string err;
@@ -1825,12 +1853,12 @@ int sock_starttls(lua_State *L)
     if (s->listening)
     {
         return push_fail(L,
-            "socket: starttls: cannot start TLS on a listening socket");
+                         "socket: starttls: cannot start TLS on a listening socket");
     }
     if (s->ssl != nullptr)
     {
         return push_fail(L,
-            "socket: starttls: TLS already active on this socket");
+                         "socket: starttls: TLS already active on this socket");
     }
 
     std::string err;
@@ -1851,8 +1879,8 @@ int sock_starttls(lua_State *L)
     if (opts.verify && opts.hostname.empty())
     {
         return push_fail(L,
-            "tls: starttls with verify=true requires opts.hostname; "
-            "pass hostname or set verify=false");
+                         "tls: starttls with verify=true requires opts.hostname; "
+                         "pass hostname or set verify=false");
     }
 
     if (!init_openssl_ctx(err))
@@ -1923,7 +1951,7 @@ int lua_socket_listen(lua_State *L)
     if (port < 0 || port > 65535)
     {
         return push_fail(L,
-            "socket: listen: port must be in [0, 65535]");
+                         "socket: listen: port must be in [0, 65535]");
     }
     int backlog = 16;
     if (!lua_isnoneornil(L, 3))
@@ -1932,7 +1960,7 @@ int lua_socket_listen(lua_State *L)
         if (b <= 0)
         {
             return push_fail(L,
-                "socket: listen: backlog must be > 0");
+                             "socket: listen: backlog must be > 0");
         }
         backlog = static_cast<int>(b);
     }

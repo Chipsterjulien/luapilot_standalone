@@ -572,7 +572,7 @@ srv:close()
 
 * **Succès** — valeur (socket, byte count, data, …) directement.
 * **Échecs runtime attendus** sous forme de chaînes typées, renvoyés comme `(nil, str)` :
-  * `"closed"` — le peer a fermé la connexion (EOF propre). Pour `recv_line` en milieu de ligne, les octets partiels arrivent comme 3ᵉ valeur de retour.
+  * `"closed"` — le peer a fermé la connexion (EOF propre). Pour `recv_line` en milieu de ligne, les octets partiels arrivent comme 3e valeur de retour.
   * `"timeout"` — `set_timeout` a expiré.
   * Les autres échecs de transport ont un préfixe `"socket: <description>"`.
 * **Mauvais usage** (argument manquant, mauvais type) — lève via `luaL_error`. Comme le reste de LuaPilot, `host` et `port` passent par `luaL_checkstring`/`luaL_checkinteger`, qui coercent silencieusement les nombres et les chaînes numériques. Passez une table pour forcer une erreur.
@@ -722,7 +722,7 @@ for i, url in ipairs(urls) do
     ]], { url = url })
 end
 -- Join tout (bloque jusqu'à ce que chacun finisse). Wall-clock total
--- ≈ le plus lent des fetches, pas leur somme.
+-- ~ le plus lent des fetches, pas leur somme.
 for i, job in ipairs(jobs) do
     local ok, result = job:join()
     print(i, ok, result and result.status or result.error)
@@ -768,17 +768,17 @@ WebSocket), ou tout ce qui doit survivre à une requête unique.
 | `workers.spawn(code [, args] [, opts])` | worker \| `(nil, err)`               | Démarre un worker. `opts.inbox_capacity` et `opts.outbox_capacity` fixent les capacités des queues bornées (défaut 64 chacune). Renvoie `(nil, err)` si la sérialisation échoue (`function`, `userdata`, `coroutine`, cycle, NaN/Inf, non-UTF-8) ou si `pthread_create` échoue. |
 | `w:join()`                              | `(ok, value)`                        | **Bloque** jusqu'à la fin du worker. `ok=true, value=<valeur de retour>` en succès ; `ok=false, value=<message d'erreur>` si le worker a levé.                                                                                                                                  |
 | `w:poll()`                              | `(state, value)`                     | **Non bloquant**, état du worker. `state` vaut `"running"`, `"done"`, ou `"error"`. `value` est nil tant que running, la valeur de retour en done, le message d'erreur en error.                                                                                                |
-| `w:send(value [, timeout])`             | `(true, nil)` \| `(false, reason)`   | Push un message dans l'inbox du worker. Bloque si pleine ; `timeout` en secondes. `reason` ∈ `"full"` (timeout=0 et queue pleine), `"timeout"` (timeout>0 expiré), `"closed"`.                                                                                                  |
-| `w:recv([timeout])`                     | `(true, value)` \| `(false, reason)` | Pop un message depuis l'outbox du worker. Bloque si vide ; `timeout` en secondes. `reason` ∈ `"empty"` (timeout=0 et queue vide), `"timeout"`, `"closed"`.                                                                                                                      |
+| `w:send(value [, timeout])`             | `(true, nil)` \| `(false, reason)`   | Push un message dans l'inbox du worker. Bloque si pleine ; `timeout` en secondes. `reason` $\in$ `"full"` (timeout=0 et queue pleine), `"timeout"` (timeout>0 expiré), `"closed"`.                                                                                                  |
+| `w:recv([timeout])`                     | `(true, value)` \| `(false, reason)` | Pop un message depuis l'outbox du worker. Bloque si vide ; `timeout` en secondes. `reason` $\in$ `"empty"` (timeout=0 et queue vide), `"timeout"`, `"closed"`.                                                                                                                      |
 | `w:close()`                             | `(true, nil)`                        | Ferme l'inbox du worker. Les `w:send` ultérieurs rendent `(false, "closed")` ; le `worker.recv()` côté worker rend `(false, "closed")` pour qu'il sorte proprement de sa boucle. Idempotent.                                                                                    |
 
 Côté worker :
 
-| Appel                            | Renvoie                              | Notes                                                                                            |
-| -------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `worker.send(value [, timeout])` | `(true, nil)` \| `(false, reason)`   | Push un message vers le parent (direction outbox). Bloque si l'outbox est pleine (backpressure). |
-| `worker.recv([timeout])`         | `(true, value)` \| `(false, reason)` | Pop un message depuis le parent (direction inbox). Bloque si vide.                               |
-| `worker.args`                    | table \| nil                         | La table d'args passée au `spawn()`, ou nil.                                                     |
+| Appel | Renvoie | Notes |
+|---|---|---|
+| `worker.send(value [, timeout])` | `(true, nil)` \| `(false, reason)` | Push un message vers le parent (direction outbox). Bloque si l'outbox est pleine (backpressure). |
+| `worker.recv([timeout])` | `(true, value)` \| `(false, reason)` | Pop un message depuis le parent (direction inbox). Bloque si vide. |
+| `worker.args` | table \| nil | La table d'args passée au `spawn()`, ou nil. |
 
 #### Conventions de retour
 
@@ -915,6 +915,30 @@ Si le parent n'appelle jamais `w:join()` ni `w:poll()`, le `__gc` du
 userdata join la thread automatiquement (en fermant les deux queues
 pour débloquer toute opération pendante). C'est un filet de sécurité,
 pas un substitut à une gestion explicite du lifecycle.
+
+**Important : le `__gc` BLOQUE si le worker est occupé.** Quand le
+garbage collector Lua finalise un handle de worker abandonné, il
+appelle `pthread_join()` sur la thread du worker. Si le worker est
+en train d'exécuter une opération longue qui ne vérifie pas
+régulièrement son inbox (un `socket:recv()` lent avec timeout long,
+un `http.get()` synchrone contre un serveur lent, un `luapilot.sleep`
+de 60 secondes, etc.), le GC — et donc **l'ensemble du processus
+LuaPilot** — se fige jusqu'au retour du worker. C'est cohérent avec
+la décision « pas de `:kill()` en v1 » : le shutdown coopératif est
+le seul modèle sûr.
+
+En pratique, cela signifie :
+
+* **Toujours garder une référence** aux workers spawnés et faire
+  explicitement `w:close()` + `w:join()` à la sortie du programme.
+  Ne pas compter sur le garbage collection pour le shutdown.
+* **Écrire les workers de manière coopérative** (cf. la section
+  « `w:close()` n'interrompt pas » plus haut) — des opérations
+  courtes et bornées, entrelacées avec des vérifications
+  `worker.recv(0)`.
+* **Borner les appels bloquants dans les workers** : préférer
+  `sock:set_timeout(5)` au timeout infini par défaut, pour qu'un
+  `recv()` ne puisse pas bloquer plus longtemps qu'un maximum connu.
 
 #### Hors v1 (additif plus tard sous SemVer)
 

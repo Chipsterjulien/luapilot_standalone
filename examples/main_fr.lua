@@ -627,6 +627,41 @@ do
     local results_ci, e_ci = luapilot.find(SB, { type = "f", iname = ".*\\.TXT$" })
     ok_val("find iname case-insensitive", results_ci, e_ci,
         function(x) return type(x) == "table" and #x > 0 end)
+
+    -- find concurrent depuis plusieurs workers (correctif post-Gemini :
+    -- RegexCache est maintenant thread_local). Avec l'ancien cache
+    -- global, ce test aurait corrompu la unordered_map et crashé.
+    -- On spawn 4 workers qui font chacun find en boucle avec une
+    -- regex différente. Si thread_local est bien appliqué, tous les
+    -- workers terminent et rendent leur compteur de résultats.
+    do
+        local W = luapilot.workers
+        local jobs = {}
+        for i = 1, 4 do
+            jobs[i] = W.spawn([[
+                local sb = worker.args.sb
+                local pat = worker.args.pat
+                local count = 0
+                for _ = 1, 20 do
+                    local r, err = luapilot.find(sb, { type = "f", name = pat })
+                    if not r then return { error = err } end
+                    count = count + #r
+                end
+                return { count = count }
+            ]], { sb = SB, pat = ".*\\.txt$" .. tostring(i) })
+        end
+
+        local all_ok = true
+        for i = 1, 4 do
+            local jok, jval = jobs[i]:join()
+            if not (jok == true and type(jval) == "table"
+                    and type(jval.count) == "number") then
+                all_ok = false
+            end
+        end
+        ok("find concurrent x4 workers (thread_local RegexCache)",
+            all_ok)
+    end
 end
 
 -- =====================================================================
@@ -803,6 +838,18 @@ do
     -- timeout invalide -> (nil, err)
     local r16, e16 = luapilot.exec("echo", { "x" }, { timeout = -1 })
     ok_fail("exec(timeout négatif) -> (nil, err)", r16, e16)
+
+    -- Chantier 10-D : timeout NaN / Inf rejetés
+    local r16b, e16b = luapilot.exec("echo", { "x" }, { timeout = 0 / 0 })
+    ok_fail("exec(timeout NaN) -> (nil, err)", r16b, e16b)
+    local r16c, e16c = luapilot.exec("echo", { "x" }, { timeout = math.huge })
+    ok_fail("exec(timeout Inf) -> (nil, err)", r16c, e16c)
+
+    -- Chantier 10-D : opts.env clé invalide rejetée
+    local rE1, eE1 = luapilot.exec("echo", { "x" }, { env = { ["A=B"] = "v" } })
+    ok_fail("exec(env clé contient '=') -> (nil, err)", rE1, eE1)
+    local rE2, eE2 = luapilot.exec("echo", { "x" }, { env = { [""] = "v" } })
+    ok_fail("exec(env clé vide) -> (nil, err)", rE2, eE2)
 
     -- sans timeout, le champ timed_out existe et vaut false
     local r17 = luapilot.exec("echo", { "x" })

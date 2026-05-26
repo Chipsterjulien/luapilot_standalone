@@ -627,6 +627,41 @@ do
     local results_ci, e_ci = luapilot.find(SB, { type = "f", iname = ".*\\.TXT$" })
     ok_val("find iname case-insensitive", results_ci, e_ci,
         function(x) return type(x) == "table" and #x > 0 end)
+
+    -- Concurrent find from multiple workers (post-Gemini fix:
+    -- RegexCache is now thread_local). With the old global cache,
+    -- this would corrupt the unordered_map and crash. We spawn 4
+    -- workers each running find with a different regex repeatedly.
+    -- If thread_local is correctly applied, all workers complete
+    -- successfully and return their result counts.
+    do
+        local W = luapilot.workers
+        local jobs = {}
+        for i = 1, 4 do
+            jobs[i] = W.spawn([[
+                local sb = worker.args.sb
+                local pat = worker.args.pat
+                local count = 0
+                for _ = 1, 20 do
+                    local r, err = luapilot.find(sb, { type = "f", name = pat })
+                    if not r then return { error = err } end
+                    count = count + #r
+                end
+                return { count = count }
+            ]], { sb = SB, pat = ".*\\.txt$" .. tostring(i) })
+        end
+
+        local all_ok = true
+        for i = 1, 4 do
+            local jok, jval = jobs[i]:join()
+            if not (jok == true and type(jval) == "table"
+                    and type(jval.count) == "number") then
+                all_ok = false
+            end
+        end
+        ok("concurrent find x4 workers (thread_local RegexCache)",
+            all_ok)
+    end
 end
 
 -- =====================================================================
@@ -803,6 +838,18 @@ do
     -- timeout invalid -> (nil, err)
     local r16, e16 = luapilot.exec("echo", { "x" }, { timeout = -1 })
     ok_fail("exec(negative timeout) -> (nil, err)", r16, e16)
+
+    -- Chantier 10-D : timeout NaN / Inf rejetés
+    local r16b, e16b = luapilot.exec("echo", { "x" }, { timeout = 0 / 0 })
+    ok_fail("exec(NaN timeout) -> (nil, err)", r16b, e16b)
+    local r16c, e16c = luapilot.exec("echo", { "x" }, { timeout = math.huge })
+    ok_fail("exec(Inf timeout) -> (nil, err)", r16c, e16c)
+
+    -- Chantier 10-D : opts.env clé invalide rejetée
+    local rE1, eE1 = luapilot.exec("echo", { "x" }, { env = { ["A=B"] = "v" } })
+    ok_fail("exec(env key contains '=') -> (nil, err)", rE1, eE1)
+    local rE2, eE2 = luapilot.exec("echo", { "x" }, { env = { [""] = "v" } })
+    ok_fail("exec(env empty key) -> (nil, err)", rE2, eE2)
 
     -- without timeout, the timed_out field exists and is false
     local r17 = luapilot.exec("echo", { "x" })
@@ -2316,12 +2363,12 @@ do
         ok("  err mentions '1.2' or '1.3'",
             type(e) == "string"
             and (e:find("1.2", 1, true) ~= nil
-                 or e:find("1.3", 1, true) ~= nil))
+                or e:find("1.3", 1, true) ~= nil))
 
         v, e = S.connect_tls("127.0.0.1", 443, { timeout = -5 })
         ok_fail("opts.timeout negative -> (nil, err)", v, e)
 
-        v, e = S.connect_tls("127.0.0.1", 443, { timeout = 0/0 })
+        v, e = S.connect_tls("127.0.0.1", 443, { timeout = 0 / 0 })
         ok_fail("opts.timeout NaN -> (nil, err)", v, e)
 
         v, e = S.connect_tls("127.0.0.1", 443, { timeout = math.huge })
@@ -2380,7 +2427,7 @@ do
         -- 1. Générer cert auto-signé CN=localhost. NB : luapilot.exec
         --    attend (cmd, args_table, opts) — la commande NE peut PAS
         --    être passée comme une seule string composée.
-        local gen = luapilot.exec("openssl", {
+        local gen       = luapilot.exec("openssl", {
             "req", "-x509", "-newkey", "rsa:2048", "-nodes",
             "-keyout", key_path,
             "-out", cert_path,
@@ -2389,7 +2436,7 @@ do
         }, { timeout = 15 })
 
         if not (gen and gen.code == 0
-                    and luapilot.fileExists(cert_path)) then
+                and luapilot.fileExists(cert_path)) then
             print("[INFO] tls: cert generation failed, skipping positive tests")
         else
             -- 2. Lancer s_server en arrière-plan. On passe par sh -c
@@ -2447,23 +2494,29 @@ do
                 -- ----- verify=true without CA -> self-signed cert rejected
                 do
                     local s, e = S.connect_tls("127.0.0.1", tls_port,
-                        { verify = true, timeout = 5,
-                          hostname = "localhost" })
+                        {
+                            verify = true,
+                            timeout = 5,
+                            hostname = "localhost"
+                        })
                     ok_fail("verify=true without CA, self-signed cert "
                         .. "-> (nil, err)", s, e)
                     ok("  err contains 'verify failed' or 'self'",
                         type(e) == "string"
                         and (e:find("verify failed", 1, true) ~= nil
-                             or e:find("self", 1, true) ~= nil),
+                            or e:find("self", 1, true) ~= nil),
                         "err=" .. tostring(e))
                 end
 
                 -- ----- verify=true AVEC ca_cert = success
                 do
                     local s, err = S.connect_tls("127.0.0.1", tls_port,
-                        { verify = true, timeout = 5,
-                          hostname = "localhost",
-                          ca_cert = cert_path })
+                        {
+                            verify = true,
+                            timeout = 5,
+                            hostname = "localhost",
+                            ca_cert = cert_path
+                        })
                     ok_val("verify=true + ca_cert(self) "
                         .. "-> (socket, nil)", s, err)
                     if s then
@@ -2476,8 +2529,11 @@ do
                 -- ----- min_version = "1.3" si supporté
                 do
                     local s, err = S.connect_tls("127.0.0.1", tls_port,
-                        { verify = false, timeout = 5,
-                          min_version = "1.3" })
+                        {
+                            verify = false,
+                            timeout = 5,
+                            min_version = "1.3"
+                        })
                     -- s_server supporte TLS 1.3 par défaut sur OpenSSL
                     -- 1.1.1+ ; on accepte success OU échec gracieux.
                     if s then
@@ -2576,8 +2632,8 @@ do
         ok("  err mentions 'nested' or 'cycle' or 'deep'",
             type(e) == "string"
             and (e:find("nested", 1, true) ~= nil
-                 or e:find("cycle", 1, true) ~= nil
-                 or e:find("deep", 1, true) ~= nil))
+                or e:find("cycle", 1, true) ~= nil
+                or e:find("deep", 1, true) ~= nil))
     end
 
     -- ----- spawn + join : retours simples -------------------------
@@ -2811,7 +2867,7 @@ do
     -- ----- send : succès tant qu'il reste de la place -----------
     do
         local w = W.spawn("luapilot.sleep(100, 'ms'); return 42",
-                          nil, { inbox_capacity = 4 })
+            nil, { inbox_capacity = 4 })
         local sok, serr = w:send("hello")
         ok("send(value) sur worker vivant -> (true, nil)",
             sok == true and serr == nil,
@@ -2832,7 +2888,7 @@ do
     -- ----- send : queue pleine, timeout=0 -> "full" -------------
     do
         local w = W.spawn("luapilot.sleep(200, 'ms'); return 1",
-                          nil, { inbox_capacity = 2 })
+            nil, { inbox_capacity = 2 })
         ok("send #1 sur cap=2 -> ok",
             w:send("m1") == true)
         ok("send #2 sur cap=2 -> ok",
@@ -2847,7 +2903,7 @@ do
     -- ----- send : queue pleine, timeout>0 -> "timeout" ----------
     do
         local w = W.spawn("luapilot.sleep(500, 'ms'); return 1",
-                          nil, { inbox_capacity = 1 })
+            nil, { inbox_capacity = 1 })
         w:send("only-slot")
         local t0 = os.time()
         local sok, serr = w:send("second", 0.2)
@@ -2893,7 +2949,7 @@ do
     -- ----- send après worker mort -> "closed" -------------------
     do
         local w = W.spawn("return 1")
-        w:join()  -- worker mort + __gc futur, mais ici on a fait join
+        w:join() -- worker mort + __gc futur, mais ici on a fait join
         -- Note : __gc n'a pas tourné, donc les queues ne sont
         -- fermées que via close() explicite. Le test direct
         -- send/recv après join sans close devrait toujours marcher
@@ -3101,7 +3157,7 @@ do
 
         -- Attendre un peu pour s'assurer que le worker est dans recv()
         luapilot.sleep(100, "ms")
-        w:close()  -- doit débloquer worker.recv()
+        w:close() -- doit débloquer worker.recv()
 
         local jok, jval = w:join()
         ok("worker.recv() bloquant + w:close(): worker termine",

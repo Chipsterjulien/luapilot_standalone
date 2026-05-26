@@ -1028,6 +1028,29 @@ If the parent never calls `w:join()` or `w:poll()`, the userdata's
 unblock any pending operations). This is a safety net, not a
 substitute for explicit lifecycle management.
 
+**Important: `__gc` will block if the worker is busy.** When the
+Lua garbage collector finalizes an abandoned worker handle, it
+calls `pthread_join()` on the worker thread. If the worker is
+currently blocked in a long operation that doesn't periodically
+check its inbox (a slow `socket:recv()` with a long timeout, a
+synchronous `http.get()` against a slow server, a `luapilot.sleep`
+of 60 seconds, etc.), the GC — and therefore the **entire LuaPilot
+process** — freezes until the worker returns. This is consistent
+with the "no `:kill()` in v1" decision: cooperative shutdown is the
+only safe model.
+
+In practice, this means:
+
+* **Always keep a reference** to spawned workers and explicitly
+  `w:close()` + `w:join()` them at program exit. Don't rely on
+  garbage collection for shutdown.
+* **Write workers cooperatively** (see the "non-interruptive
+  `w:close()`" section above) — short bounded operations
+  interleaved with `worker.recv(0)` checks.
+* **Bound your blocking calls inside workers**: prefer
+  `sock:set_timeout(5)` over the default infinite timeout, so that
+  a `recv()` cannot block longer than a known maximum.
+
 #### Not in v1 (additive later under SemVer)
 
 * **`spawn(function, args)`** via `string.dump`. The current

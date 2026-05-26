@@ -1,7 +1,18 @@
+// _GNU_SOURCE rend visibles les extensions GNU/Linux dans les
+// headers POSIX : execvpe() (depuis glibc 2.11) et pipe2() (depuis
+// glibc 2.9). Ces fonctions sont async-signal-safe et permettent
+// d'éviter respectivement setenv() dans l'enfant après fork et la
+// fenêtre de race entre pipe() et fcntl(FD_CLOEXEC). DOIT être
+// défini AVANT tous les includes système.
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "exec.hpp"
 #include "lua_utils.hpp"
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <utility>
 #include <cmath>
@@ -14,6 +25,13 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/wait.h>
+
+// `environ` est défini par la libc système (POSIX). Il pointe vers
+// le tableau d'environnement du processus courant, terminé par NULL.
+// On le lit dans le parent pour construire un envp custom avant fork,
+// ce qui évite d'appeler setenv() dans l'enfant (non async-signal-safe,
+// risque de deadlock heap en contexte multi-thread — cf. revue Gemini).
+extern char **environ;
 
 namespace
 {
@@ -129,6 +147,16 @@ namespace
                 return false;
             }
             timeout = lua_tonumber(L, -1);
+            // CORRECTIF (post-revue ChatGPT 10-D) : refuser NaN et Inf.
+            // L'ancien test "timeout <= 0" laissait passer NaN (toute
+            // comparaison contre NaN est false) et +Inf. Cohérent avec
+            // workers::parse_timeout_arg et socket::set_timeout.
+            if (std::isnan(timeout) || std::isinf(timeout))
+            {
+                lua_pop(L, 1);
+                err = "opts.timeout must be a finite number";
+                return false;
+            }
             if (timeout <= 0)
             {
                 lua_pop(L, 1);
@@ -193,6 +221,32 @@ namespace
                 {
                     lua_pop(L, 3); // value, key, env_table
                     err = "opts.env must map strings to strings";
+                    return false;
+                }
+                // CORRECTIF (post-revue ChatGPT 10-D) : valider la clé.
+                // Avant le refactor 10-B, setenv() rejetait silencieusement
+                // les clés invalides. Notre refactor construit envp en
+                // concaténant "KEY=VALUE" : une clé contenant '=' ou '\0',
+                // ou une clé vide, casse la sémantique POSIX (l'enfant
+                // verrait getenv("A") == "B=x" pour env={["A=B"]="x"}).
+                size_t key_len;
+                const char *key = lua_tolstring(L, -2, &key_len);
+                if (key_len == 0)
+                {
+                    lua_pop(L, 3);
+                    err = "opts.env: key must not be empty";
+                    return false;
+                }
+                if (std::memchr(key, '=', key_len) != nullptr)
+                {
+                    lua_pop(L, 3);
+                    err = "opts.env: key must not contain '='";
+                    return false;
+                }
+                if (std::memchr(key, '\0', key_len) != nullptr)
+                {
+                    lua_pop(L, 3);
+                    err = "opts.env: key must not contain NUL byte";
                     return false;
                 }
                 env.emplace_back(lua_tostring(L, -2), lua_tostring(L, -1));
@@ -318,7 +372,7 @@ int lua_exec(lua_State *L)
         return push_fail(L, err);
     }
 
-    // Tableau argv terminé par NULL pour execvp.
+    // Tableau argv terminé par NULL pour exec.
     std::vector<char *> argv;
     argv.reserve(args.size() + 1);
     for (auto &a : args)
@@ -327,35 +381,145 @@ int lua_exec(lua_State *L)
     }
     argv.push_back(nullptr);
 
+    // CORRECTIF (post-revue Gemini, chantier 10-B) : préparer envp
+    // ENTIÈREMENT CÔTÉ PARENT avant fork().
+    //
+    // Pourquoi : faire setenv() dans l'enfant après fork() est
+    // dangereux en multi-thread. fork() ne copie qu'un seul thread,
+    // mais hérite des locks tenus par les autres threads au moment
+    // du fork — typiquement le lock global du tas (malloc). Si on
+    // appelle setenv() dans l'enfant et qu'il tente malloc() pour
+    // étendre `environ`, il bloque à jamais sur ce lock orphelin
+    // -> deadlock infini, zombie permanent.
+    //
+    // Solution : construire le tableau envp dans le parent (où
+    // malloc fonctionne normalement) et le passer à execvpe() dans
+    // l'enfant. execvpe() est async-signal-safe.
+    //
+    // Construction :
+    //   1. Recopier l'environnement actuel (variable globale
+    //      `environ`), en sautant les clés qui seront override.
+    //   2. Ajouter les overrides depuis env (KEY=VALUE).
+    //   3. Construire le char *[] terminé par NULL.
+    //
+    // env_strings garde le storage durable des std::string ;
+    // envp_ptrs pointe dedans. Les deux restent vivants jusqu'après
+    // l'exec : le fork copie tout, l'enfant lit envp_ptrs en
+    // copy-on-write, c'est valide.
+    std::vector<std::string> env_strings;
+    std::vector<char *> envp_ptrs;
+
+    // Set des clés à override pour skipper rapidement.
+    std::unordered_set<std::string> override_keys;
+    for (auto &kv : env)
+    {
+        override_keys.insert(kv.first);
+    }
+
+    // 1. Copier l'environnement courant, sauf clés override.
+    if (environ != nullptr)
+    {
+        for (char **e = environ; *e != nullptr; ++e)
+        {
+            std::string entry(*e);
+            // Chaque entrée est "KEY=VALUE" ; on extrait la clé pour
+            // tester l'override. Si pas de '=' (cas pathologique),
+            // on garde tel quel (un setenv normal ne produirait pas
+            // ça).
+            auto eq = entry.find('=');
+            if (eq != std::string::npos)
+            {
+                std::string key = entry.substr(0, eq);
+                if (override_keys.count(key) > 0)
+                {
+                    continue; // sera réécrite plus bas
+                }
+            }
+            env_strings.push_back(std::move(entry));
+        }
+    }
+
+    // 2. Ajouter les overrides (KEY=VALUE).
+    for (auto &kv : env)
+    {
+        std::string entry = kv.first;
+        entry.push_back('=');
+        entry.append(kv.second);
+        env_strings.push_back(std::move(entry));
+    }
+
+    // 3. Construire le tableau de pointeurs terminé par NULL.
+    // Important : on remplit envp_ptrs APRÈS avoir terminé tous les
+    // push_back sur env_strings, pour éviter qu'un realloc invalide
+    // les pointeurs (data() devient invalide après realloc).
+    envp_ptrs.reserve(env_strings.size() + 1);
+    for (auto &s : env_strings)
+    {
+        envp_ptrs.push_back(s.data());
+    }
+    envp_ptrs.push_back(nullptr);
+
     // --- création des pipes -----------------------------------------
     int pipe_in[2], pipe_out[2], pipe_err[2], pipe_exec[2];
 
     auto close_pair = [](int p[2])
     { close(p[0]); close(p[1]); };
 
-    if (pipe(pipe_in) != 0)
+    // CORRECTIF (post-revue Gemini) : créer les pipes en O_CLOEXEC
+    // ATOMIQUEMENT. Avec l'arrivée des workers (Chantier 8), une
+    // séquence pipe() puis fcntl(FD_CLOEXEC) laisse une fenêtre
+    // microscopique pendant laquelle un autre worker qui fait
+    // fork+exec hérite des fd. Avec pipe2() la création + le flag
+    // sont une seule opération atomique du noyau.
+    //
+    // Note : les pipes seront re-affectés à stdin/stdout/stderr du
+    // child via dup2(). dup2() crée systématiquement un fd SANS
+    // FD_CLOEXEC, donc nos fd 0/1/2 dans le child seront bien
+    // hérités par l'exec final, comme avant. Seul le fd "source"
+    // (par exemple pipe_in[0] avant dup2 dans le child, ou
+    // pipe_in[1] dans le parent) bénéficie de la protection.
+    auto make_pipe = [](int p[2]) -> int
     {
-        return push_fail(L, std::string("pipe() failed: ") + std::strerror(errno));
+#ifdef O_CLOEXEC
+        return pipe2(p, O_CLOEXEC);
+#else
+        // Fallback portable : pipe() + fcntl(F_SETFD). Non atomique
+        // (fenêtre de race), mais maintient le comportement sur des
+        // systèmes sans pipe2. LuaPilot vise Linux où pipe2 est
+        // toujours disponible (glibc 2.9+, Linux 2.6.27+).
+        if (pipe(p) != 0)
+            return -1;
+        fcntl(p[0], F_SETFD, fcntl(p[0], F_GETFD) | FD_CLOEXEC);
+        fcntl(p[1], F_SETFD, fcntl(p[1], F_GETFD) | FD_CLOEXEC);
+        return 0;
+#endif
+    };
+
+    if (make_pipe(pipe_in) != 0)
+    {
+        return push_fail(L, std::string("pipe2() failed: ") + std::strerror(errno));
     }
-    if (pipe(pipe_out) != 0)
+    if (make_pipe(pipe_out) != 0)
     {
         close_pair(pipe_in);
-        return push_fail(L, std::string("pipe() failed: ") + std::strerror(errno));
+        return push_fail(L, std::string("pipe2() failed: ") + std::strerror(errno));
     }
-    if (pipe(pipe_err) != 0)
+    if (make_pipe(pipe_err) != 0)
     {
         close_pair(pipe_in);
         close_pair(pipe_out);
-        return push_fail(L, std::string("pipe() failed: ") + std::strerror(errno));
+        return push_fail(L, std::string("pipe2() failed: ") + std::strerror(errno));
     }
-    if (pipe(pipe_exec) != 0)
+    if (make_pipe(pipe_exec) != 0)
     {
         close_pair(pipe_in);
         close_pair(pipe_out);
         close_pair(pipe_err);
-        return push_fail(L, std::string("pipe() failed: ") + std::strerror(errno));
+        return push_fail(L, std::string("pipe2() failed: ") + std::strerror(errno));
     }
-    fcntl(pipe_exec[1], F_SETFD, fcntl(pipe_exec[1], F_GETFD) | FD_CLOEXEC);
+    // pipe_exec a déjà FD_CLOEXEC posé via pipe2 ci-dessus, donc
+    // l'ancien fcntl explicite n'est plus nécessaire (idempotent
+    // de toute façon, mais inutile).
 
     // Ignorer SIGPIPE le temps de l'appel (voir v2), restauré à la fin.
     struct sigaction sa_ign, sa_old;
@@ -405,12 +569,26 @@ int lua_exec(lua_State *L)
             }
         }
 
-        for (auto &kv : env)
-        {
-            setenv(kv.first.c_str(), kv.second.c_str(), 1);
-        }
-
+        // CORRECTIF Gemini : on N'APPELLE PAS setenv() dans
+        // l'enfant. L'envp a été préparé dans le parent (voir
+        // ci-dessus, avant fork). execvpe est async-signal-safe
+        // et utilise notre envp custom sans toucher à `environ`.
+        //
+        // execvpe est une extension GNU (Linux/glibc), comme
+        // pipe2. LuaPilot vise Linux ; sur un système qui n'a pas
+        // execvpe, on retombe sur une résolution PATH manuelle +
+        // execve (toujours async-signal-safe).
+#ifdef __GLIBC__
+        execvpe(cmd.c_str(), argv.data(), envp_ptrs.data());
+#else
+        // Fallback : pour les systèmes sans execvpe, on temporairement
+        // remplace `environ` puis on appelle execvp. Note : `environ`
+        // est un pointeur global, le remplacer ici dans l'enfant est
+        // sûr (un seul thread après fork). C'est moins propre que
+        // execvpe mais ça reste async-signal-safe (pas de malloc).
+        environ = envp_ptrs.data();
         execvp(cmd.c_str(), argv.data());
+#endif
 
         int e = errno;
         ssize_t wr = write(pipe_exec[1], &e, sizeof(e));

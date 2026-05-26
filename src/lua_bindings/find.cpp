@@ -32,9 +32,12 @@ namespace
         std::unordered_map<std::string, std::regex> iname_regex;
     };
 
-    // Mono-thread runtime : un cache global est sûr. À déplacer en local
-    // si on autorisait un jour plusieurs lua_State concurrents.
-    RegexCache cache;
+    // CORRECTIF (post-revue Gemini) : depuis l'arrivée des workers
+    // (Chantier 8), plusieurs threads peuvent appeler luapilot.find
+    // simultanément. Un cache global non protégé corromprait la map
+    // sur un try_emplace concurrent. La solution thread_local donne
+    // à chaque worker son propre cache, sans surcoût de mutex.
+    thread_local RegexCache cache;
 
     // Les patterns sont passés tels quels à std::regex, en syntaxe ECMAScript
     // (équivalent à la regex PCRE habituelle : \d, \w, [a-zA-Z], etc.).
