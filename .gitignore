@@ -11,6 +11,3 @@ downloads/
 *.log
 .DS_Store
 test/luapilot
-# Core dumps possibles si crash en local
-core
-core.*

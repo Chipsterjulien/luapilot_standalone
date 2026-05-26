@@ -1,1 +1,1 @@
-return { hello = function() return "init.lua chargé !" end }
+return { hello = function() return "init.lua loaded !" end }

@@ -799,6 +799,21 @@ Unlike languages with a global interpreter lock (Python GIL),
 LuaPilot workers really run on multiple CPU cores. Spawn N workers
 and you can use N cores.
 
+The API supports **two usage patterns**:
+
+* **Fork-join** — spawn a worker that computes one result and dies.
+  Use `:join()` or `:poll()` to retrieve the return value.
+* **Persistent** — spawn a worker that loops on `worker.recv()`,
+  processes messages, and replies via `worker.send()`. Use the
+  parent-side `w:send()` / `w:recv()` / `w:close()` to communicate.
+
+Both patterns share the same `spawn()` call and the same
+isolation model. The choice is in the worker's code: a `return`
+statement at the top level is fork-join; a `while ... worker.recv()`
+loop is persistent.
+
+#### Fork-join: compute one result
+
 ```lua
 local workers = luapilot.workers
 
@@ -829,68 +844,152 @@ for i, job in ipairs(jobs) do
     local ok, result = job:join()
     print(i, ok, result and result.status or result.error)
 end
-
--- Non-blocking variant: poll instead of join
-local w3 = workers.spawn("luapilot.sleep(2, 's'); return 'done'")
-while true do
-    local state, value = w3:poll()
-    if state ~= "running" then
-        print("finished:", state, value)
-        break
-    end
-    -- do other work here while w3 runs
-    luapilot.sleep(100, "ms")
-end
 ```
 
-**Functions and methods**
-
-| Call                                    | Returns                | Notes                                                                                                                                                                                                                                                               |
-| --------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `workers.spawn(code [, args] [, opts])` | worker \| `(nil, err)` | Start a worker. `code` is a Lua source string. `args` is an optional serializable table. `opts` is reserved for future use. Returns `(nil, err)` if serialization fails (`function`, `userdata`, `coroutine`, cycle, NaN/Inf, non-UTF-8) or `pthread_create` fails. |
-| `w:join()`                              | `(ok, value)`          | **Blocks** until the worker finishes. `ok=true, value=<return value>` on success; `ok=false, value=<error message>` if the worker raised.                                                                                                                           |
-| `w:poll()`                              | `(state, value)`       | **Non-blocking**. `state` is `"running"`, `"done"`, or `"error"`. `value` is nil while running, the return value when done, the error message on error.                                                                                                             |
-
-**Important: pcall-style return convention.** Unlike the rest of
-LuaPilot which uses `(result, err)` / `(nil, err)`, `w:join()`
-returns `(ok, value)` where `value` carries the worker's actual
-return — which can legitimately be `nil`. This avoids the ambiguity
-of `(nil, nil)` meaning either "successful nil return" or "error
-with no message". `w:poll()` follows the same idea with a tri-state
-`"running" | "done" | "error"`.
-
-**Single return value.** A worker may return only one value. If the
-code says `return a, b, c`, only `a` is transferred to the parent;
-`b` and `c` are silently discarded. To return multiple values, wrap
-them in a table:
+#### Persistent: bidirectional messaging
 
 ```lua
--- worker side
-return { count = n, errors = errs, elapsed_ms = dt }
--- parent side
-local ok, result = w:join()
-print(result.count, result.errors, result.elapsed_ms)
+-- Worker that echoes every message it receives, with a marker.
+local w = workers.spawn([[
+    while true do
+        local ok, msg = worker.recv()  -- blocks on parent input
+        if not ok then break end       -- "closed": parent shutting down
+        worker.send({ echo = msg })
+    end
+    return "exited cleanly"
+]])
+
+w:send("hello")
+w:send("world")
+w:send(42)
+
+local _, r1 = w:recv()    -- (true, { echo = "hello" })
+local _, r2 = w:recv()    -- (true, { echo = "world" })
+local _, r3 = w:recv()    -- (true, { echo = 42 })
+
+-- Signal end-of-input. The worker's worker.recv() returns
+-- (false, "closed"), it exits the loop, the return value crosses
+-- via join().
+w:close()
+local ok, value = w:join()    -- (true, "exited cleanly")
 ```
 
-**Argument serialization.** Arguments and return values must be
-JSON-representable:
+Typical use cases for persistent workers: a logger worker, a
+database connection worker, a long-running protocol handler (IRC,
+WebSocket), or anything that should outlive a single request.
 
-| Lua type                                   | Supported? | Notes                                                                   |
-| ------------------------------------------ | ---------- | ----------------------------------------------------------------------- |
-| `nil`, `boolean`, `string`, `number`       | yes        | UTF-8 strings only. NaN and Infinity are refused.                       |
-| `table` (sequence 1..n)                    | yes        | Serialized as JSON array.                                               |
-| `table` (string keys)                      | yes        | Serialized as JSON object.                                              |
-| `table` (mixed / sparse / non-string keys) | no         | Refused at `spawn` — same rule as `luapilot.json`.                      |
-| `function`, `userdata`, `coroutine`        | no         | Refused. You cannot pass an open socket, file handle, etc. to a worker. |
-| Cyclic tables                              | no         | Refused immediately on first cycle detection.                           |
+#### API reference
+
+| Call                                    | Returns                              | Notes                                                                                                                                                                                                                                                      |
+| --------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workers.spawn(code [, args] [, opts])` | worker \| `(nil, err)`               | Start a worker. `opts.inbox_capacity` and `opts.outbox_capacity` set the bounded queue sizes (default 64 each). Returns `(nil, err)` if serialization fails (`function`, `userdata`, `coroutine`, cycle, NaN/Inf, non-UTF-8) or if `pthread_create` fails. |
+| `w:join()`                              | `(ok, value)`                        | **Blocks** until the worker finishes. `ok=true, value=<return value>` on success; `ok=false, value=<error message>` if the worker raised.                                                                                                                  |
+| `w:poll()`                              | `(state, value)`                     | **Non-blocking** worker-state check. `state` is `"running"`, `"done"`, or `"error"`. `value` is nil while running, the return value when done, the error message on error.                                                                                 |
+| `w:send(value [, timeout])`             | `(true, nil)` \| `(false, reason)`   | Push a message to the worker's inbox. Blocks if full; `timeout` is in seconds. `reason` ∈ `"full"` (timeout=0 and queue full), `"timeout"` (timeout>0 expired), `"closed"`.                                                                                |
+| `w:recv([timeout])`                     | `(true, value)` \| `(false, reason)` | Pop a message from the worker's outbox. Blocks if empty; `timeout` is in seconds. `reason` ∈ `"empty"` (timeout=0 and queue empty), `"timeout"`, `"closed"`.                                                                                               |
+| `w:close()`                             | `(true, nil)`                        | Closes the worker's inbox. Subsequent `w:send` returns `(false, "closed")`; the worker's `worker.recv()` returns `(false, "closed")` so it can exit its loop cleanly. Idempotent.                                                                          |
+
+Inside the worker:
+
+| Call                             | Returns                              | Notes                                                                                     |
+| -------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `worker.send(value [, timeout])` | `(true, nil)` \| `(false, reason)`   | Push a message to the parent (outbox direction). Blocks if outbox is full (backpressure). |
+| `worker.recv([timeout])`         | `(true, value)` \| `(false, reason)` | Pop a message from the parent (inbox direction). Blocks if empty.                         |
+| `worker.args`                    | table \| nil                         | The args table passed at `spawn()`, or nil.                                               |
+
+#### Return convention conventions
+
+The convention varies between **parent-side** and **worker-side**:
+
+* **Parent-side `w:send` / `w:recv` / `w:join` / `w:close`** use the
+  pcall-style `(ok, value_or_reason)` — `value` may legitimately be
+  `nil` after a successful exchange, so `(false, "...")` is the only
+  way to signal failure unambiguously.
+* **Parent-side `w:send` with a non-serializable value** returns
+  `(nil, err)` instead of `(false, err)` — this is the `(result,
+  err)` convention used everywhere else in LuaPilot when a *bad
+  value* is passed at the API boundary (compare with
+  `luapilot.json.encode`).
+* **Worker-side `worker.send` / `worker.recv`** consistently use
+  `(ok, value_or_reason)` — no exception. Inside the worker, you
+  always write `local ok, msg = worker.recv(); if not ok then ... end`.
+
+#### Important: `w:close()` is non-interruptive
+
+`w:close()` performs a **logical close** of the worker's inbox —
+it does **not** interrupt the worker if it is currently blocked in
+a long operation (a slow `socket:recv()`, a long sleep, a long
+`http.get()`, etc.). The worker only sees the closure the *next
+time* it calls `worker.recv()`.
+
+```lua
+-- ANTI-PATTERN: this worker is uninterruptible
+local w = workers.spawn([[
+    local sock = luapilot.socket.connect("slow-server", 80, 30)
+    sock:set_timeout(60)
+    sock:recv(4096)  -- blocks up to 60 seconds, ignoring w:close()
+    return "done"
+]])
+
+w:close()  -- worker keeps reading on the socket; this only affects
+           -- the inbox, which the worker is not reading from anyway
+w:join()   -- waits up to 60 seconds
+```
+
+To make a worker shutdown-responsive, **write it cooperatively**:
+interleave `worker.recv(0)` calls between long operations and exit
+the loop when you see `(false, "closed")`:
+
+```lua
+-- COOPERATIVE PATTERN
+local w = workers.spawn([[
+    while true do
+        -- Quick non-blocking check: parent wants us to stop?
+        local ok, msg = worker.recv(0)
+        if not ok and msg == "closed" then break end
+        if ok then
+            -- handle msg
+        end
+
+        -- Do one unit of work (short and bounded). Do NOT do an
+        -- operation that could block longer than the desired
+        -- shutdown latency.
+        do_one_step()
+    end
+    return "exited cleanly"
+]])
+```
+
+`:kill()` is intentionally **not** part of the v1 API: forcefully
+terminating a worker mid-pthread leaves shared state (file
+descriptors, mutexes, OpenSSL contexts) in unrecoverable shapes.
+Cooperative shutdown is the only safe model. If a worker must be
+able to interrupt a long socket operation, set `set_timeout()` to
+the worst-case acceptable latency.
+
+#### Argument and message serialization
+
+Arguments passed at `spawn()` and messages exchanged via
+`send`/`recv` must be JSON-representable:
+
+| Lua type                                   | Supported? | Notes                                                                           |
+| ------------------------------------------ | ---------- | ------------------------------------------------------------------------------- |
+| `nil`, `boolean`, `string`, `number`       | yes        | UTF-8 strings only. NaN and Infinity are refused.                               |
+| `table` (sequence 1..n)                    | yes        | Serialized as JSON array.                                                       |
+| `table` (string keys)                      | yes        | Serialized as JSON object.                                                      |
+| `table` (mixed / sparse / non-string keys) | no         | Refused at serialization time.                                                  |
+| `function`, `userdata`, `coroutine`        | no         | Refused. You cannot pass an open socket, file handle, etc. to or from a worker. |
+| Cyclic tables                              | no         | Refused immediately on first cycle detection.                                   |
 
 **integer vs float caveat.** JSON has only one number type, so the
 integer/float distinction is lost on transfer. A worker returning
 `42` (integer) may arrive as `42.0` (float) in the parent, or
 vice-versa. If your code checks `math.type(v) == "integer"`, convert
-explicitly with `math.tointeger(v)` after the join.
+explicitly with `math.tointeger(v)` after the join or recv.
 
-**Inside the worker.** Every worker gets a fresh `lua_State` with:
+#### What's inside a worker
+
+Every worker gets a fresh `lua_State` with:
 
 * Lua standard library (`io`, `os`, `string`, `table`, `math`,
   `coroutine`, `debug`, `package`).
@@ -903,47 +1002,47 @@ explicitly with `math.tointeger(v)` after the join.
 
 Two globals are set differently from the parent:
 
-* `worker.args` holds the table passed to `spawn` (or `nil` if no
-  args were given).
+* `worker` is a table containing `args`, `send`, and `recv`.
+  `worker.args` holds the table passed to `spawn` (or `nil`).
 * `arg` is `nil` (the worker does not inherit the parent's `arg`
   vector). Use `worker.args` instead.
 
-**Lifecycle.** A worker's resources are released when:
+#### Lifecycle and bounded queues
 
-1. `w:join()` returns, **or**
-2. `w:poll()` returns `"done"` or `"error"`, **or**
-3. The userdata is garbage-collected (safety net: `__gc` joins the
-   thread if you forgot).
+Both queues are **bounded**. The defaults are 64 entries each
+(`inbox_capacity` and `outbox_capacity` at spawn time). When a
+queue is full, the corresponding `send` blocks (or returns
+`"full"` / `"timeout"` according to the timeout argument). This is
+intentional **backpressure** — an unbounded queue would silently
+grow until memory exhaustion if the consumer is slower than the
+producer.
 
-Once a worker's result has been consumed, calling `:join()` again
-returns `(false, "workers: join: result already consumed")` and
-`:poll()` returns `("error", "...already consumed")`.
+When the worker terminates (return or error), its `worker.send`
+outbox is **drained first**: pending messages are still visible
+via `w:recv()` until the queue is empty, then `w:recv()` returns
+`(false, "closed")`. Symmetrically, `w:send` after worker death
+returns `(false, "closed")` immediately.
 
-**Error contract** (worker-internal):
+If the parent never calls `w:join()` or `w:poll()`, the userdata's
+`__gc` joins the thread automatically (closing both queues to
+unblock any pending operations). This is a safety net, not a
+substitute for explicit lifecycle management.
 
-* The worker's code runs inside an internal `pcall`. A Lua `error()`
-  inside the worker is captured and surfaces as `:join() → (false, msg)`.
-* C++ crashes (rare) cannot be caught — a segfault in a library
-  called from the worker can take down the whole process. This is no
-  different from any C extension in Lua.
-
-**Not in v1** (additive later under SemVer):
+#### Not in v1 (additive later under SemVer)
 
 * **`spawn(function, args)`** via `string.dump`. The current
   string-based form already covers all use cases; function-form
   would be more ergonomic but has subtleties (upvalues are not
   captured, only top-level locals).
-* **`:kill()`** — force-terminating a worker. Workers should be
-  short-lived or check a coordination flag voluntarily.
+* **`:kill()`** — force-terminating a worker (see "non-interruptive"
+  above).
 * **Pool of persistent workers** — implementable in pure Lua on top
   of `spawn`. A bundled `workers.pool(N)` may come later.
-* **Channels** — Go-like bidirectional communication between
-  workers. The current model is "fork-join only".
+* **`workers.channel()`** — independent channels for worker-to-worker
+  communication. The current model is "parent-routed only".
 * **Binary serialization** — JSON is fine for typical payloads.
   A faster binary format may be added if large-volume transfers
   become a real use case.
-
-See the [examples](https://github.com/Chipsterjulien/luapilot_standalone/tree/main/examples) if you want to learn more …
 
 ## Contributing
 
