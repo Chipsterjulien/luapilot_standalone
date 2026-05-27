@@ -209,7 +209,18 @@ namespace
                 " levels — cyclic table?)");
         }
 
-        luaL_checkstack(L, 4, "json encode");
+        // CORRECTIF longjmp (post-revue Gemini) : luaL_checkstack
+        // utilise longjmp() si la pile ne peut pas grandir, ce qui
+        // ne déroule PAS les destructeurs C++. La fonction est
+        // récursive et alloue des std::string / json en chemin, qui
+        // fuiraient. On utilise lua_checkstack (variante silencieuse,
+        // renvoie 0 en échec) et on remonte l'erreur via la voie
+        // normale du module : exception C++ attrapée par
+        // lua_json_encode (try/catch std::exception en sortie).
+        if (!lua_checkstack(L, 4))
+        {
+            throw std::runtime_error("json: lua stack overflow during encode");
+        }
         idx = lua_absindex(L, idx);
 
         // Sentinels d'abord : ce sont des tables, donc à tester avant le
@@ -278,7 +289,13 @@ namespace
                 std::to_string(MAX_DEPTH) + " levels)");
         }
 
-        luaL_checkstack(L, 4, "json decode");
+        // CORRECTIF longjmp (post-revue Gemini) : même raison que dans
+        // lua_to_json. lua_checkstack silencieux + throw cohérent
+        // avec le reste du module.
+        if (!lua_checkstack(L, 4))
+        {
+            throw std::runtime_error("json: lua stack overflow during decode");
+        }
 
         switch (j.type())
         {

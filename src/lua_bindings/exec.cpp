@@ -1,9 +1,13 @@
 // _GNU_SOURCE rend visibles les extensions GNU/Linux dans les
 // headers POSIX : execvpe() (depuis glibc 2.11) et pipe2() (depuis
-// glibc 2.9). Ces fonctions sont async-signal-safe et permettent
-// d'éviter respectivement setenv() dans l'enfant après fork et la
-// fenêtre de race entre pipe() et fcntl(FD_CLOEXEC). DOIT être
-// défini AVANT tous les includes système.
+// glibc 2.9). pipe2() est formellement async-signal-safe et nous
+// évite la fenêtre de race entre pipe() et fcntl(FD_CLOEXEC).
+// execvpe() n'est PAS formellement async-signal-safe (résolution
+// $PATH), mais permet d'éviter setenv() dans l'enfant après fork
+// (un cas avéré de deadlock multi-thread) — gain pratique net. Le
+// détail est dans le commentaire avant l'execvpe() lui-même + dans
+// notes.md (dette technique : résoudre PATH côté parent un jour).
+// DOIT être défini AVANT tous les includes système.
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -394,7 +398,9 @@ int lua_exec(lua_State *L)
     //
     // Solution : construire le tableau envp dans le parent (où
     // malloc fonctionne normalement) et le passer à execvpe() dans
-    // l'enfant. execvpe() est async-signal-safe.
+    // l'enfant. execvpe() n'est PAS formellement async-signal-safe
+    // selon POSIX (résolution $PATH), mais en pratique sur glibc le
+    // risque concret est très faible (cf. notes.md).
     //
     // Construction :
     //   1. Recopier l'environnement actuel (variable globale
@@ -478,8 +484,7 @@ int lua_exec(lua_State *L)
     // hérités par l'exec final, comme avant. Seul le fd "source"
     // (par exemple pipe_in[0] avant dup2 dans le child, ou
     // pipe_in[1] dans le parent) bénéficie de la protection.
-    auto make_pipe = [](int p[2]) -> int
-    {
+    auto make_pipe = [](int p[2]) -> int {
 #ifdef O_CLOEXEC
         return pipe2(p, O_CLOEXEC);
 #else
@@ -487,8 +492,7 @@ int lua_exec(lua_State *L)
         // (fenêtre de race), mais maintient le comportement sur des
         // systèmes sans pipe2. LuaPilot vise Linux où pipe2 est
         // toujours disponible (glibc 2.9+, Linux 2.6.27+).
-        if (pipe(p) != 0)
-            return -1;
+        if (pipe(p) != 0) return -1;
         fcntl(p[0], F_SETFD, fcntl(p[0], F_GETFD) | FD_CLOEXEC);
         fcntl(p[1], F_SETFD, fcntl(p[1], F_GETFD) | FD_CLOEXEC);
         return 0;
@@ -571,21 +575,32 @@ int lua_exec(lua_State *L)
 
         // CORRECTIF Gemini : on N'APPELLE PAS setenv() dans
         // l'enfant. L'envp a été préparé dans le parent (voir
-        // ci-dessus, avant fork). execvpe est async-signal-safe
-        // et utilise notre envp custom sans toucher à `environ`.
+        // ci-dessus, avant fork). execvpe utilise notre envp
+        // custom sans toucher à `environ`.
         //
-        // execvpe est une extension GNU (Linux/glibc), comme
-        // pipe2. LuaPilot vise Linux ; sur un système qui n'a pas
-        // execvpe, on retombe sur une résolution PATH manuelle +
-        // execve (toujours async-signal-safe).
+        // Note de rigueur (post-revue ChatGPT) : execvpe() N'EST PAS
+        // formellement async-signal-safe selon POSIX, car il fait
+        // une résolution via $PATH (impliquant getenv("PATH"), non
+        // listé en async-signal-safe). En pratique sur glibc, cette
+        // résolution n'utilise que strchr/strncmp/access/stat (tous
+        // async-signal-safe) et une lecture passive de `environ`
+        // sans allocation, donc le risque concret est très faible.
+        // Le fix "propre" serait de résoudre PATH côté parent et
+        // d'appeler execve() avec un chemin absolu. C'est dans
+        // notes.md comme dette technique reportée — pas bloquant
+        // pour l'usage normal.
+        //
+        // execvpe est une extension GNU (Linux/glibc), comme pipe2.
+        // LuaPilot vise Linux ; sur un système qui ne fournit pas
+        // execvpe, on retombe sur execvp en remplaçant `environ`
+        // dans le child (sûr car mono-thread post-fork).
 #ifdef __GLIBC__
         execvpe(cmd.c_str(), argv.data(), envp_ptrs.data());
 #else
-        // Fallback : pour les systèmes sans execvpe, on temporairement
-        // remplace `environ` puis on appelle execvp. Note : `environ`
-        // est un pointeur global, le remplacer ici dans l'enfant est
-        // sûr (un seul thread après fork). C'est moins propre que
-        // execvpe mais ça reste async-signal-safe (pas de malloc).
+        // Fallback : pour les systèmes sans execvpe, on remplace
+        // temporairement `environ` puis on appelle execvp. Sûr car
+        // un seul thread après fork. Mêmes caveats async-signal
+        // qu'execvpe (résolution PATH).
         environ = envp_ptrs.data();
         execvp(cmd.c_str(), argv.data());
 #endif

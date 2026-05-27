@@ -10,14 +10,22 @@
  * @param unit The unit of time ("s" for seconds, "ms" for milliseconds, "us" for microseconds).
  * @return The corresponding std::chrono::duration.
  */
-std::chrono::duration<double> convert_to_duration(double duration, const std::string& unit) {
-    if (unit == "s") {
+std::chrono::duration<double> convert_to_duration(double duration, const std::string &unit)
+{
+    if (unit == "s")
+    {
         return std::chrono::duration<double>(duration);
-    } else if (unit == "ms") {
+    }
+    else if (unit == "ms")
+    {
         return std::chrono::duration<double, std::milli>(duration);
-    } else if (unit == "us") {
+    }
+    else if (unit == "us")
+    {
         return std::chrono::duration<double, std::micro>(duration);
-    } else {
+    }
+    else
+    {
         throw std::invalid_argument("Invalid time unit");
     }
 }
@@ -48,7 +56,14 @@ int lua_sleep(lua_State *L)
         return luaL_argerror(L, 1, "Duration must be non-negative");
     }
 
-    std::string unit = "s";
+    // CORRECTIF longjmp (post-revue Gemini) : `const char *` au lieu
+    // de `std::string` pour stocker la valeur par défaut. Si l'arg 2
+    // n'est pas une string, luaL_argerror fait un longjmp qui ne
+    // déroule PAS les destructeurs C++. Avec un pointeur, rien à
+    // détruire. La conversion implicite const char* -> std::string
+    // pour l'appel à convert_to_duration se fait à l'intérieur du
+    // try/catch, donc une éventuelle exception serait propre.
+    const char *unit = "s";
     if (argc == 2)
     {
         if (!lua_isstring(L, 2))

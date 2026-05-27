@@ -1,4 +1,5 @@
 #include "find.hpp"
+#include "lua_utils.hpp"
 #include <regex>
 #include <limits>
 #include <system_error>
@@ -106,77 +107,100 @@ namespace
         return true;
     }
 
-    FindOptions parse_options(lua_State *L, int index)
+    // CORRECTIF Gemini (longjmp/C++) : parse_options NE FAIT PLUS de
+    // luaL_error elle-même. Si elle le faisait, le longjmp aurait
+    // contourné le destructeur de FindOptions (4 std::string), fuyant
+    // leur mémoire. À la place, elle retourne un bool : true si OK
+    // (out est rempli), false si erreur (err pointe vers un literal
+    // C-string statiquement alloué, donc sûr à propager sans
+    // ownership). Le caller décide alors quoi faire — par exemple
+    // push_fail() qui ne fait PAS de longjmp.
+    //
+    // Les literals de message sont stockés dans la section .rodata
+    // du binaire, leur durée de vie est celle du programme, donc on
+    // peut les passer par pointeur sans copie ni risque.
+    bool parse_options(lua_State *L, int index, FindOptions &out,
+                       const char *&err)
     {
-        FindOptions options;
-
         lua_getfield(L, index, "mindepth");
         if (lua_isnumber(L, -1))
         {
-            options.mindepth = lua_tointeger(L, -1);
+            out.mindepth = lua_tointeger(L, -1);
         }
         else if (!lua_isnil(L, -1))
         {
-            luaL_error(L, "Expected number for mindepth");
+            lua_pop(L, 1);
+            err = "find: 'mindepth' must be a number";
+            return false;
         }
         lua_pop(L, 1);
 
         lua_getfield(L, index, "maxdepth");
         if (lua_isnumber(L, -1))
         {
-            options.maxdepth = lua_tointeger(L, -1);
+            out.maxdepth = lua_tointeger(L, -1);
         }
         else if (!lua_isnil(L, -1))
         {
-            luaL_error(L, "Expected number for maxdepth");
+            lua_pop(L, 1);
+            err = "find: 'maxdepth' must be a number";
+            return false;
         }
         lua_pop(L, 1);
 
         lua_getfield(L, index, "type");
         if (lua_isstring(L, -1))
         {
-            options.type = lua_tostring(L, -1);
+            out.type = lua_tostring(L, -1);
         }
         else if (!lua_isnil(L, -1))
         {
-            luaL_error(L, "Expected string for type");
+            lua_pop(L, 1);
+            err = "find: 'type' must be a string";
+            return false;
         }
         lua_pop(L, 1);
 
         lua_getfield(L, index, "name");
         if (lua_isstring(L, -1))
         {
-            options.name = lua_tostring(L, -1);
+            out.name = lua_tostring(L, -1);
         }
         else if (!lua_isnil(L, -1))
         {
-            luaL_error(L, "Expected string for name");
+            lua_pop(L, 1);
+            err = "find: 'name' must be a string";
+            return false;
         }
         lua_pop(L, 1);
 
         lua_getfield(L, index, "iname");
         if (lua_isstring(L, -1))
         {
-            options.iname = lua_tostring(L, -1);
+            out.iname = lua_tostring(L, -1);
         }
         else if (!lua_isnil(L, -1))
         {
-            luaL_error(L, "Expected string for iname");
+            lua_pop(L, 1);
+            err = "find: 'iname' must be a string";
+            return false;
         }
         lua_pop(L, 1);
 
         lua_getfield(L, index, "path");
         if (lua_isstring(L, -1))
         {
-            options.path = lua_tostring(L, -1);
+            out.path = lua_tostring(L, -1);
         }
         else if (!lua_isnil(L, -1))
         {
-            luaL_error(L, "Expected string for path");
+            lua_pop(L, 1);
+            err = "find: 'path' must be a string";
+            return false;
         }
         lua_pop(L, 1);
 
-        return options;
+        return true;
     }
 
     std::optional<std::string> find(const fs::path &root, const FindOptions &options,
@@ -247,7 +271,17 @@ int lua_find(lua_State *L)
     }
 
     const char *root = luaL_checkstring(L, 1);
-    FindOptions options = parse_options(L, 2);
+
+    // CORRECTIF Gemini (longjmp/C++) : parse_options ne fait plus de
+    // luaL_error. On reçoit (ok, err_msg) et on remonte l'erreur via
+    // push_fail() qui ne fait PAS de longjmp — donc FindOptions se
+    // détruira proprement à la sortie de cette fonction.
+    FindOptions options;
+    const char *parse_err = nullptr;
+    if (!parse_options(L, 2, options, parse_err))
+    {
+        return push_fail(L, parse_err);
+    }
 
     lua_newtable(L);
     int result_index = lua_gettop(L);

@@ -99,15 +99,25 @@ int lua_deepCopyTable(lua_State *L)
         return luaL_error(L, "Argument must be a table");
     }
 
-    VisitedMap visited;
-    bool ok = deepCopyTable(L, 1, 0, MAX_DEPTH, visited);
-
-    // Libère toutes les références registre créées pour la détection de
-    // cycles, qu'on ait réussi ou échoué : sinon fuite dans le registre Lua.
-    for (const auto &entry : visited)
+    // Scope explicite pour la VisitedMap : sur Lua compilé en C
+    // (cas par défaut), luaL_error utilise longjmp() qui ne déroule
+    // PAS les destructeurs C++. Sans ce scope, en cas de profondeur
+    // dépassée, le longjmp dans le luaL_error final fuierait les
+    // buckets de la unordered_map. On force ici sa destruction
+    // AVANT toute possibilité de longjmp.
+    bool ok;
     {
-        luaL_unref(L, LUA_REGISTRYINDEX, entry.second);
-    }
+        VisitedMap visited;
+        ok = deepCopyTable(L, 1, 0, MAX_DEPTH, visited);
+
+        // Libère toutes les références registre créées pour la
+        // détection de cycles, qu'on ait réussi ou échoué : sinon
+        // fuite dans le registre Lua.
+        for (const auto &entry : visited)
+        {
+            luaL_unref(L, LUA_REGISTRYINDEX, entry.second);
+        }
+    } // ← 'visited' détruit proprement ici (avant longjmp éventuel).
 
     if (!ok)
     {

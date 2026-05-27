@@ -40,6 +40,7 @@
 #include "lua_bindings/split.hpp"
 #include "lua_bindings/sys.hpp"
 #include "lua_bindings/symlinkattr.hpp"
+#include "lua_bindings/time_clock.hpp"
 #include "lua_bindings/toml.hpp"
 #include "lua_bindings/touch.hpp"
 #include "lua_bindings/workers.hpp"
@@ -195,6 +196,13 @@ void register_luapilot(lua_State *L)
 
     lua_pushcfunction(L, lua_sleep);
     lua_setfield(L, -2, "sleep");
+
+    // Chantier 11 : monotonic + now pour mesurer durées et timestamper.
+    lua_pushcfunction(L, lua_monotonic);
+    lua_setfield(L, -2, "monotonic");
+
+    lua_pushcfunction(L, lua_now);
+    lua_setfield(L, -2, "now");
 
     lua_pushcfunction(L, lua_split);
     lua_setfield(L, -2, "split");

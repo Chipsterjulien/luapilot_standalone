@@ -89,10 +89,19 @@ namespace
     // port (EADDRINUSE) malgré SO_REUSEADDR — qui ne couvre que les
     // FDs vraiment fermés, pas les FDs encore vivants ailleurs.
     //
-    // Méthode primaire : SOCK_CLOEXEC dans socket() / accept4() —
-    // atomique (Linux >= 2.6.27, glibc >= 2.9 ; FreeBSD >= 10).
-    // Méthode fallback : fcntl(F_SETFD | FD_CLOEXEC) avec fenêtre de
-    // course théorique mais inoffensive sur LuaPilot (mono-thread).
+    // Méthode primaire (utilisée en pratique sur Linux) : SOCK_CLOEXEC
+    // dans socket() / accept4() — atomique (Linux >= 2.6.27, glibc >=
+    // 2.9 ; FreeBSD >= 10). Pas de fenêtre de race, peu importe le
+    // nombre de threads (workers compris).
+    //
+    // Méthode fallback : fcntl(F_SETFD | FD_CLOEXEC). Présente une
+    // fenêtre de race entre socket()/accept() et le fcntl() : un fork
+    // concurrent (luapilot.exec) pourrait hériter du fd avant qu'il
+    // soit marqué close-on-exec. Avec l'arrivée des workers, cette
+    // race n'est plus seulement théorique — mais sur Linux on prend
+    // toujours le chemin atomique, donc ce fallback n'est jamais
+    // emprunté. À reconsidérer si un jour LuaPilot vise macOS/BSD
+    // sans SOCK_CLOEXEC (cf. notes.md section 5).
     //
     // ensure_cloexec() est appelé même après SOCK_CLOEXEC pour
     // robustesse : aucun coût observable, et garde la même surface
@@ -1635,7 +1644,19 @@ namespace
         {
             return true;
         }
-        lua_Number t = luaL_checknumber(L, idx);
+        // CORRECTIF longjmp (post-revue Gemini) : luaL_checknumber
+        // utiliserait longjmp() si l'argument n'est pas un nombre,
+        // ce qui ne déroulerait PAS le std::string err alloué par
+        // l'appelant (lua_socket_connect). On vérifie le type
+        // manuellement et on remonte via la convention (false, err)
+        // que la fonction signe déjà.
+        if (lua_type(L, idx) != LUA_TNUMBER)
+        {
+            err = prefix_for_err;
+            err += ": timeout must be a number";
+            return false;
+        }
+        lua_Number t = lua_tonumber(L, idx);
         if (std::isnan(t) || !std::isfinite(t))
         {
             err = prefix_for_err;

@@ -271,7 +271,7 @@ namespace
         if (lua_type(L, -1) != LUA_TSTRING)
         {
             lua_pop(L, 1);
-            return luaL_error(L, "http: 'url' (string) is required");
+            return push_fail(L, "http: 'url' (string) is required");
         }
         std::string url = lua_tostring(L, -1);
         lua_pop(L, 1);
@@ -284,7 +284,7 @@ namespace
             if (lua_type(L, -1) != LUA_TSTRING)
             {
                 lua_pop(L, 1);
-                return luaL_error(L, "http: 'method' must be a string");
+                return push_fail(L, "http: 'method' must be a string");
             }
             method = lua_tostring(L, -1);
             for (char &c : method)
@@ -304,7 +304,7 @@ namespace
             if (lua_type(L, -1) != LUA_TSTRING)
             {
                 lua_pop(L, 1);
-                return luaL_error(L, "http: 'body' must be a string");
+                return push_fail(L, "http: 'body' must be a string");
             }
             size_t blen = 0;
             const char *bs = lua_tolstring(L, -1, &blen);
@@ -322,7 +322,7 @@ namespace
             if (lua_type(L, -1) != LUA_TNUMBER)
             {
                 lua_pop(L, 1);
-                return luaL_error(L, "http: 'timeout' must be a number");
+                return push_fail(L, "http: 'timeout' must be a number");
             }
             timeout_s = lua_tonumber(L, -1);
             has_timeout = true;
@@ -351,7 +351,7 @@ namespace
             if (lua_type(L, -1) != LUA_TSTRING)
             {
                 lua_pop(L, 1);
-                return luaL_error(L, "http: 'ca_cert' must be a string");
+                return push_fail(L, "http: 'ca_cert' must be a string");
             }
             ca_cert = lua_tostring(L, -1);
             has_ca = true;
@@ -381,7 +381,7 @@ namespace
             if (lua_type(L, -1) != LUA_TTABLE)
             {
                 lua_pop(L, 1);
-                return luaL_error(L, "http: 'headers' must be a table");
+                return push_fail(L, "http: 'headers' must be a table");
             }
             int hidx = lua_absindex(L, -1);
             lua_pushnil(L);
@@ -430,7 +430,7 @@ namespace
             if (lua_type(L, -1) != LUA_TTABLE)
             {
                 lua_pop(L, 1);
-                return luaL_error(L, "http: 'query' must be a table");
+                return push_fail(L, "http: 'query' must be a table");
             }
             if (!append_query(L, -1, parts.target, err))
             {

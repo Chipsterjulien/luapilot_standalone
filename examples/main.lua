@@ -1029,6 +1029,61 @@ end
 
 -- =====================================================================
 print("")
+print("=== time ===")
+
+do
+    -- monotonic : strictement positif, croissant
+    local m1 = luapilot.monotonic()
+    ok("monotonic() -> number > 0",
+        type(m1) == "number" and m1 > 0,
+        "m1=" .. tostring(m1))
+
+    local m2 = luapilot.monotonic()
+    ok("monotonic() croissant (m2 >= m1)",
+        type(m2) == "number" and m2 >= m1,
+        "m1=" .. tostring(m1) .. " m2=" .. tostring(m2))
+
+    -- monotonic mesure correctement un sleep
+    local before = luapilot.monotonic()
+    luapilot.sleep(100, "ms")
+    local after = luapilot.monotonic()
+    local elapsed = after - before
+    ok("monotonic() mesure sleep(100ms) : 0.05 < dt < 1.0",
+        elapsed > 0.05 and elapsed < 1.0,
+        "elapsed=" .. tostring(elapsed))
+
+    -- now : timestamp epoch, > 0, proche de os.time()
+    local n = luapilot.now()
+    ok("now() -> number > 0",
+        type(n) == "number" and n > 0,
+        "n=" .. tostring(n))
+
+    local ot = os.time()
+    ok("now() ~ os.time() (diff < 2s)",
+        math.abs(n - ot) < 2,
+        "now=" .. tostring(n) .. " os.time=" .. tostring(ot))
+
+    -- now() a une partie fractionnaire la plupart du temps. Pas
+    -- garanti à 100% (un appel pile sur la seconde retournerait
+    -- un entier), donc on teste sur une moyenne de 5 appels.
+    local has_frac = false
+    for _ = 1, 5 do
+        local v = luapilot.now()
+        if v ~= math.floor(v) then
+            has_frac = true; break
+        end
+    end
+    ok("now() a une précision sub-seconde", has_frac)
+
+    -- Mauvais usage : argument non autorisé
+    ok("monotonic('abc') -> luaL_error",
+        pcall(function() luapilot.monotonic("abc") end) == false)
+    ok("now({}) -> luaL_error",
+        pcall(function() luapilot.now({}) end) == false)
+end
+
+-- =====================================================================
+print("")
 print("=== http ===")
 
 do
@@ -1036,25 +1091,30 @@ do
 
     -- --- contrat d'erreur : AUCUNE dépendance externe, toujours joué --
 
-    -- mauvais usage structurel -> luaL_error (raises)
+    -- request(non-table) lève toujours via luaL_checktype dans
+    -- lua_http_request (avant http_perform).
     ok("request(non-table) raises",
         pcall(function() return H.request("not a table") end) == false)
 
-    ok("request{} without url raises",
-        pcall(function() return H.request({}) end) == false)
-
-    ok("request{url=number} raises",
-        pcall(function() return H.request({ url = 123 }) end) == false)
-
-    ok("request{headers=string} raises",
-        pcall(function()
-            return H.request({ url = "http://127.0.0.1:1/", headers = "x" })
-        end) == false)
-
-    ok("request{timeout=string} raises",
-        pcall(function()
-            return H.request({ url = "http://x/", timeout = "x" })
-        end) == false)
+    -- Chantier longjmp : ces erreurs runtime de http_perform passent
+    -- maintenant en (nil, err) au lieu de luaL_error (cohérent avec
+    -- le commentaire d'intention du fichier + évite les fuites C++).
+    do
+        local v, e = H.request({})
+        ok_fail("request{} without url -> (nil, err)", v, e)
+    end
+    do
+        local v, e = H.request({ url = 123 })
+        ok_fail("request{url=number} -> (nil, err)", v, e)
+    end
+    do
+        local v, e = H.request({ url = "http://127.0.0.1:1/", headers = "x" })
+        ok_fail("request{headers=string} -> (nil, err)", v, e)
+    end
+    do
+        local v, e = H.request({ url = "http://x/", timeout = "x" })
+        ok_fail("request{timeout=string} -> (nil, err)", v, e)
+    end
 
     -- mauvaises VALEURS d'option -> (nil, err), pas d'exception
     do

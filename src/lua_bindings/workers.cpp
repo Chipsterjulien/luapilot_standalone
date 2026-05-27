@@ -754,6 +754,12 @@ int worker_side_send(lua_State *L)
     Worker *w = static_cast<Worker *>(
         lua_touserdata(L, lua_upvalueindex(1)));
 
+    // CORRECTIF Gemini : parse_timeout_arg peut faire un longjmp via
+    // luaL_error si l'utilisateur passe un timeout invalide. Or
+    // longjmp ne déroule PAS les destructeurs C++. Donc on parse
+    // le timeout AVANT toute allocation C++ (json, std::string, set).
+    int64_t timeout_ms = parse_timeout_arg(L, 2);
+
     // Sérialiser la valeur (arg 1) -> JSON string.
     json msg_j;
     std::string err;
@@ -778,9 +784,6 @@ int worker_side_send(lua_State *L)
             + e.what()).c_str());
         return 2;
     }
-
-    // Parse timeout (peut lever via luaL_error pour mauvais usage).
-    int64_t timeout_ms = parse_timeout_arg(L, 2);
 
     // Push dans l'OUTBOX (worker -> parent).
     auto r = w->outbox.push(std::move(msg_str), timeout_ms);
@@ -1363,6 +1366,12 @@ int worker_send(lua_State *L)
 {
     Worker *w = check_worker(L, 1);
 
+    // CORRECTIF Gemini : parse_timeout_arg peut faire un longjmp via
+    // luaL_error si l'utilisateur passe un timeout invalide. Or
+    // longjmp ne déroule PAS les destructeurs C++. Donc on parse
+    // le timeout AVANT toute allocation C++ (json, std::string, set).
+    int64_t timeout_ms = parse_timeout_arg(L, 3);
+
     // Sérialiser la valeur (arg 2) -> JSON string.
     // Toute valeur Lua passe : nil, boolean, number, string,
     // table sérialisable. Refus si function/userdata/coroutine/cycle.
@@ -1384,9 +1393,6 @@ int worker_send(lua_State *L)
             std::string("workers: failed to serialize message: ")
             + e.what());
     }
-
-    // Parse timeout (peut lever).
-    int64_t timeout_ms = parse_timeout_arg(L, 3);
 
     // Push dans l'inbox.
     auto r = w->inbox.push(std::move(msg_str), timeout_ms);

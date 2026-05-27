@@ -495,6 +495,43 @@ environment dump.
 
 See the [examples](https://github.com/Chipsterjulien/luapilot_standalone/tree/main/examples) if you want to learn more …
 
+### time — monotonic and realtime clocks
+
+Two functions to measure durations and timestamp events with
+sub-second precision — what Lua's standard library doesn't give you.
+
+```lua
+-- Measure a duration (use this for ALL duration measurements):
+local t0 = luapilot.monotonic()
+do_some_work()
+local elapsed = luapilot.monotonic() - t0    -- seconds, with fraction
+print(string.format("took %.3f s", elapsed))
+
+-- Get a wall-clock timestamp (for logs, file metadata, comparisons):
+local ts = luapilot.now()                    -- seconds since Unix epoch
+print(os.date("!%Y-%m-%dT%H:%M:%SZ", ts))    -- "2026-05-26T14:32:11Z"
+```
+
+| Function | Backend | Returns |
+|---|---|---|
+| `luapilot.monotonic()` | `clock_gettime(CLOCK_MONOTONIC)` | seconds (float) since an arbitrary point (typically boot). **Never jumps backwards** — safe for measuring elapsed time. |
+| `luapilot.now()` | `clock_gettime(CLOCK_REALTIME)` | seconds (float) since the Unix epoch (1970-01-01 UTC). **Can jump** (NTP, manual adjustment) — only use for wall-clock timestamps. |
+
+**Why not just use `os.time()` or `os.clock()`?**
+
+* `os.time()` returns an **integer** in whole seconds — no sub-second
+  precision. Useless for IRC latencies or fine-grained log timestamps.
+* `os.clock()` measures **CPU time** of the process, not wall time —
+  returns 0 when the process is waiting in `sleep`, `recv`, etc.
+* Neither distinguishes monotonic from realtime clocks. `os.time()`
+  can jump backwards on NTP correction, silently breaking duration
+  measurements.
+
+**Formatting helpers stay in Lua stdlib.** Use `os.date("!%Y-%m-%dT%H:%M:%SZ", ts)`
+for ISO 8601 UTC, `os.date("%c", ts)` for locale format, or build
+your own `format_duration(seconds)` in a few lines — no need to add
+those to LuaPilot.
+
 ### TOML
 
 `luapilot.toml.decode` parses a TOML string into a Lua table. The

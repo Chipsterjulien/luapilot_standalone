@@ -444,6 +444,45 @@ print(u.sysname, u.machine)                      -- "Linux", "x86_64"
 
 Voir les [exemples](https://github.com/Chipsterjulien/luapilot_standalone/tree/main/examples) pour aller plus loin…
 
+### time — horloges monotone et temps réel
+
+Deux fonctions pour mesurer des durées et timestamper des événements
+avec une précision sub-seconde — ce que la stdlib Lua ne donne pas.
+
+```lua
+-- Mesurer une durée (utilisez ÇA pour TOUTES les mesures de durée) :
+local t0 = luapilot.monotonic()
+faire_un_truc()
+local elapsed = luapilot.monotonic() - t0    -- secondes avec partie fractionnaire
+print(string.format("durée : %.3f s", elapsed))
+
+-- Récupérer un timestamp wall-clock (logs, métadonnées fichier, comparaisons) :
+local ts = luapilot.now()                    -- secondes depuis Unix epoch
+print(os.date("!%Y-%m-%dT%H:%M:%SZ", ts))    -- "2026-05-26T14:32:11Z"
+```
+
+| Fonction | Backend | Renvoie |
+|---|---|---|
+| `luapilot.monotonic()` | `clock_gettime(CLOCK_MONOTONIC)` | secondes (float) depuis un point arbitraire (typiquement le boot). **Ne saute jamais en arrière** — fiable pour mesurer des durées. |
+| `luapilot.now()` | `clock_gettime(CLOCK_REALTIME)` | secondes (float) depuis l'Unix epoch (1970-01-01 UTC). **Peut sauter** (NTP, ajustement manuel) — uniquement pour timestamps wall-clock. |
+
+**Pourquoi pas juste `os.time()` ou `os.clock()` ?**
+
+* `os.time()` renvoie un **entier** en secondes entières — pas de
+  précision sub-seconde. Inutilisable pour des latences IRC ou des
+  timestamps de logs précis.
+* `os.clock()` mesure le **temps CPU** du processus, pas le temps
+  mur — renvoie 0 quand le processus attend dans `sleep`, `recv`, etc.
+* Aucun des deux ne distingue horloge monotone et temps réel.
+  `os.time()` peut sauter en arrière sur correction NTP, cassant
+  silencieusement les mesures de durée.
+
+**Le formatage reste dans la stdlib Lua.** Utilisez
+`os.date("!%Y-%m-%dT%H:%M:%SZ", ts)` pour l'ISO 8601 UTC,
+`os.date("%c", ts)` pour le format locale, ou écrivez votre
+`format_duration(seconds)` en quelques lignes — pas besoin de
+les ajouter à LuaPilot.
+
 ### TOML
 
 `luapilot.toml.decode` parse une chaîne TOML en table Lua. Le binding wrappe [toml++](https://github.com/marzer/tomlplusplus) (v1.0.0 de la spec TOML, header-only) et reflète le contrat d'erreur de `luapilot.json`.
@@ -572,7 +611,7 @@ srv:close()
 
 * **Succès** — valeur (socket, byte count, data, …) directement.
 * **Échecs runtime attendus** sous forme de chaînes typées, renvoyés comme `(nil, str)` :
-  * `"closed"` — le peer a fermé la connexion (EOF propre). Pour `recv_line` en milieu de ligne, les octets partiels arrivent comme 3e valeur de retour.
+  * `"closed"` — le peer a fermé la connexion (EOF propre). Pour `recv_line` en milieu de ligne, les octets partiels arrivent comme 3ᵉ valeur de retour.
   * `"timeout"` — `set_timeout` a expiré.
   * Les autres échecs de transport ont un préfixe `"socket: <description>"`.
 * **Mauvais usage** (argument manquant, mauvais type) — lève via `luaL_error`. Comme le reste de LuaPilot, `host` et `port` passent par `luaL_checkstring`/`luaL_checkinteger`, qui coercent silencieusement les nombres et les chaînes numériques. Passez une table pour forcer une erreur.
@@ -722,7 +761,7 @@ for i, url in ipairs(urls) do
     ]], { url = url })
 end
 -- Join tout (bloque jusqu'à ce que chacun finisse). Wall-clock total
--- ~ le plus lent des fetches, pas leur somme.
+-- ≈ le plus lent des fetches, pas leur somme.
 for i, job in ipairs(jobs) do
     local ok, result = job:join()
     print(i, ok, result and result.status or result.error)
@@ -768,17 +807,17 @@ WebSocket), ou tout ce qui doit survivre à une requête unique.
 | `workers.spawn(code [, args] [, opts])` | worker \| `(nil, err)`               | Démarre un worker. `opts.inbox_capacity` et `opts.outbox_capacity` fixent les capacités des queues bornées (défaut 64 chacune). Renvoie `(nil, err)` si la sérialisation échoue (`function`, `userdata`, `coroutine`, cycle, NaN/Inf, non-UTF-8) ou si `pthread_create` échoue. |
 | `w:join()`                              | `(ok, value)`                        | **Bloque** jusqu'à la fin du worker. `ok=true, value=<valeur de retour>` en succès ; `ok=false, value=<message d'erreur>` si le worker a levé.                                                                                                                                  |
 | `w:poll()`                              | `(state, value)`                     | **Non bloquant**, état du worker. `state` vaut `"running"`, `"done"`, ou `"error"`. `value` est nil tant que running, la valeur de retour en done, le message d'erreur en error.                                                                                                |
-| `w:send(value [, timeout])`             | `(true, nil)` \| `(false, reason)`   | Push un message dans l'inbox du worker. Bloque si pleine ; `timeout` en secondes. `reason` $\in$ `"full"` (timeout=0 et queue pleine), `"timeout"` (timeout>0 expiré), `"closed"`.                                                                                                  |
-| `w:recv([timeout])`                     | `(true, value)` \| `(false, reason)` | Pop un message depuis l'outbox du worker. Bloque si vide ; `timeout` en secondes. `reason` $\in$ `"empty"` (timeout=0 et queue vide), `"timeout"`, `"closed"`.                                                                                                                      |
+| `w:send(value [, timeout])`             | `(true, nil)` \| `(false, reason)`   | Push un message dans l'inbox du worker. Bloque si pleine ; `timeout` en secondes. `reason` ∈ `"full"` (timeout=0 et queue pleine), `"timeout"` (timeout>0 expiré), `"closed"`.                                                                                                  |
+| `w:recv([timeout])`                     | `(true, value)` \| `(false, reason)` | Pop un message depuis l'outbox du worker. Bloque si vide ; `timeout` en secondes. `reason` ∈ `"empty"` (timeout=0 et queue vide), `"timeout"`, `"closed"`.                                                                                                                      |
 | `w:close()`                             | `(true, nil)`                        | Ferme l'inbox du worker. Les `w:send` ultérieurs rendent `(false, "closed")` ; le `worker.recv()` côté worker rend `(false, "closed")` pour qu'il sorte proprement de sa boucle. Idempotent.                                                                                    |
 
 Côté worker :
 
-| Appel | Renvoie | Notes |
-|---|---|---|
-| `worker.send(value [, timeout])` | `(true, nil)` \| `(false, reason)` | Push un message vers le parent (direction outbox). Bloque si l'outbox est pleine (backpressure). |
-| `worker.recv([timeout])` | `(true, value)` \| `(false, reason)` | Pop un message depuis le parent (direction inbox). Bloque si vide. |
-| `worker.args` | table \| nil | La table d'args passée au `spawn()`, ou nil. |
+| Appel                            | Renvoie                              | Notes                                                                                            |
+| -------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `worker.send(value [, timeout])` | `(true, nil)` \| `(false, reason)`   | Push un message vers le parent (direction outbox). Bloque si l'outbox est pleine (backpressure). |
+| `worker.recv([timeout])`         | `(true, value)` \| `(false, reason)` | Pop un message depuis le parent (direction inbox). Bloque si vide.                               |
+| `worker.args`                    | table \| nil                         | La table d'args passée au `spawn()`, ou nil.                                                     |
 
 #### Conventions de retour
 

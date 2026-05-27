@@ -103,3 +103,33 @@ explicites, ce qui est l'opposé de la simplicité visée.
 
 **Mitigation actuelle** : documentation explicite dans le README
 (section « `__gc` will block if the worker is busy »).
+
+## 5. Portabilité macOS / BSD (sockets)
+
+**Statut actuel** : LuaPilot vise uniquement Linux/glibc en v1.x.
+`socket.cpp` utilise directement `accept4(..., SOCK_CLOEXEC)` et
+`socket(..., SOCK_CLOEXEC, ...)` — extensions Linux 2.6.27+. Sur
+macOS et BSD historiques, ces flags ne sont pas disponibles dans
+les appels système (ils existent en partie sur FreeBSD récent
+mais pas universellement).
+
+**Risque résiduel** : compilation impossible sur macOS / BSD
+historique en l'état. Aucun impact sur la cible Linux.
+
+**Fix propre** : créer des helpers
+`create_socket_cloexec()` et `accept_cloexec()` qui :
+- utilisent les flags `SOCK_CLOEXEC` / `accept4` si dispo
+  (détection via `#ifdef SOCK_CLOEXEC` à la compilation),
+- retombent sur `socket()` / `accept()` suivi d'un
+  `fcntl(F_SETFD, FD_CLOEXEC)` sinon.
+
+Le seul vrai risque du fallback est la fenêtre de race entre la
+création du fd et le fcntl, qui peut faire fuiter le fd dans un
+fork+exec concurrent. Sur un système où on n'a pas mieux, c'est
+accepté.
+
+**Pourquoi reporté** : décision explicite de l'auteur — pas
+d'utilisateur macOS en vue. À reconsidérer si un contributeur
+ouvre une PR avec un patch macOS testé.
+
+**Référence revue** : ChatGPT, post-chantier longjmp.
