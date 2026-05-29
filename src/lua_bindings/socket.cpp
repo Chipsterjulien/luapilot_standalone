@@ -51,6 +51,18 @@ namespace
         bool listening; // true si listen(), false si connect()/accept()
         int timeout_ms; // 0 = pas de timeout (bloquant infini)
         SSL *ssl;       // nullptr en TCP brut, non-null après TLS handshake
+
+        // CORRECTIF (post-bug bot IRC) : buffer persistant pour recv_line.
+        // Si recv_line a lu N octets puis tombe en timeout (pas de \n vu),
+        // les octets DOIVENT être conservés pour le prochain appel —
+        // sinon ils sont perdus (déjà consommés du socket par recv()).
+        // Bug reproductible : mettre set_timeout(1) sur un flux IRC et
+        // les premiers octets de certaines lignes étaient mangés. Le
+        // contrat (nil, "closed", partial) sur EOF documentait déjà
+        // l'intention de "ne pas perdre les octets déjà lus" ; on
+        // étend cette garantie au timeout, de façon TRANSPARENTE
+        // côté script (le buffer est interne, pas un partial à gérer).
+        std::string recv_line_pending;
     };
 
     Sock *check_sock(lua_State *L, int idx)
@@ -59,13 +71,19 @@ namespace
     }
 
     // Pousse un nouveau userdata Sock initialisé, métatable posée.
+    // CORRECTIF (placement new) : Sock contient maintenant un
+    // std::string (recv_line_pending) dont le constructeur doit être
+    // appelé explicitement, lua_newuserdata ne faisant qu'un malloc.
+    // Le destructeur est appelé symétriquement dans sock_gc.
     Sock *push_new_sock(lua_State *L, int fd, bool listening)
     {
-        Sock *s = static_cast<Sock *>(lua_newuserdata(L, sizeof(Sock)));
+        void *raw = lua_newuserdata(L, sizeof(Sock));
+        Sock *s = new (raw) Sock(); // placement new : init du std::string
         s->fd = fd;
         s->listening = listening;
         s->timeout_ms = 0;
         s->ssl = nullptr; // TCP brut par défaut, TLS posé après par connect_tls/starttls
+        // recv_line_pending : déjà initialisé à "" par le constructeur par défaut.
         luaL_getmetatable(L, SOCK_META);
         lua_setmetatable(L, -2);
         return s;
@@ -1130,7 +1148,14 @@ namespace
         const bool is_tls = (s->ssl != nullptr);
         Deadline deadline = make_deadline(s->timeout_ms);
 
-        std::string acc;
+        // CORRECTIF (post-bug bot IRC) : reprendre les octets déjà
+        // lus lors d'un timeout précédent. Si recv_line_pending est
+        // vide (cas normal), acc démarre vide ; sinon on reprend
+        // où on s'était arrêté. Le move + clear garantit qu'on ne
+        // double-traite jamais les mêmes octets.
+        std::string acc = std::move(s->recv_line_pending);
+        s->recv_line_pending.clear();
+
         std::string tls_err;
         char c;
         for (;;)
@@ -1138,10 +1163,23 @@ namespace
             int r = wait_ready_deadline(s->fd, POLLIN, deadline);
             if (r < 0)
             {
+                // Erreur fatale : on conserve quand même les octets
+                // au cas où l'utilisateur ferait quelque chose
+                // d'intelligent ensuite. close() les libère via __gc.
+                s->recv_line_pending = std::move(acc);
                 return push_errno_fail(L, "recv_line");
             }
             if (r == 0)
             {
+                // CORRECTIF (post-bug bot IRC) : conserver les octets
+                // déjà lus pour le prochain recv_line. Sinon, scénario
+                // typique IRC avec set_timeout(1) : la ligne
+                // ":server NOTICE ..." commence à arriver, le ':' est
+                // lu dans acc, puis le réseau tarde quelques ms et le
+                // timeout se déclenche. SANS ce buffer, le ':' est
+                // jeté et l'appel suivant récupère "server NOTICE ..."
+                // sans son ':'. Bug intermittent et frustrant.
+                s->recv_line_pending = std::move(acc);
                 return push_fail(L, "timeout");
             }
 
@@ -1157,13 +1195,22 @@ namespace
                 {
                     int wr = wait_ready_deadline(s->fd, POLLOUT, deadline);
                     if (wr == 0)
+                    {
+                        // Idem : conserver acc.
+                        s->recv_line_pending = std::move(acc);
                         return push_fail(L, "timeout");
+                    }
                     if (wr < 0)
+                    {
+                        s->recv_line_pending = std::move(acc);
                         return push_errno_fail(L, "recv_line");
+                    }
                     continue;
                 }
                 if (rc == TLS_IO_FATAL)
                 {
+                    // Erreur TLS fatale : on garde quand même.
+                    s->recv_line_pending = std::move(acc);
                     return push_fail(L, tls_err);
                 }
                 got = (rc == TLS_IO_EOF) ? 0 : rc;
@@ -1177,6 +1224,7 @@ namespace
                     {
                         continue;
                     }
+                    s->recv_line_pending = std::move(acc);
                     return push_errno_fail(L, "recv_line");
                 }
             }
@@ -1184,6 +1232,8 @@ namespace
             if (got == 0)
             {
                 // EOF en plein milieu : 3 valeurs (nil, "closed", partial)
+                // Pas de conservation du buffer ici : le contrat est
+                // déjà documenté et le user récupère partial en main.
                 lua_pushnil(L);
                 lua_pushstring(L, "closed");
                 lua_pushlstring(L, acc.data(), acc.size());
@@ -1482,6 +1532,9 @@ namespace
 
     // __gc : filet de sécurité. Si l'utilisateur a oublié :close(),
     // on ferme à la collecte de l'userdata. Pas de fuite de FD ni de SSL.
+    // CORRECTIF (placement new) : on appelle aussi explicitement le
+    // destructeur du Sock, car push_new_sock utilise placement new
+    // pour initialiser le std::string recv_line_pending.
     int sock_gc(lua_State *L)
     {
         Sock *s = static_cast<Sock *>(
@@ -1498,6 +1551,7 @@ namespace
                 ::close(s->fd);
                 s->fd = -1;
             }
+            s->~Sock(); // libère recv_line_pending
         }
         return 0;
     }
