@@ -1052,14 +1052,25 @@ namespace
         std::string tls_err;
         for (;;)
         {
-            int r = wait_ready_deadline(s->fd, POLLIN, deadline);
-            if (r < 0)
+            // CORRECTIF (post-bug IRC TLS) : voir explication détaillée
+            // dans sock_recv_line. Si OpenSSL a déjà déchiffré des octets
+            // dans son buffer interne, le FD socket est vide alors qu'il
+            // y a des données à lire. Il faut sauter wait_ready_deadline
+            // dans ce cas.
+            const bool ssl_has_data =
+                is_tls && (SSL_pending(s->ssl) > 0);
+
+            if (!ssl_has_data)
             {
-                return push_errno_fail(L, "recv");
-            }
-            if (r == 0)
-            {
-                return push_fail(L, "timeout");
+                int r = wait_ready_deadline(s->fd, POLLIN, deadline);
+                if (r < 0)
+                {
+                    return push_errno_fail(L, "recv");
+                }
+                if (r == 0)
+                {
+                    return push_fail(L, "timeout");
+                }
             }
 
             if (is_tls)
@@ -1160,28 +1171,55 @@ namespace
         char c;
         for (;;)
         {
-            int r = wait_ready_deadline(s->fd, POLLIN, deadline);
-            if (r < 0)
+            // CORRECTIF (post-bug IRC TLS) : en TLS, OpenSSL lit un
+            // record TLS entier depuis le socket d'un coup. Un record
+            // peut contenir plusieurs lignes IRC. Les octets bruts
+            // sont consommés du socket par OpenSSL et stockés dans
+            // son buffer interne déchiffré. À ce moment-là, le FD
+            // socket est VIDE — poll(POLLIN) renvoie 0 — alors qu'il
+            // y a plein de données à lire via SSL_read.
+            //
+            // Sans cette vérification, recv_line() retournait
+            // (nil, "timeout") en boucle pendant que les lignes
+            // IRC dormaient dans le buffer OpenSSL. Symptôme typique :
+            // un bot IRC se fait kicker pour ping timeout côté serveur
+            // (~240 s), puis au moment où le serveur ferme la
+            // connexion, plusieurs lignes en attente sortent d'un
+            // coup au même timestamp.
+            //
+            // SSL_pending() retourne le nombre d'octets DÉJÀ déchiffrés
+            // disponibles immédiatement. Si > 0, on saute l'attente
+            // sur le FD et on lit directement.
+            const bool ssl_has_data =
+                is_tls && (SSL_pending(s->ssl) > 0);
+
+            if (!ssl_has_data)
             {
-                // Erreur fatale : on conserve quand même les octets
-                // au cas où l'utilisateur ferait quelque chose
-                // d'intelligent ensuite. close() les libère via __gc.
-                s->recv_line_pending = std::move(acc);
-                return push_errno_fail(L, "recv_line");
+                int r = wait_ready_deadline(s->fd, POLLIN, deadline);
+                if (r < 0)
+                {
+                    // Erreur fatale : on conserve quand même les octets
+                    // au cas où l'utilisateur ferait quelque chose
+                    // d'intelligent ensuite. close() les libère via __gc.
+                    s->recv_line_pending = std::move(acc);
+                    return push_errno_fail(L, "recv_line");
+                }
+                if (r == 0)
+                {
+                    // CORRECTIF (1.3.2) : conserver les octets déjà
+                    // lus pour le prochain recv_line. Sinon, scénario
+                    // typique IRC avec set_timeout(1) : la ligne
+                    // ":server NOTICE ..." commence à arriver, le ':'
+                    // est lu dans acc, puis le réseau tarde quelques
+                    // ms et le timeout se déclenche. SANS ce buffer,
+                    // le ':' est jeté et l'appel suivant récupère
+                    // "server NOTICE ..." sans son ':'.
+                    s->recv_line_pending = std::move(acc);
+                    return push_fail(L, "timeout");
+                }
             }
-            if (r == 0)
-            {
-                // CORRECTIF (post-bug bot IRC) : conserver les octets
-                // déjà lus pour le prochain recv_line. Sinon, scénario
-                // typique IRC avec set_timeout(1) : la ligne
-                // ":server NOTICE ..." commence à arriver, le ':' est
-                // lu dans acc, puis le réseau tarde quelques ms et le
-                // timeout se déclenche. SANS ce buffer, le ':' est
-                // jeté et l'appel suivant récupère "server NOTICE ..."
-                // sans son ':'. Bug intermittent et frustrant.
-                s->recv_line_pending = std::move(acc);
-                return push_fail(L, "timeout");
-            }
+            // Si ssl_has_data, on saute wait_ready_deadline et on lit
+            // directement le buffer interne d'OpenSSL via SSL_read.
 
             ssize_t got = 0;
             if (is_tls)
@@ -1285,14 +1323,24 @@ namespace
         char buf[4096];
         for (;;)
         {
-            int r = wait_ready_deadline(s->fd, POLLIN, deadline);
-            if (r < 0)
+            // CORRECTIF (post-bug IRC TLS) : voir explication détaillée
+            // dans sock_recv_line. Si OpenSSL a déjà déchiffré des octets
+            // dans son buffer interne, le FD socket est vide alors qu'il
+            // y a des données à lire.
+            const bool ssl_has_data =
+                is_tls && (SSL_pending(s->ssl) > 0);
+
+            if (!ssl_has_data)
             {
-                return push_errno_fail(L, "recv_all");
-            }
-            if (r == 0)
-            {
-                return push_fail(L, "timeout");
+                int r = wait_ready_deadline(s->fd, POLLIN, deadline);
+                if (r < 0)
+                {
+                    return push_errno_fail(L, "recv_all");
+                }
+                if (r == 0)
+                {
+                    return push_fail(L, "timeout");
+                }
             }
 
             ssize_t got = 0;
