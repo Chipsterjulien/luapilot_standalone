@@ -41,7 +41,9 @@ while [[ $# -gt 0 ]]; do
                 echo "ERREUR: --version exige un argument" >&2
                 exit 1
             fi
-            VERSION="$2"
+            # Strip leading 'v' si présent : --version v1.3.4 -> 1.3.4
+            # Cohérent avec la détection auto depuis git tag.
+            VERSION="${2#v}"
             shift 2
             ;;
         -h|--help)
@@ -127,27 +129,29 @@ echo "[2/6] Préparation de dist/..."
 rm -rf "${DIST_DIR}"
 mkdir -p "${DIST_DIR}"
 
-# Copie du binaire dans dist/ (on ne touche pas à l'original).
-cp "${BUILT_BINARY}" "${DIST_DIR}/${PROJECT_NAME}"
-echo "      Binaire copié : dist/${PROJECT_NAME}"
+# Nom versionné du binaire pour la distribution hors tarball.
+# Important : on inclut arch ET version pour qu'on puisse stocker
+# côte à côte sur GitHub Releases plusieurs binaires (x86_64,
+# aarch64, armv6l du RPi0...). Si on gardait juste "luapilot",
+# le second upload écraserait le premier.
+BINARY_NAME_VERSIONED="${PROJECT_NAME}-${VERSION}-${ARCH_TAG}"
+
+# Copie du binaire dans dist/ sous son nom versionné.
+cp "${BUILT_BINARY}" "${DIST_DIR}/${BINARY_NAME_VERSIONED}"
+echo "      Binaire copié : dist/${BINARY_NAME_VERSIONED}"
 
 # --- Étape 3 : strip ------------------------------------------------
 echo "[3/6] Strip du binaire..."
-SIZE_BEFORE=$(stat -c%s "${DIST_DIR}/${PROJECT_NAME}")
-strip "${DIST_DIR}/${PROJECT_NAME}"
-SIZE_AFTER=$(stat -c%s "${DIST_DIR}/${PROJECT_NAME}")
+SIZE_BEFORE=$(stat -c%s "${DIST_DIR}/${BINARY_NAME_VERSIONED}")
+strip "${DIST_DIR}/${BINARY_NAME_VERSIONED}"
+SIZE_AFTER=$(stat -c%s "${DIST_DIR}/${BINARY_NAME_VERSIONED}")
 echo "      Taille : ${SIZE_BEFORE} -> ${SIZE_AFTER} octets"
 
 # --- Étape 4 : sha256 du binaire ------------------------------------
 echo "[4/6] Calcul SHA256 du binaire..."
-BINARY_NAME_VERSIONED="${PROJECT_NAME}-${VERSION}-${ARCH_TAG}"
-# Le fichier sha256 référence un nom versionné pour qu'on puisse le
-# distribuer séparément du binaire et que ça reste clair.
 BINARY_SHA256_FILE="${DIST_DIR}/${BINARY_NAME_VERSIONED}.sha256"
 
-# On calcule depuis dist/ avec un nom relatif lisible.
-(cd "${DIST_DIR}" && sha256sum "${PROJECT_NAME}") \
-    | awk -v name="${BINARY_NAME_VERSIONED}" '{print $1"  "name}' \
+(cd "${DIST_DIR}" && sha256sum "${BINARY_NAME_VERSIONED}") \
     > "${BINARY_SHA256_FILE}"
 echo "      SHA256 binaire : $(awk '{print $1}' "${BINARY_SHA256_FILE}")"
 
@@ -166,18 +170,33 @@ INCLUDE_FILES=("${PROJECT_NAME}")
 
 # Stage : on copie les fichiers à inclure dans un sous-dossier nommé
 # explicitement, pour que le tarball s'extraie en luapilot-X.Y.Z-arch/
-STAGE_DIR="${DIST_DIR}/${TARBALL_BASENAME}"
+#
+# IMPORTANT : DANS le tarball, le binaire reprend le nom court
+# "luapilot" (sans arch ni version). C'est plus ergonomique pour les
+# scripts une fois l'archive extraite : on a "luapilot-X.Y.Z-arch/luapilot"
+# qu'on peut appeler directement ou symlinker. L'arch+version reste
+# visible au niveau du dossier d'extraction, ce qui suffit pour
+# identifier de quelle release il vient.
+#
+# On stage dans un sous-dossier .stage/ pour éviter le conflit de nom
+# avec le binaire seul qui s'appelle aussi
+# ${PROJECT_NAME}-${VERSION}-${ARCH_TAG} (mais c'est un fichier, pas
+# un dossier).
+STAGE_PARENT="${DIST_DIR}/.stage"
+STAGE_DIR="${STAGE_PARENT}/${TARBALL_BASENAME}"
 mkdir -p "${STAGE_DIR}"
-cp "${DIST_DIR}/${PROJECT_NAME}" "${STAGE_DIR}/"
+cp "${DIST_DIR}/${BINARY_NAME_VERSIONED}" "${STAGE_DIR}/${PROJECT_NAME}"
 for f in "${INCLUDE_FILES[@]:1}"; do
     cp "${SCRIPT_DIR}/${f}" "${STAGE_DIR}/"
 done
 
-# Création du tarball.
-(cd "${DIST_DIR}" && tar -czf "${TARBALL_BASENAME}.tar.gz" "${TARBALL_BASENAME}")
+# Création du tarball depuis le parent du stage (pour que les chemins
+# dans l'archive soient bien luapilot-X.Y.Z-arch/... et pas
+# .stage/luapilot-X.Y.Z-arch/...)
+(cd "${STAGE_PARENT}" && tar -czf "${TARBALL_FILE}" "${TARBALL_BASENAME}")
 
 # Nettoyage du stage.
-rm -rf "${STAGE_DIR}"
+rm -rf "${STAGE_PARENT}"
 
 echo "      Tarball : $(basename "${TARBALL_FILE}")"
 echo "      Contenu :"
@@ -202,6 +221,6 @@ echo "  - $(basename "${TARBALL_SHA256_FILE}")"
 echo ""
 echo "Le binaire seul et son sha256 sont aussi dans dist/ si tu veux les"
 echo "distribuer séparément :"
-echo "  - ${PROJECT_NAME}"
+echo "  - ${BINARY_NAME_VERSIONED}"
 echo "  - $(basename "${BINARY_SHA256_FILE}")"
 echo ""
