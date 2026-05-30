@@ -2977,8 +2977,15 @@ do
     end
 
     -- ----- recv : outbox vide -----------------------------------
+    -- CORRECTIF (post-test Pi0) : le worker doit rester vivant
+    -- significativement plus longtemps que le timeout du recv(),
+    -- sinon il finit pile pendant l'attente et la outbox passe en
+    -- "closed" au lieu de "timeout". Sur Pi0 (1 cœur ARMv6 lent),
+    -- un sleep de 100ms côté worker + recv(0.1) côté parent
+    -- produisait une race intermittente. 2s côté worker garantit
+    -- qu'on observe bien le timeout.
     do
-        local w = W.spawn("luapilot.sleep(100, 'ms'); return 1")
+        local w = W.spawn("luapilot.sleep(2, 's'); return 1")
         local rok, rmsg = w:recv(0)
         ok("recv(0) sur outbox vide -> (false, 'empty')",
             rok == false and rmsg == "empty",

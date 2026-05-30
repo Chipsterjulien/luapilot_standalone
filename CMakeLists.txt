@@ -72,6 +72,29 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     pthread
 )
 
+# libatomic : nécessaire sur les architectures 32-bit (ARMv6 / ARMv7 /
+# i386) qui n'ont pas d'instructions atomiques 64-bit en hardware.
+# OpenSSL 3.x utilise des __atomic_load_8 / __atomic_fetch_or_8 dans
+# son crypto/threads_pthread.c, ce qui déclenche des appels à des
+# builtins software fournis par libatomic. Sans cette lib au link,
+# on a des erreurs comme :
+# référence indéfinie vers « __atomic_is_lock_free »
+# référence indéfinie vers « __atomic_load_8 »
+#
+# CMAKE_SIZEOF_VOID_P EQUAL 4 = plateforme 32-bit. On laisse le linker
+# (GCC/ld) résoudre -latomic lui-même : il connaît les paths
+# multi-arch Debian (/usr/lib/arm-linux-gnueabihf/, etc.) que
+# find_library peut rater. Sur les systèmes Linux modernes, libatomic
+# est fournie par gcc-runtime, donc présente partout où gcc est
+# installé.
+#
+# Sur x86_64 et aarch64 (64-bit), le CPU fait l'atomique 64-bit
+# nativement, pas besoin de cette lib.
+if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    target_link_libraries(${PROJECT_NAME} PRIVATE atomic)
+    message(STATUS "32-bit platform detected, linking libatomic")
+endif()
+
 target_link_options(${PROJECT_NAME} PRIVATE
     -static-libgcc
     -static-libstdc++
