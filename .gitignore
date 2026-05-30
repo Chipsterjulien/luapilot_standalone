@@ -2,6 +2,7 @@
 .vscode/
 build/
 downloads/
+dist/
 *.zip
 *.tar.gz
 *.o
