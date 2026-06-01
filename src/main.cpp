@@ -36,6 +36,7 @@
 #include "lua_bindings/sha384.hpp"
 #include "lua_bindings/sha512.hpp"
 #include "lua_bindings/sleep.hpp"
+#include "lua_bindings/signal.hpp"
 #include "lua_bindings/socket.hpp"
 #include "lua_bindings/split.hpp"
 #include "lua_bindings/sys.hpp"
@@ -246,6 +247,12 @@ void register_luapilot(lua_State *L)
     // pose les fonctions directement sur luapilot. Même précondition
     // de pile (table luapilot au sommet).
     register_sys(L);
+
+    // Sous-table luapilot.signal (handle/ignore/default). Pour la
+    // gestion propre de SIGTERM/SIGINT/SIGHUP/SIGUSR1/SIGUSR2/SIGPIPE
+    // depuis Lua. Même précondition de pile (table luapilot au
+    // sommet). Cf. signal.hpp pour le design.
+    register_signal(L);
 
     lua_setglobal(L, "luapilot");
 

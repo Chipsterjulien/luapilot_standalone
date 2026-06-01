@@ -1894,7 +1894,83 @@ end
 
 -- =====================================================================
 print("")
-print("=== toml ===")
+print("=== signal ===")
+
+do
+    local S = luapilot.signal
+
+    -- ----- contrat de base -----------------------------------------
+    ok("luapilot.signal est une table", type(S) == "table")
+    ok("handle est une fonction", type(S.handle) == "function")
+    ok("ignore est une fonction", type(S.ignore) == "function")
+    ok("default est une fonction", type(S.default) == "function")
+
+    -- ----- validation des arguments --------------------------------
+    do
+        local pok, perr = pcall(S.handle, "BOGUS", function() end)
+        ok("handle('BOGUS', fn) leve une erreur", not pok)
+        ok("  message mentionne 'unsupported' ou 'supported'",
+            type(perr) == "string"
+            and (perr:find("unsupported") or perr:find("supported")))
+    end
+
+    do
+        local pok = pcall(S.ignore, "BOGUS")
+        ok("ignore('BOGUS') leve une erreur", not pok)
+    end
+
+    do
+        local pok = pcall(S.default, "BOGUS")
+        ok("default('BOGUS') leve une erreur", not pok)
+    end
+
+    -- Handler de type incorrect
+    do
+        local pok, perr = pcall(S.handle, "USR1", 42)
+        ok("handle('USR1', 42) leve (handler ni function ni nil)", not pok)
+        ok("  message mentionne 'function or nil'",
+            type(perr) == "string" and perr:find("function or nil"))
+    end
+
+    do
+        local pok = pcall(S.handle, "USR1", "string")
+        ok("handle('USR1', 'string') leve une erreur", not pok)
+    end
+
+    -- ----- enregistrement effectif ---------------------------------
+    ok("handle('USR1', fn) -> true",
+        S.handle("USR1", function() end) == true)
+    ok("handle('USR1', nil) -> true (desinstallation)",
+        S.handle("USR1", nil) == true)
+
+    ok("handle('USR2', fn) -> true",
+        S.handle("USR2", function() end) == true)
+    ok("handle('USR2', fn) re-installe -> true",
+        S.handle("USR2", function() end) == true)
+    ok("handle('USR2', nil) -> true",
+        S.handle("USR2", nil) == true)
+
+    ok("ignore('USR1') -> true", S.ignore("USR1") == true)
+    ok("default('USR1') -> true", S.default("USR1") == true)
+
+    ok("ignore('PIPE') -> true (cas d'usage typique)",
+        S.ignore("PIPE") == true)
+    ok("default('PIPE') -> true (restauration)",
+        S.default("PIPE") == true)
+
+    -- Tous les signaux supportes
+    for _, name in ipairs({ "TERM", "INT", "HUP", "USR1", "USR2", "PIPE" }) do
+        ok("handle('" .. name .. "', fn) accepte",
+            S.handle(name, function() end) == true)
+        S.handle(name, nil)
+    end
+
+    -- Signaux refuses
+    for _, name in ipairs({ "KILL", "STOP", "SEGV", "CHLD", "ALRM" }) do
+        local pok = pcall(S.handle, name, function() end)
+        ok("handle('" .. name .. "', fn) refuse", not pok)
+    end
+end
 
 do
     local T = luapilot.toml

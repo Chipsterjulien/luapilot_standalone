@@ -1894,7 +1894,97 @@ end
 
 -- =====================================================================
 print("")
-print("=== toml ===")
+print("=== signal ===")
+
+do
+    local S = luapilot.signal
+
+    -- ----- contract de base -----------------------------------------
+    ok("luapilot.signal is a table", type(S) == "table")
+    ok("handle is a function", type(S.handle) == "function")
+    ok("ignore is a function", type(S.ignore) == "function")
+    ok("default is a function", type(S.default) == "function")
+
+    -- ----- validation des arguments ---------------------------------
+    -- Signal inconnu : luaL_error -> pcall.ok == false
+    do
+        local pok, perr = pcall(S.handle, "BOGUS", function() end)
+        ok("handle('BOGUS', fn) raises", not pok)
+        ok("  message mentions 'unsupported' or 'supported'",
+            type(perr) == "string"
+            and (perr:find("unsupported") or perr:find("supported")))
+    end
+
+    do
+        local pok = pcall(S.ignore, "BOGUS")
+        ok("ignore('BOGUS') raises", not pok)
+    end
+
+    do
+        local pok = pcall(S.default, "BOGUS")
+        ok("default('BOGUS') raises", not pok)
+    end
+
+    -- Handler de type incorrect : luaL_error
+    do
+        local pok, perr = pcall(S.handle, "USR1", 42)
+        ok("handle('USR1', 42) raises (handler not function/nil)", not pok)
+        ok("  message mentions 'function or nil'",
+            type(perr) == "string" and perr:find("function or nil"))
+    end
+
+    do
+        local pok = pcall(S.handle, "USR1", "string")
+        ok("handle('USR1', 'string') raises", not pok)
+    end
+
+    -- ----- enregistrement effectif ----------------------------------
+    -- On utilise USR1 et USR2 pour les tests : ces signaux n'ont
+    -- pas de comportement par défaut "tuer le process" sur la plupart
+    -- des systèmes Linux modernes (USR1 par défaut = term, mais on
+    -- installe nos handlers donc ça n'a pas d'incidence ici).
+    ok("handle('USR1', fn) -> true",
+        S.handle("USR1", function() end) == true)
+    ok("handle('USR1', nil) -> true (uninstall)",
+        S.handle("USR1", nil) == true)
+
+    ok("handle('USR2', fn) -> true",
+        S.handle("USR2", function() end) == true)
+    -- Re-install : doit marcher (remplace le précédent handler)
+    ok("handle('USR2', fn) again -> true (replace)",
+        S.handle("USR2", function() end) == true)
+    ok("handle('USR2', nil) -> true",
+        S.handle("USR2", nil) == true)
+
+    -- ignore / default
+    ok("ignore('USR1') -> true", S.ignore("USR1") == true)
+    ok("default('USR1') -> true", S.default("USR1") == true)
+
+    -- PIPE : cas d'usage typique (on l'ignore pour éviter que SIGPIPE
+    -- tue le process sur un write vers une socket fermée). Notre
+    -- code socket gère déjà EPIPE proprement donc c'est juste un
+    -- exemple — la fonction doit accepter.
+    ok("ignore('PIPE') -> true (cas d'usage typique)",
+        S.ignore("PIPE") == true)
+    ok("default('PIPE') -> true (restauration)",
+        S.default("PIPE") == true)
+
+    -- Tous les signaux supportés sont acceptés
+    for _, name in ipairs({ "TERM", "INT", "HUP", "USR1", "USR2", "PIPE" }) do
+        ok("handle('" .. name .. "', fn) accepted",
+            S.handle(name, function() end) == true)
+        -- Nettoyage : on désinstalle pour ne pas perturber les tests
+        -- suivants si une partie du harnais déclenche un de ces
+        -- signaux (genre Ctrl-C de l'utilisateur).
+        S.handle(name, nil)
+    end
+
+    -- Les signaux dangereux ou non interceptables sont refusés
+    for _, name in ipairs({ "KILL", "STOP", "SEGV", "CHLD", "ALRM" }) do
+        local pok = pcall(S.handle, name, function() end)
+        ok("handle('" .. name .. "', fn) refused", not pok)
+    end
+end
 
 do
     local T = luapilot.toml
