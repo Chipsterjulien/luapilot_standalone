@@ -1,8 +1,12 @@
 #include "sleep.hpp"
 #include "lua_utils.hpp"
-#include <thread>
+#include "signal.hpp"
 #include <chrono>
 #include <stdexcept>
+#include <string>
+#include <cerrno>
+#include <cstring>
+#include <time.h>
 
 /**
  * Converts a string to a std::chrono::duration based on the unit.
@@ -37,6 +41,13 @@ std::chrono::duration<double> convert_to_duration(double duration, const std::st
  * Lua usage: lua_sleep(duration, unit)
  *   - duration: The amount of time to sleep.
  *   - unit: The unit of time (optional, default is seconds). Can be "s" for seconds, "ms" for milliseconds, "us" for microseconds.
+ *
+ * Phase B signal : si un signal géré par luapilot.signal arrive
+ * pendant le sleep, l'attente est interrompue, le callback Lua est
+ * dispatché, et la fonction retourne (nil, "interrupted") au lieu
+ * de (true, nil). Pour les signaux non gérés (genre SIGWINCH), le
+ * sleep est repris avec le temps restant — aucune perte d'attente
+ * pour le user.
  */
 int lua_sleep(lua_State *L)
 {
@@ -73,14 +84,57 @@ int lua_sleep(lua_State *L)
         unit = lua_tostring(L, 2);
     }
 
+    double seconds;
     try
     {
         auto duration_chrono = convert_to_duration(duration, unit);
-        std::this_thread::sleep_for(duration_chrono);
+        seconds = duration_chrono.count();
     }
     catch (const std::invalid_argument &e)
     {
         return push_fail(L, e.what());
+    }
+
+    // Phase B signal : on passe par nanosleep direct (et non
+    // std::this_thread::sleep_for qui retry silencieusement sur
+    // EINTR) pour pouvoir détecter qu'un signal géré est arrivé.
+    struct timespec req;
+    req.tv_sec = static_cast<time_t>(seconds);
+    req.tv_nsec = static_cast<long>((seconds - static_cast<double>(req.tv_sec)) * 1e9);
+    // Clamp pour éviter tv_nsec >= 1e9 dû aux erreurs flottantes.
+    if (req.tv_nsec >= 1000000000L)
+    {
+        req.tv_nsec -= 1000000000L;
+        req.tv_sec += 1;
+    }
+    if (req.tv_nsec < 0)
+    {
+        req.tv_nsec = 0;
+    }
+
+    struct timespec rem;
+    while (::nanosleep(&req, &rem) == -1)
+    {
+        if (errno != EINTR)
+        {
+            // Erreur improbable sur Linux moderne (EINVAL si tv_nsec
+            // out of range, mais on a clampé). Pas de helper
+            // push_errno_fail global dans le projet → message en
+            // ligne, cohérent avec le style "sleep: <strerror>".
+            std::string msg = "sleep: ";
+            msg += std::strerror(errno);
+            return push_fail(L, msg);
+        }
+        // EINTR : un signal est arrivé. Si c'est un signal qu'on
+        // gère, on dispatche son callback et on retourne
+        // "interrupted". Sinon, on reprend le sleep avec le temps
+        // restant.
+        if (signal_any_handled_pending())
+        {
+            signal_dispatch_pending(L);
+            return push_fail(L, "interrupted");
+        }
+        req = rem;
     }
 
     return push_ok(L);

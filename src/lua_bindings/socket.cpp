@@ -1,5 +1,6 @@
 #include "socket.hpp"
 #include "lua_utils.hpp"
+#include "signal.hpp"
 
 #include <cerrno>
 #include <chrono>
@@ -203,6 +204,17 @@ namespace
     //   0   = deadline dépassée
     //   -1  = erreur (errno positionné)
     // Boucle sur EINTR.
+    // Codes de retour de wait_ready_deadline :
+    //   > 0  : FD prêt (revents non-vide après poll)
+    //   == 0 : timeout par deadline (avant tout event)
+    //   == -1: erreur fatale (errno renseigné, à passer à push_errno_fail)
+    //   == WAIT_INTERRUPTED : interrompu par un signal géré par
+    //          luapilot.signal. Le callback Lua a DÉJÀ été dispatché
+    //          avant le retour ; le caller n'a qu'à renvoyer
+    //          (nil, "interrupted") en sauvegardant son buffer si
+    //          nécessaire.
+    constexpr int WAIT_INTERRUPTED = -2;
+
     int wait_ready_deadline(int fd, short events, Deadline deadline)
     {
         struct pollfd pfd;
@@ -221,9 +233,35 @@ namespace
             {
                 if (errno == EINTR)
                 {
-                    // Sur EINTR, le temps écoulé compte ; remaining_ms
-                    // sera recalculé au prochain tour. Pas de risque
-                    // d'attente infinie.
+                    // CORRECTIF (chantier signal phase B) : avant de
+                    // retry silencieusement, on vérifie si l'EINTR
+                    // vient d'un signal QU'ON GÈRE via
+                    // luapilot.signal. Si oui, on doit propager
+                    // l'interruption au caller (qui retournera
+                    // (nil, "interrupted")) ET dispatcher le
+                    // callback Lua avant de revenir, pour que le
+                    // user voie ses handlers s'exécuter sans devoir
+                    // attendre un timeout/event.
+                    //
+                    // Si l'EINTR vient d'un signal non géré (un
+                    // SIGWINCH si l'utilisateur redimensionne son
+                    // terminal, par exemple), on retry comme avant :
+                    // ce serait surprenant qu'un signal non
+                    // intercepté par luapilot fasse retourner un
+                    // recv() en "interrupted".
+                    if (signal_any_handled_pending())
+                    {
+                        // Récupérer la lua_State courante pour
+                        // appeler le callback : on n'a pas accès à
+                        // L ici, donc le dispatch est fait par le
+                        // caller via signal_dispatch_pending(L).
+                        // Voir les sites d'appel.
+                        return WAIT_INTERRUPTED;
+                    }
+                    // Sur EINTR (signal non géré), le temps écoulé
+                    // compte ; remaining_ms sera recalculé au
+                    // prochain tour. Pas de risque d'attente
+                    // infinie.
                     continue;
                 }
                 return -1;
@@ -660,6 +698,17 @@ namespace
             if (e == SSL_ERROR_WANT_READ)
             {
                 int wr = wait_ready_deadline(fd, POLLIN, deadline);
+                if (wr == WAIT_INTERRUPTED)
+                {
+                    // Phase B signal : on propage l'info via err.
+                    // L'appelant (do_tls_handshake -> ...) verra
+                    // err == "interrupted" et retournera (nil, err)
+                    // à Lua. Le callback Lua sera invoqué soit par
+                    // ce push depuis le caller (s'il fait dispatch),
+                    // soit au prochain debug hook count tick.
+                    err = "interrupted";
+                    return false;
+                }
                 if (wr == 0)
                 {
                     err = "timeout";
@@ -675,6 +724,11 @@ namespace
             if (e == SSL_ERROR_WANT_WRITE)
             {
                 int wr = wait_ready_deadline(fd, POLLOUT, deadline);
+                if (wr == WAIT_INTERRUPTED)
+                {
+                    err = "interrupted";
+                    return false;
+                }
                 if (wr == 0)
                 {
                     err = "timeout";
@@ -933,6 +987,11 @@ namespace
             // dans la branche TLS via le code retour WANT_READ.
             short poll_events = POLLOUT;
             int r = wait_ready_deadline(s->fd, poll_events, deadline);
+            if (r == WAIT_INTERRUPTED)
+            {
+                signal_dispatch_pending(L);
+                return push_fail(L, "interrupted");
+            }
             if (r < 0)
             {
                 return push_errno_fail(L, "send");
@@ -958,6 +1017,11 @@ namespace
                 if (rc == TLS_IO_WANT_READ)
                 {
                     int wr = wait_ready_deadline(s->fd, POLLIN, deadline);
+                    if (wr == WAIT_INTERRUPTED)
+                    {
+                        signal_dispatch_pending(L);
+                        return push_fail(L, "interrupted");
+                    }
                     if (wr == 0)
                         return push_fail(L, "timeout");
                     if (wr < 0)
@@ -1063,6 +1127,11 @@ namespace
             if (!ssl_has_data)
             {
                 int r = wait_ready_deadline(s->fd, POLLIN, deadline);
+                if (r == WAIT_INTERRUPTED)
+                {
+                    signal_dispatch_pending(L);
+                    return push_fail(L, "interrupted");
+                }
                 if (r < 0)
                 {
                     return push_errno_fail(L, "recv");
@@ -1094,6 +1163,11 @@ namespace
                 if (rc == TLS_IO_WANT_WRITE)
                 {
                     int wr = wait_ready_deadline(s->fd, POLLOUT, deadline);
+                    if (wr == WAIT_INTERRUPTED)
+                    {
+                        signal_dispatch_pending(L);
+                        return push_fail(L, "interrupted");
+                    }
                     if (wr == 0)
                         return push_fail(L, "timeout");
                     if (wr < 0)
@@ -1196,6 +1270,17 @@ namespace
             if (!ssl_has_data)
             {
                 int r = wait_ready_deadline(s->fd, POLLIN, deadline);
+                if (r == WAIT_INTERRUPTED)
+                {
+                    // Phase B signal : un signal géré est arrivé
+                    // pendant l'attente. On conserve les octets
+                    // déjà lus pour ne pas les perdre (même logique
+                    // que timeout), on dispatche le callback Lua
+                    // utilisateur, puis on remonte "interrupted".
+                    s->recv_line_pending = std::move(acc);
+                    signal_dispatch_pending(L);
+                    return push_fail(L, "interrupted");
+                }
                 if (r < 0)
                 {
                     // Erreur fatale : on conserve quand même les octets
@@ -1232,6 +1317,12 @@ namespace
                 if (rc == TLS_IO_WANT_WRITE)
                 {
                     int wr = wait_ready_deadline(s->fd, POLLOUT, deadline);
+                    if (wr == WAIT_INTERRUPTED)
+                    {
+                        s->recv_line_pending = std::move(acc);
+                        signal_dispatch_pending(L);
+                        return push_fail(L, "interrupted");
+                    }
                     if (wr == 0)
                     {
                         // Idem : conserver acc.
@@ -1333,6 +1424,11 @@ namespace
             if (!ssl_has_data)
             {
                 int r = wait_ready_deadline(s->fd, POLLIN, deadline);
+                if (r == WAIT_INTERRUPTED)
+                {
+                    signal_dispatch_pending(L);
+                    return push_fail(L, "interrupted");
+                }
                 if (r < 0)
                 {
                     return push_errno_fail(L, "recv_all");
@@ -1354,6 +1450,11 @@ namespace
                 if (rc == TLS_IO_WANT_WRITE)
                 {
                     int wr = wait_ready_deadline(s->fd, POLLOUT, deadline);
+                    if (wr == WAIT_INTERRUPTED)
+                    {
+                        signal_dispatch_pending(L);
+                        return push_fail(L, "interrupted");
+                    }
                     if (wr == 0)
                         return push_fail(L, "timeout");
                     if (wr < 0)
@@ -1410,6 +1511,11 @@ namespace
         Deadline deadline = make_deadline(s->timeout_ms);
 
         int r = wait_ready_deadline(s->fd, POLLIN, deadline);
+        if (r == WAIT_INTERRUPTED)
+        {
+            signal_dispatch_pending(L);
+            return push_fail(L, "interrupted");
+        }
         if (r < 0)
         {
             return push_errno_fail(L, "accept");
@@ -1441,6 +1547,11 @@ namespace
                 // ET attendre à nouveau qu'un client se présente
                 // (le précédent connect() peut ne plus être là).
                 int r2 = wait_ready_deadline(s->fd, POLLIN, deadline);
+                if (r2 == WAIT_INTERRUPTED)
+                {
+                    signal_dispatch_pending(L);
+                    return push_fail(L, "interrupted");
+                }
                 if (r2 < 0)
                 {
                     return push_errno_fail(L, "accept");
@@ -1694,6 +1805,17 @@ namespace
             // En cours, attendre POLLOUT avec deadline globale.
             Deadline deadline = make_deadline(timeout_ms);
             int wr = wait_ready_deadline(fd, POLLOUT, deadline);
+            if (wr == WAIT_INTERRUPTED)
+            {
+                // Phase B signal : on signale via err (le caller
+                // distingue "interrupted" de "timed out"). On ne
+                // tente PAS les autres addrinfo : si l'utilisateur
+                // a demandé l'arrêt, on s'arrête.
+                err = "interrupted";
+                ::close(fd);
+                fd = -1;
+                break;
+            }
             if (wr == 0)
             {
                 timed_out = true;
@@ -1724,7 +1846,7 @@ namespace
         }
         ::freeaddrinfo(res);
 
-        if (fd < 0 && !timed_out)
+        if (fd < 0 && !timed_out && err.empty())
         {
             err = "socket: connect: ";
             err += std::strerror(last_errno);
@@ -1821,6 +1943,12 @@ int lua_socket_connect(lua_State *L)
         {
             return push_fail(L, "timeout");
         }
+        if (err == "interrupted")
+        {
+            // Phase B signal : dispatcher le callback Lua ici
+            // (tcp_connect_blocking n'a pas accès à L).
+            signal_dispatch_pending(L);
+        }
         return push_fail(L, err);
     }
     push_new_sock(L, fd, false);
@@ -1878,6 +2006,11 @@ int lua_socket_connect_tls(lua_State *L)
         {
             return push_fail(L, "timeout");
         }
+        if (err == "interrupted")
+        {
+            // Phase B signal : voir sock_connect.
+            signal_dispatch_pending(L);
+        }
         return push_fail(L, err);
     }
 
@@ -1933,6 +2066,10 @@ int lua_socket_connect_tls(lua_State *L)
         }
         SSL_free(ssl);
         ::close(fd);
+        if (err == "interrupted")
+        {
+            signal_dispatch_pending(L);
+        }
         return push_fail(L, err);
     }
     // Succès : NE PAS remettre bloquant. Le FD reste O_NONBLOCK pour
@@ -2050,6 +2187,10 @@ int sock_starttls(lua_State *L)
             ::fcntl(s->fd, F_SETFL, flags); // remettre bloquant si échec
         }
         SSL_free(ssl);
+        if (err == "interrupted")
+        {
+            signal_dispatch_pending(L);
+        }
         return push_fail(L, err);
     }
     // Succès : NE PAS remettre bloquant. FD reste O_NONBLOCK pour

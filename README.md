@@ -512,10 +512,10 @@ local ts = luapilot.now()                    -- seconds since Unix epoch
 print(os.date("!%Y-%m-%dT%H:%M:%SZ", ts))    -- "2026-05-26T14:32:11Z"
 ```
 
-| Function | Backend | Returns |
-|---|---|---|
-| `luapilot.monotonic()` | `clock_gettime(CLOCK_MONOTONIC)` | seconds (float) since an arbitrary point (typically boot). **Never jumps backwards** — safe for measuring elapsed time. |
-| `luapilot.now()` | `clock_gettime(CLOCK_REALTIME)` | seconds (float) since the Unix epoch (1970-01-01 UTC). **Can jump** (NTP, manual adjustment) — only use for wall-clock timestamps. |
+| Function               | Backend                          | Returns                                                                                                                            |
+| ---------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `luapilot.monotonic()` | `clock_gettime(CLOCK_MONOTONIC)` | seconds (float) since an arbitrary point (typically boot). **Never jumps backwards** — safe for measuring elapsed time.            |
+| `luapilot.now()`       | `clock_gettime(CLOCK_REALTIME)`  | seconds (float) since the Unix epoch (1970-01-01 UTC). **Can jump** (NTP, manual adjustment) — only use for wall-clock timestamps. |
 
 **Why not just use `os.time()` or `os.clock()`?**
 
@@ -531,6 +531,136 @@ print(os.date("!%Y-%m-%dT%H:%M:%SZ", ts))    -- "2026-05-26T14:32:11Z"
 for ISO 8601 UTC, `os.date("%c", ts)` for locale format, or build
 your own `format_duration(seconds)` in a few lines — no need to add
 those to LuaPilot.
+
+### signal — POSIX signals
+
+Three functions to react to signals like `SIGTERM` (sent by
+`systemctl stop`), `SIGINT` (Ctrl-C), or custom signals like
+`SIGUSR1`. The typical use case is a graceful shutdown of a
+long-running script — close sockets cleanly, flush state to disk,
+say goodbye to a peer — before the process exits.
+
+```lua
+-- Graceful shutdown on systemctl stop / Ctrl-C
+luapilot.signal.handle("TERM", function()
+    log.info("SIGTERM received, shutting down")
+    bot:disconnect()              -- e.g. send QUIT on IRC
+    -- db:close() if you have one
+    os.exit(0)
+end)
+
+luapilot.signal.handle("INT", function()
+    log.info("Ctrl-C, exiting")
+    os.exit(0)
+end)
+
+-- Ignore SIGPIPE: writes to a closed socket return EPIPE instead
+-- of killing the process. LuaPilot's socket layer already handles
+-- this, but it's a useful default for any code that does I/O.
+luapilot.signal.ignore("PIPE")
+
+-- Custom signal for "reload config without restart"
+luapilot.signal.handle("HUP", function()
+    log.info("SIGHUP, reloading config")
+    config = reload_config()
+end)
+```
+
+| Function                            | Effect                                                                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `luapilot.signal.handle(name, fn)`  | Install a Lua callback for the signal. The callback is invoked between LuaPilot operations (never inside the C signal handler — see below). |
+| `luapilot.signal.handle(name, nil)` | Remove the callback and restore the system default behavior.                                                                                |
+| `luapilot.signal.ignore(name)`      | Mark the signal as ignored (`SIG_IGN`). The kernel discards it without notifying the process.                                               |
+| `luapilot.signal.default(name)`     | Restore the system default action (`SIG_DFL`). For `TERM`/`INT`/`HUP` this terminates the process.                                          |
+
+All three return `true` on success, `(nil, err)` on failure.
+Passing an unsupported signal name raises a Lua error.
+
+**Supported signals** (whitelist):
+
+| Name   | Number         | Typical use                                                                                     |
+| ------ | -------------- | ----------------------------------------------------------------------------------------------- |
+| `TERM` | `SIGTERM` (15) | `systemctl stop`, graceful shutdown request                                                     |
+| `INT`  | `SIGINT` (2)   | Ctrl-C from the terminal                                                                        |
+| `HUP`  | `SIGHUP` (1)   | "reload config" convention (not enforced — your handler decides what HUP means)                 |
+| `USR1` | `SIGUSR1` (10) | Application-defined                                                                             |
+| `USR2` | `SIGUSR2` (12) | Application-defined                                                                             |
+| `PIPE` | `SIGPIPE` (13) | Usually ignored to make `write` on closed sockets return `EPIPE` instead of killing the process |
+
+**Not supported and why:**
+
+* `KILL`, `STOP` — cannot be intercepted by any process (POSIX guarantee).
+* `SEGV`, `BUS`, `FPE`, `ILL` — these signals indicate a hardware
+  or memory fault. Running arbitrary Lua code from a handler in
+  that state is unsafe; the program is already broken.
+* `CHLD` — reserved for a possible future async `exec` feature; not
+  exposed today to keep the API minimal.
+* `ALRM` — would conflict with the internal mechanics of `sleep`.
+
+#### Interruption of blocking syscalls
+
+When a handled signal arrives during a blocking LuaPilot operation
+(`socket:recv`, `socket:recv_line`, `socket:send`, `socket:accept`,
+`socket.connect`, `socket.connect_tls`, `luapilot.sleep`), the
+operation returns immediately with `(nil, "interrupted")` and the
+Lua callback fires before the return. This is how a long
+`recv_line()` or `sleep(60)` can be stopped without waiting for the
+timeout to elapse.
+
+```lua
+luapilot.signal.handle("USR1", function()
+    print(">>> signal received")
+end)
+
+local ok, err = luapilot.sleep(30, "s")    -- normally returns after 30s
+-- Send: kill -USR1 <pid> while it's sleeping
+-- → callback fires, then:
+-- ok  = nil
+-- err = "interrupted"
+```
+
+For `socket:recv_line`, any bytes already accumulated before the
+interruption are **preserved** for the next `recv_line` call —
+same as on timeout. No data is lost.
+
+Signals that are **not** handled by `luapilot.signal` (for example
+`SIGWINCH` from a terminal resize) keep the standard `EINTR` retry
+behavior internally: a cosmetic event will not abort a long
+`recv()`.
+
+#### Workers
+
+Workers (`luapilot.workers.spawn`) automatically block all
+supported signals via `pthread_sigmask` at thread startup. This
+guarantees that Lua callbacks only ever fire on the main thread,
+regardless of which thread the kernel chose to deliver the signal
+to. You install your handlers from the main script; workers don't
+see signals.
+
+#### What runs in the callback
+
+POSIX signal handlers must be "async-signal-safe": no allocation,
+no calls to most library functions, no interaction with a runtime
+like Lua's. LuaPilot enforces this by **not running your Lua
+callback inside the C handler**. The C handler does the strict
+minimum (set a flag) and your callback runs later in a normal
+context, from one of these places:
+
+* immediately on return from an interrupted blocking syscall (the
+  `"interrupted"` case above);
+* otherwise, from a Lua debug hook that fires every ~10 000
+  instructions of Lua code — typically a few milliseconds of
+  latency.
+
+Practical consequence: callbacks **can** do anything normal Lua
+code can do (allocate, call Lua functions, log, call `os.exit`,
+write files). They **should** stay short and not block themselves
+for long, otherwise other signals piling up will wait.
+
+Errors raised by the callback are swallowed silently by `pcall`:
+a buggy handler must not crash the program. If you want error
+visibility inside a handler, wrap your body in your own `pcall`
+and log explicitly.
 
 ### TOML
 

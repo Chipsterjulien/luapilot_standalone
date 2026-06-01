@@ -461,10 +461,10 @@ local ts = luapilot.now()                    -- secondes depuis Unix epoch
 print(os.date("!%Y-%m-%dT%H:%M:%SZ", ts))    -- "2026-05-26T14:32:11Z"
 ```
 
-| Fonction | Backend | Renvoie |
-|---|---|---|
-| `luapilot.monotonic()` | `clock_gettime(CLOCK_MONOTONIC)` | secondes (float) depuis un point arbitraire (typiquement le boot). **Ne saute jamais en arrière** — fiable pour mesurer des durées. |
-| `luapilot.now()` | `clock_gettime(CLOCK_REALTIME)` | secondes (float) depuis l'Unix epoch (1970-01-01 UTC). **Peut sauter** (NTP, ajustement manuel) — uniquement pour timestamps wall-clock. |
+| Fonction               | Backend                          | Renvoie                                                                                                                                  |
+| ---------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `luapilot.monotonic()` | `clock_gettime(CLOCK_MONOTONIC)` | secondes (float) depuis un point arbitraire (typiquement le boot). **Ne saute jamais en arrière** — fiable pour mesurer des durées.      |
+| `luapilot.now()`       | `clock_gettime(CLOCK_REALTIME)`  | secondes (float) depuis l'Unix epoch (1970-01-01 UTC). **Peut sauter** (NTP, ajustement manuel) — uniquement pour timestamps wall-clock. |
 
 **Pourquoi pas juste `os.time()` ou `os.clock()` ?**
 
@@ -482,6 +482,140 @@ print(os.date("!%Y-%m-%dT%H:%M:%SZ", ts))    -- "2026-05-26T14:32:11Z"
 `os.date("%c", ts)` pour le format locale, ou écrivez votre
 `format_duration(seconds)` en quelques lignes — pas besoin de
 les ajouter à LuaPilot.
+
+### signal — signaux POSIX
+
+Trois fonctions pour réagir à des signaux comme `SIGTERM` (envoyé
+par `systemctl stop`), `SIGINT` (Ctrl-C) ou des signaux applicatifs
+comme `SIGUSR1`. Le cas d'usage typique est l'arrêt propre d'un
+script de longue durée — fermer les sockets, sauvegarder l'état
+sur disque, dire au revoir à un peer — avant que le processus ne
+se termine.
+
+```lua
+-- Arrêt propre sur systemctl stop / Ctrl-C
+luapilot.signal.handle("TERM", function()
+    log.info("SIGTERM reçu, arrêt propre")
+    bot:disconnect()              -- p.ex. envoyer QUIT sur IRC
+    -- db:close() si tu as une base
+    os.exit(0)
+end)
+
+luapilot.signal.handle("INT", function()
+    log.info("Ctrl-C, sortie")
+    os.exit(0)
+end)
+
+-- Ignorer SIGPIPE : un write sur socket fermée renvoie EPIPE au
+-- lieu de tuer le processus. La couche socket de LuaPilot le gère
+-- déjà, mais c'est un défaut utile pour tout code qui fait de l'I/O.
+luapilot.signal.ignore("PIPE")
+
+-- Signal applicatif pour "recharger la config sans redémarrer"
+luapilot.signal.handle("HUP", function()
+    log.info("SIGHUP, rechargement de la config")
+    config = reload_config()
+end)
+```
+
+| Fonction                            | Effet                                                                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `luapilot.signal.handle(name, fn)`  | Installe un callback Lua pour le signal. Le callback est invoqué entre les opérations LuaPilot (jamais dans le handler C — voir plus bas). |
+| `luapilot.signal.handle(name, nil)` | Désinstalle le callback et restaure le comportement système par défaut.                                                                    |
+| `luapilot.signal.ignore(name)`      | Marque le signal comme ignoré (`SIG_IGN`). Le kernel le jette sans prévenir le processus.                                                  |
+| `luapilot.signal.default(name)`     | Restaure l'action système par défaut (`SIG_DFL`). Pour `TERM`/`INT`/`HUP`, ça tue le processus.                                            |
+
+Les trois renvoient `true` en succès, `(nil, err)` en échec. Passer
+un nom de signal non supporté lève une erreur Lua.
+
+**Signaux supportés** (liste blanche) :
+
+| Nom    | Numéro         | Usage typique                                                                                      |
+| ------ | -------------- | -------------------------------------------------------------------------------------------------- |
+| `TERM` | `SIGTERM` (15) | `systemctl stop`, demande d'arrêt propre                                                           |
+| `INT`  | `SIGINT` (2)   | Ctrl-C depuis le terminal                                                                          |
+| `HUP`  | `SIGHUP` (1)   | Convention "recharger la config" (non imposé — c'est votre handler qui décide)                     |
+| `USR1` | `SIGUSR1` (10) | Libre, applicatif                                                                                  |
+| `USR2` | `SIGUSR2` (12) | Libre, applicatif                                                                                  |
+| `PIPE` | `SIGPIPE` (13) | Usuellement ignoré pour que `write` sur socket fermée renvoie `EPIPE` au lieu de tuer le processus |
+
+**Non supportés et pourquoi :**
+
+* `KILL`, `STOP` — non interceptables par aucun processus (garantie POSIX).
+* `SEGV`, `BUS`, `FPE`, `ILL` — ces signaux indiquent une faute
+  matérielle ou mémoire. Exécuter du Lua arbitraire depuis un
+  handler dans cet état n'est pas sûr ; le programme est déjà cassé.
+* `CHLD` — réservé pour un éventuel `exec` async futur ; pas
+  exposé aujourd'hui pour garder l'API minimale.
+* `ALRM` — entrerait en conflit avec la mécanique interne de `sleep`.
+
+#### Interruption des syscalls bloquants
+
+Quand un signal géré arrive pendant une opération LuaPilot
+bloquante (`socket:recv`, `socket:recv_line`, `socket:send`,
+`socket:accept`, `socket.connect`, `socket.connect_tls`,
+`luapilot.sleep`), l'opération renvoie immédiatement
+`(nil, "interrupted")` et le callback Lua s'exécute avant le
+retour. C'est ce qui permet d'interrompre un long `recv_line()` ou
+un `sleep(60)` sans attendre l'expiration du timeout.
+
+```lua
+luapilot.signal.handle("USR1", function()
+    print(">>> signal reçu")
+end)
+
+local ok, err = luapilot.sleep(30, "s")    -- renvoie normalement après 30s
+-- Envoyez : kill -USR1 <pid> pendant qu'il dort
+-- → callback exécuté, puis :
+-- ok  = nil
+-- err = "interrupted"
+```
+
+Pour `socket:recv_line`, les octets déjà accumulés avant
+l'interruption sont **conservés** pour le prochain appel à
+`recv_line` — même logique que sur timeout. Aucune donnée perdue.
+
+Les signaux **non** gérés par `luapilot.signal` (par exemple
+`SIGWINCH` lors d'un redimensionnement de terminal) conservent le
+comportement standard de retry `EINTR` en interne : un événement
+cosmétique n'interrompra pas un long `recv()`.
+
+#### Workers
+
+Les workers (`luapilot.workers.spawn`) bloquent automatiquement
+tous les signaux supportés via `pthread_sigmask` au démarrage du
+thread. Cela garantit que les callbacks Lua ne s'exécutent que
+dans le thread principal, quel que soit le thread choisi par le
+kernel pour délivrer le signal. Vous installez vos handlers dans
+le script principal ; les workers ne voient pas les signaux.
+
+#### Ce qui tourne dans le callback
+
+Les handlers de signal POSIX doivent être "async-signal-safe" :
+pas d'allocation, pas d'appel à la plupart des fonctions de la
+libc, pas d'interaction avec un runtime comme celui de Lua.
+LuaPilot impose cette règle en **n'exécutant pas votre callback
+Lua dans le handler C**. Le handler C fait le strict minimum
+(positionner un drapeau) et votre callback s'exécute plus tard
+dans un contexte normal, depuis un de ces endroits :
+
+* immédiatement au retour d'un syscall bloquant interrompu (le
+  cas `"interrupted"` ci-dessus) ;
+* sinon, depuis un debug hook Lua qui se déclenche toutes les
+  ~10 000 instructions Lua — soit quelques millisecondes de
+  latence typique.
+
+Conséquence pratique : les callbacks **peuvent** faire tout ce
+que du code Lua normal fait (allouer, appeler des fonctions Lua,
+logger, appeler `os.exit`, écrire des fichiers). Ils **devraient**
+rester courts et ne pas bloquer longtemps — sinon les signaux qui
+s'accumulent attendront.
+
+Les erreurs levées par le callback sont avalées silencieusement
+par `pcall` : un handler bogué ne doit pas faire crasher le
+programme. Si vous voulez de la visibilité côté erreur, encapsulez
+le corps du callback dans votre propre `pcall` et loggez
+explicitement.
 
 ### TOML
 
