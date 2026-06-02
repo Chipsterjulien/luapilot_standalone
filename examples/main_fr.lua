@@ -1972,6 +1972,143 @@ do
     end
 end
 
+-- =====================================================================
+print("")
+print("=== sqlite (session 1: open/close/exec) ===")
+
+do
+    local DB = luapilot.sqlite
+
+    -- ----- contrat de base -------------------------------------------
+    ok("luapilot.sqlite est une table", type(DB) == "table")
+    ok("open est une fonction", type(DB.open) == "function")
+
+    -- ----- validation des arguments ----------------------------------
+    do
+        local pok = pcall(DB.open)
+        ok("open() leve (path manquant)", not pok)
+    end
+
+    do
+        local pok = pcall(DB.open, 42)
+        ok("open(42) leve (path pas string)", not pok)
+    end
+
+    do
+        local pok, perr = pcall(DB.open, ":memory:", "bad")
+        ok("open(':memory:', 'bad') leve (opts pas table)", not pok)
+        ok("  message mentionne 'table'",
+            type(perr) == "string" and perr:find("table"))
+    end
+
+    do
+        local pok = pcall(DB.open, ":memory:", { wal = "yes" })
+        ok("open(opts.wal = 'yes') leve (wal pas boolean)", not pok)
+    end
+
+    do
+        local pok = pcall(DB.open, ":memory:", { busy_timeout = "1000" })
+        ok("open(opts.busy_timeout = '1000') leve (pas integer)", not pok)
+    end
+
+    do
+        local pok = pcall(DB.open, ":memory:", { busy_timeout = -5 })
+        ok("open(opts.busy_timeout = -5) leve (< 0)", not pok)
+    end
+
+    do
+        local pok = pcall(DB.open, ":memory:", { busy_timeout = 99999999 })
+        ok("open(opts.busy_timeout = 99999999) leve (max sanity)", not pok)
+    end
+
+    -- ----- ouverture en memoire (cas le plus simple) -----------------
+    do
+        local db, err = DB.open(":memory:")
+        ok("open(':memory:') -> db", db ~= nil, "err=" .. tostring(err))
+        ok("  pas d'erreur", err == nil)
+        ok("  db est userdata", type(db) == "userdata")
+
+        local ok_, err2 = db:exec("CREATE TABLE t(a INTEGER, b TEXT)")
+        ok("db:exec(CREATE TABLE) -> true", ok_ == true)
+        ok("  pas d'erreur", err2 == nil)
+
+        local ok2, err3 = db:exec("INSERT INTO t VALUES (1, 'hello')")
+        ok("db:exec(INSERT) -> true", ok2 == true)
+        ok("  pas d'erreur", err3 == nil)
+
+        local ok3 = db:exec("INSERT INTO t VALUES (2, 'a'); INSERT INTO t VALUES (3, 'b');")
+        ok("db:exec(2 INSERTs separes par ;) -> true", ok3 == true)
+
+        local ok4, err4 = db:exec("INSERT INTO bogus VALUES (1)")
+        ok("db:exec(INSERT INTO unknown table) -> (nil, err)",
+            ok4 == nil and type(err4) == "string")
+        ok("  err prefixe par 'sqlite: '",
+            type(err4) == "string" and err4:find("^sqlite: "))
+
+        local cok = db:close()
+        ok("db:close() -> true", cok == true)
+
+        local cok2 = db:close()
+        ok("db:close() encore -> true (idempotent)", cok2 == true)
+
+        local ok5, err5 = db:exec("SELECT 1")
+        ok("db:exec() apres close -> (nil, err)",
+            ok5 == nil and type(err5) == "string")
+        ok("  err mentionne 'closed'",
+            type(err5) == "string" and err5:find("closed"))
+    end
+
+    -- ----- ouverture avec opts ---------------------------------------
+    do
+        local db = DB.open(":memory:", { busy_timeout = 1000 })
+        ok("open(':memory:', busy_timeout=1000) -> db", db ~= nil)
+        db:close()
+    end
+
+    do
+        local db, err = DB.open(":memory:", { wal = true, busy_timeout = 500 })
+        ok("open(':memory:', wal=true) -> db (fallback silencieux)",
+            db ~= nil, "err=" .. tostring(err))
+        if db then db:close() end
+    end
+
+    -- ----- erreur d'ouverture (chemin invalide) ----------------------
+    do
+        local db, err = DB.open("/proc/nope_cant_create_a_db_here.db")
+        if not db then
+            ok("open(chemin invalide) -> (nil, err)", db == nil)
+            ok("  err prefixe par 'sqlite: '",
+                type(err) == "string" and err:find("^sqlite: "))
+        else
+            db:close()
+            os.remove("/proc/nope_cant_create_a_db_here.db")
+            ok("open(chemin invalide) -- systeme l'a autorise, skip", true)
+        end
+    end
+
+    -- ----- tostring --------------------------------------------------
+    do
+        local db = DB.open(":memory:")
+        local s = tostring(db)
+        ok("tostring(db) contient 'sqlite'",
+            type(s) == "string" and s:find("sqlite"))
+        db:close()
+        s = tostring(db)
+        ok("tostring(db) apres close mentionne 'closed'",
+            type(s) == "string" and s:find("closed"))
+    end
+
+    -- ----- GC automatique --------------------------------------------
+    do
+        for i = 1, 5 do
+            local db = DB.open(":memory:")
+            db:exec("CREATE TABLE t(x)")
+        end
+        collectgarbage("collect")
+        ok("5 open + GC sans crash", true)
+    end
+end
+
 do
     local T = luapilot.toml
 

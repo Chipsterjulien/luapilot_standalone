@@ -39,6 +39,7 @@
 #include "lua_bindings/signal.hpp"
 #include "lua_bindings/socket.hpp"
 #include "lua_bindings/split.hpp"
+#include "lua_bindings/sqlite.hpp"
 #include "lua_bindings/sys.hpp"
 #include "lua_bindings/symlinkattr.hpp"
 #include "lua_bindings/time_clock.hpp"
@@ -253,6 +254,12 @@ void register_luapilot(lua_State *L)
     // depuis Lua. Même précondition de pile (table luapilot au
     // sommet). Cf. signal.hpp pour le design.
     register_signal(L);
+
+    // Sous-table luapilot.sqlite (open + méthodes du userdata db).
+    // V1 : API haut niveau, open/close/exec sans params (session 1).
+    // Sessions à venir : params bind, query lazy iterator. Cf.
+    // sqlite.hpp pour le design figé.
+    register_sqlite(L);
 
     lua_setglobal(L, "luapilot");
 

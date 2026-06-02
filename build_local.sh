@@ -212,6 +212,32 @@ TOMLPP_INSTALL_DIR="${TOMLPP_BUILD_DIR}/${TOMLPP_DIR}"
 # Sous-dossier toml++/ pour matcher l'include canonique de la lib.
 TOMLPP_INCLUDE_FILE="${TOMLPP_INSTALL_DIR}/toml++/toml.hpp"
 #
+# SQLite : amalgamation officielle (sqlite3.c + sqlite3.h, un seul
+# fichier C de ~250k lignes). Pas de threads, pas de dépendances
+# externes au-delà de la libc. Trade-off acceptable pour avoir une vraie
+# DB embarquée sans réinventer la persistance.
+#
+# Version : déclarée selon le format SQLite XXYYZZBB
+#   - X.YY.ZZ = version, BB = patch (0 pour release officielle)
+#   - 3530100 = 3.53.1
+# URL pattern : https://sqlite.org/YYYY/sqlite-amalgamation-XXYYZZBB.zip
+# où YYYY est l'année de la release.
+SQLITE_VERSION="3530100"            # 3.53.1
+SQLITE_YEAR="2026"
+SQLITE_DIR="sqlite-amalgamation-${SQLITE_VERSION}"
+SQLITE_ZIP="${SQLITE_DIR}.zip"
+SQLITE_URL="https://sqlite.org/${SQLITE_YEAR}/${SQLITE_ZIP}"
+# Calcule au premier build :
+#   wget -qO- "${SQLITE_URL}" | sha256sum
+# puis colle ici. SHA3-256 publié officiellement sur sqlite.org peut
+# être recoupé. Avec une valeur vide, verify_sha256 fait planter le
+# build pour forcer l'utilisateur à fixer la valeur.
+SQLITE_SHA256="36ad6e7f38540a3b21a2ac36340833f0a9e426bc1c752751c3ba669466827eae"
+SQLITE_BUILD_DIR="${BUILD_DIR}/sqlite"
+SQLITE_INSTALL_DIR="${SQLITE_BUILD_DIR}/${SQLITE_DIR}"
+SQLITE_C="${SQLITE_INSTALL_DIR}/sqlite3.c"
+SQLITE_H="${SQLITE_INSTALL_DIR}/sqlite3.h"
+#
 GENERATED_DIR="${BUILD_DIR}/generated"
 
 
@@ -325,6 +351,35 @@ if [ ! -f "${TOMLPP_INCLUDE_FILE}" ]; then
 
     cp "${DOWNLOAD_DIR}/${TOMLPP_DIR}-${TOMLPP_HEADER}" "${TOMLPP_INCLUDE_FILE}"
     echo "toml++ ${TOMLPP_VERSION} installé."
+fi
+
+# Installer SQLite (amalgamation officielle, single-source) si nécessaire
+if [ ! -f "${SQLITE_C}" ] || [ ! -f "${SQLITE_H}" ]; then
+    echo "Installation de SQLite ${SQLITE_VERSION}..."
+    mkdir -p "${SQLITE_BUILD_DIR}"
+
+    if [ ! -f "${DOWNLOAD_DIR}/${SQLITE_ZIP}" ]; then
+        echo "Téléchargement de SQLite ${SQLITE_VERSION}..."
+        if ! wget "${SQLITE_URL}" -O "${DOWNLOAD_DIR}/${SQLITE_ZIP}"; then
+            echo "Échec du téléchargement de SQLite."
+            rm -f "${DOWNLOAD_DIR}/${SQLITE_ZIP}"
+            exit 1
+        fi
+    fi
+
+    # Vérifié même si déjà en cache.
+    verify_sha256 "${DOWNLOAD_DIR}/${SQLITE_ZIP}" "${SQLITE_SHA256}" "SQLite"
+
+    if [ ! -d "${SQLITE_INSTALL_DIR}" ]; then
+        echo "Décompression de SQLite ${SQLITE_VERSION}..."
+        unzip -q "${DOWNLOAD_DIR}/${SQLITE_ZIP}" -d "${SQLITE_BUILD_DIR}"
+        if [ $? -ne 0 ]; then
+            echo "Échec de la décompression de SQLite."
+            exit 1
+        fi
+    fi
+
+    echo "SQLite ${SQLITE_VERSION} installé."
 fi
 
 # Télécharger Lua si nécessaire
@@ -455,6 +510,8 @@ cmake "$SCRIPT_DIR" \
     -DJSON_INCLUDE="${JSON_INSTALL_DIR}" \
     -DHTTPLIB_INCLUDE="${HTTPLIB_INSTALL_DIR}" \
     -DTOMLPP_INCLUDE="${TOMLPP_INSTALL_DIR}" \
+    -DSQLITE_SRC="${SQLITE_C}" \
+    -DSQLITE_INCLUDE="${SQLITE_INSTALL_DIR}" \
     -DGENERATED_INCLUDE="${GENERATED_DIR}"
 if [ $? -ne 0 ]; then
     echo "Échec de la configuration avec CMake."

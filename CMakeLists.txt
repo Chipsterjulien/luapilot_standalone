@@ -36,6 +36,17 @@ if(NOT TOMLPP_INCLUDE)
     message(FATAL_ERROR "TOMLPP_INCLUDE not set (toml++ header dir)")
 endif()
 
+# SQLite : amalgamation officielle (sqlite3.c + sqlite3.h), single-file
+# fourni par build_local.sh. Compilé en C (pas C++) et lié dans le
+# binaire final. SQLITE_THREADSAFE=1 (défaut) → un mutex global suffit
+# pour notre usage actuel : chaque luapilot.sqlite.open() crée son
+# propre handle, et les threads (workers) ne se partagent pas leurs
+# handles (recommandation SQLite : "Do not pass a database connection
+# from one thread to another").
+if(NOT SQLITE_SRC OR NOT SQLITE_INCLUDE)
+    message(FATAL_ERROR "SQLite paths not set (SQLITE_SRC, SQLITE_INCLUDE)")
+endif()
+
 # Dossier des headers générés (embedded_inspect.hpp et co)
 # Doit être créé et peuplé par build_local.sh AVANT le cmake.
 if(NOT GENERATED_INCLUDE)
@@ -50,9 +61,29 @@ file(GLOB_RECURSE PROJECT_SOURCES
 list(APPEND PROJECT_SOURCES
     src/main.cpp
     ${MINIZ_SRC}
+    ${SQLITE_SRC}
 )
 
 add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
+
+# Compile-time options for sqlite3.c.
+# SQLITE_DQS=0           : refuse les "double-quoted strings as identifiers"
+# (sécurité — évite des bugs SQL subtils).
+# SQLITE_THREADSAFE=1    : verrouillage par mutex (défaut) — sûr pour
+# notre usage workers.
+# SQLITE_DEFAULT_MEMSTATUS=0 : désactive le tracking d'allocations
+# (perf gain, on ne s'en sert pas).
+# SQLITE_OMIT_DEPRECATED : exclut les API dépréciées.
+# SQLITE_OMIT_LOAD_EXTENSION : pas de chargement de .so en runtime —
+# on est un binaire statique et embarqué,
+# aucun cas d'usage justifie ça pour LuaPilot.
+set_source_files_properties(${SQLITE_SRC} PROPERTIES
+    COMPILE_FLAGS "-DSQLITE_DQS=0 \
+                   -DSQLITE_THREADSAFE=1 \
+                   -DSQLITE_DEFAULT_MEMSTATUS=0 \
+                   -DSQLITE_OMIT_DEPRECATED \
+                   -DSQLITE_OMIT_LOAD_EXTENSION"
+)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${LUA_INCLUDE}
@@ -60,6 +91,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${JSON_INCLUDE}
     ${HTTPLIB_INCLUDE}
     ${TOMLPP_INCLUDE}
+    ${SQLITE_INCLUDE}
     ${GENERATED_INCLUDE}
     ${PROJECT_SOURCE_DIR}/src
 )

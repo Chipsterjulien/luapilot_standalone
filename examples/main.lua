@@ -1986,6 +1986,167 @@ do
     end
 end
 
+-- =====================================================================
+print("")
+print("=== sqlite (session 1: open/close/exec) ===")
+
+do
+    local DB = luapilot.sqlite
+
+    -- ----- contract de base ------------------------------------------
+    ok("luapilot.sqlite is a table", type(DB) == "table")
+    ok("open is a function", type(DB.open) == "function")
+
+    -- ----- validation des arguments ----------------------------------
+    -- path manquant
+    do
+        local pok = pcall(DB.open)
+        ok("open() raises (path missing)", not pok)
+    end
+
+    -- path mauvais type
+    do
+        local pok = pcall(DB.open, 42)
+        ok("open(42) raises (path not string)", not pok)
+    end
+
+    -- opts mauvais type
+    do
+        local pok, perr = pcall(DB.open, ":memory:", "bad")
+        ok("open(':memory:', 'bad') raises (opts not table)", not pok)
+        ok("  message mentions 'table'",
+            type(perr) == "string" and perr:find("table"))
+    end
+
+    -- opts.wal mauvais type
+    do
+        local pok = pcall(DB.open, ":memory:", { wal = "yes" })
+        ok("open(opts.wal = 'yes') raises (wal not boolean)", not pok)
+    end
+
+    -- opts.busy_timeout mauvais type
+    do
+        local pok = pcall(DB.open, ":memory:", { busy_timeout = "1000" })
+        ok("open(opts.busy_timeout = '1000') raises (not integer)", not pok)
+    end
+
+    -- opts.busy_timeout négatif
+    do
+        local pok = pcall(DB.open, ":memory:", { busy_timeout = -5 })
+        ok("open(opts.busy_timeout = -5) raises (< 0)", not pok)
+    end
+
+    -- opts.busy_timeout absurde
+    do
+        local pok = pcall(DB.open, ":memory:", { busy_timeout = 99999999 })
+        ok("open(opts.busy_timeout = 99999999) raises (sanity max)", not pok)
+    end
+
+    -- ----- ouverture en mémoire (cas le plus simple) -----------------
+    do
+        local db, err = DB.open(":memory:")
+        ok("open(':memory:') -> db", db ~= nil, "err=" .. tostring(err))
+        ok("  no error", err == nil)
+        ok("  db is userdata", type(db) == "userdata")
+
+        -- exec basique : CREATE TABLE
+        local ok_, err2 = db:exec("CREATE TABLE t(a INTEGER, b TEXT)")
+        ok("db:exec(CREATE TABLE) -> true", ok_ == true)
+        ok("  no error", err2 == nil)
+
+        -- exec INSERT (sans paramètres pour cette session 1)
+        local ok2, err3 = db:exec("INSERT INTO t VALUES (1, 'hello')")
+        ok("db:exec(INSERT) -> true", ok2 == true)
+        ok("  no error", err3 == nil)
+
+        -- exec multi-statements (séparés par ';')
+        local ok3 = db:exec("INSERT INTO t VALUES (2, 'a'); INSERT INTO t VALUES (3, 'b');")
+        ok("db:exec(2 INSERTs séparés par ;) -> true", ok3 == true)
+
+        -- SQL invalide
+        local ok4, err4 = db:exec("INSERT INTO bogus VALUES (1)")
+        ok("db:exec(INSERT INTO unknown table) -> (nil, err)",
+            ok4 == nil and type(err4) == "string")
+        ok("  err prefixed with 'sqlite: '",
+            type(err4) == "string" and err4:find("^sqlite: "))
+
+        -- close idempotent
+        local cok = db:close()
+        ok("db:close() -> true", cok == true)
+
+        local cok2 = db:close()
+        ok("db:close() again -> true (idempotent)", cok2 == true)
+
+        -- exec après close
+        local ok5, err5 = db:exec("SELECT 1")
+        ok("db:exec() after close -> (nil, err)",
+            ok5 == nil and type(err5) == "string")
+        ok("  err mentions 'closed'",
+            type(err5) == "string" and err5:find("closed"))
+    end
+
+    -- ----- ouverture avec opts ---------------------------------------
+    do
+        local db = DB.open(":memory:", { busy_timeout = 1000 })
+        ok("open(':memory:', busy_timeout=1000) -> db", db ~= nil)
+        db:close()
+    end
+
+    -- WAL n'est pas applicable à ':memory:' (SQLite fallback automatique),
+    -- mais l'option ne doit pas faire planter.
+    do
+        local db, err = DB.open(":memory:", { wal = true, busy_timeout = 500 })
+        ok("open(':memory:', wal=true) -> db (silent fallback)",
+            db ~= nil, "err=" .. tostring(err))
+        if db then db:close() end
+    end
+
+    -- ----- erreur d'ouverture (chemin invalide) ----------------------
+    -- Sur Linux, "/proc/cant_write_here" devrait échouer car /proc
+    -- est en lecture seule pour les fichiers normaux.
+    do
+        local db, err = DB.open("/proc/nope_cant_create_a_db_here.db")
+        if not db then
+            ok("open(invalid path) -> (nil, err)", db == nil)
+            ok("  err prefixed with 'sqlite: '",
+                type(err) == "string" and err:find("^sqlite: "))
+        else
+            -- Si par hasard ça réussit (FS atypique), on ferme et
+            -- on note. Le test reste passant : on a juste vérifié
+            -- l'API.
+            db:close()
+            os.remove("/proc/nope_cant_create_a_db_here.db")
+            ok("open(invalid path) -- system allowed it, skipping", true)
+        end
+    end
+
+    -- ----- tostring --------------------------------------------------
+    do
+        local db = DB.open(":memory:")
+        local s = tostring(db)
+        ok("tostring(db) contains 'sqlite'",
+            type(s) == "string" and s:find("sqlite"))
+        db:close()
+        s = tostring(db)
+        ok("tostring(db) after close mentions 'closed'",
+            type(s) == "string" and s:find("closed"))
+    end
+
+    -- ----- GC automatique : on ne stocke pas le db ------------------
+    -- Si le __gc est cassé, ça leaker silencieusement. Pas testable
+    -- de façon fiable côté Lua, mais au moins on s'assure que ça
+    -- ne crash pas.
+    do
+        for i = 1, 5 do
+            local db = DB.open(":memory:")
+            db:exec("CREATE TABLE t(x)")
+            -- pas de close explicite : __gc devra le faire
+        end
+        collectgarbage("collect")
+        ok("5 open + GC sans crash", true)
+    end
+end
+
 do
     local T = luapilot.toml
 
