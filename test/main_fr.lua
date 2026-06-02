@@ -2380,6 +2380,359 @@ do
     end
 end
 
+-- =====================================================================
+print("")
+print("=== sqlite (session 3: query + iterateur lazy) ===")
+
+do
+    local DB = luapilot.sqlite
+
+    local function setup_users()
+        local db = DB.open(":memory:")
+        assert(db:exec([[
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY,
+                name TEXT,
+                age INTEGER,
+                bio TEXT
+            )
+        ]]))
+        assert(db:exec("INSERT INTO users VALUES (1, 'alice', 30, NULL)"))
+        assert(db:exec("INSERT INTO users VALUES (2, 'bob', 25, 'engineer')"))
+        assert(db:exec("INSERT INTO users VALUES (3, 'carol', 40, 'designer')"))
+        return db
+    end
+
+    -- ----- contrat de base -------------------------------------------
+    do
+        local db = DB.open(":memory:")
+        ok("db.query est une methode", type(db.query) == "function")
+        db:close()
+    end
+
+    -- ----- query sur DB fermee ---------------------------------------
+    do
+        local db = DB.open(":memory:")
+        db:close()
+        local iter, err = db:query("SELECT 1")
+        ok("query apres close -> (nil, err)",
+            iter == nil and type(err) == "string")
+        ok("  err mentionne 'closed'",
+            type(err) == "string" and err:find("closed"))
+    end
+
+    -- ----- query : validation des arguments --------------------------
+    do
+        local db = DB.open(":memory:")
+
+        local pok = pcall(db.query, db)
+        ok("query() sans sql leve", not pok)
+
+        local pok2 = pcall(db.query, db, 42)
+        ok("query(number) leve (pas de coercion)", not pok2)
+
+        local pok3 = pcall(db.query, db, "SELECT 1", "not a table")
+        ok("query(sql, string) leve (params pas table)", not pok3)
+
+        db:close()
+    end
+
+    -- ----- iteration basique : 3 rows --------------------------------
+    do
+        local db = setup_users()
+
+        local rows = {}
+        for row in db:query("SELECT id, name FROM users ORDER BY id") do
+            table.insert(rows, row)
+        end
+        ok("iter: 3 rows collectees", #rows == 3)
+        ok("  row[1].id == 1", rows[1].id == 1)
+        ok("  row[1].name == 'alice'", rows[1].name == "alice")
+        ok("  row[2].id == 2", rows[2].id == 2)
+        ok("  row[2].name == 'bob'", rows[2].name == "bob")
+        ok("  row[3].name == 'carol'", rows[3].name == "carol")
+
+        db:close()
+    end
+
+    -- ----- WHERE avec bind positionnel -------------------------------
+    do
+        local db = setup_users()
+
+        local rows = {}
+        for row in db:query("SELECT name FROM users WHERE age > ? ORDER BY id", { 28 }) do
+            table.insert(rows, row.name)
+        end
+        ok("WHERE age > 28: 2 rows (alice, carol)", #rows == 2)
+        ok("  alice present", rows[1] == "alice")
+        ok("  carol present", rows[2] == "carol")
+
+        db:close()
+    end
+
+    -- ----- WHERE avec bind nomme -------------------------------------
+    do
+        local db = setup_users()
+
+        local rows = {}
+        for row in db:query("SELECT name FROM users WHERE name = :n", { n = "bob" }) do
+            table.insert(rows, row.name)
+        end
+        ok("WHERE name = :n bound to 'bob': 1 row", #rows == 1)
+        ok("  c'est bob", rows[1] == "bob")
+
+        db:close()
+    end
+
+    -- ----- mapping types : INTEGER, TEXT, NULL -----------------------
+    do
+        local db = setup_users()
+
+        local row
+        for r in db:query("SELECT * FROM users WHERE id = 1") do
+            row = r
+        end
+        ok("row fetchee (alice)", row ~= nil)
+        ok("  id est integer", math.type(row.id) == "integer")
+        ok("  id == 1", row.id == 1)
+        ok("  name est string", type(row.name) == "string")
+        ok("  age est integer", math.type(row.age) == "integer")
+        ok("  age == 30", row.age == 30)
+        ok("  bio (NULL) absente de la table", row.bio == nil)
+        ok("  bio (NULL) absente aussi de pairs()", (function()
+            for k, _ in pairs(row) do
+                if k == "bio" then return false end
+            end
+            return true
+        end)())
+
+        db:close()
+    end
+
+    -- ----- mapping types : REAL --------------------------------------
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (x REAL)")
+        db:exec("INSERT INTO t VALUES (3.14)")
+        db:exec("INSERT INTO t VALUES (2.71828)")
+
+        local rows = {}
+        for r in db:query("SELECT x FROM t ORDER BY x") do
+            table.insert(rows, r.x)
+        end
+        ok("REAL: 2 rows", #rows == 2)
+        ok("  2.71828 first", math.abs(rows[1] - 2.71828) < 1e-9)
+        ok("  3.14 second", math.abs(rows[2] - 3.14) < 1e-9)
+        ok("  est float (pas integer)", math.type(rows[1]) == "float")
+
+        db:close()
+    end
+
+    -- ----- mapping types : BLOB --------------------------------------
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (b BLOB)")
+        db:exec("INSERT INTO t VALUES (X'00010203FF')")
+
+        local row
+        for r in db:query("SELECT b FROM t") do row = r end
+        ok("BLOB row fetchee", row ~= nil and row.b ~= nil)
+        ok("  BLOB est string (binary-safe)", type(row.b) == "string")
+        ok("  BLOB longueur == 5", #row.b == 5)
+        ok("  byte 0 == 0x00", string.byte(row.b, 1) == 0x00)
+        ok("  byte 4 == 0xFF", string.byte(row.b, 5) == 0xFF)
+
+        db:close()
+    end
+
+    -- ----- mapping types : TEXT avec NUL embarque --------------------
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (s)")
+        db:exec("INSERT INTO t VALUES (?)", { "a\0b\0c" })
+
+        local row
+        for r in db:query("SELECT s FROM t") do row = r end
+        ok("TEXT avec NUL: row OK", row ~= nil)
+        ok("  longueur preservee (5 bytes)", #row.s == 5)
+        ok("  byte 2 == NUL", string.byte(row.s, 2) == 0)
+
+        db:close()
+    end
+
+    -- ----- SELECT 0 row : iterateur termine immediatement ------------
+    do
+        local db = setup_users()
+        local count = 0
+        for _ in db:query("SELECT * FROM users WHERE id = 999") do
+            count = count + 1
+        end
+        ok("SELECT sans match: 0 rows", count == 0)
+        db:close()
+    end
+
+    -- ----- DDL/DML via query : iterateur vide (pas d'erreur) --------
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (x)")
+        local count = 0
+        for _ in db:query("INSERT INTO t VALUES (42)") do
+            count = count + 1
+        end
+        ok("query('INSERT'): iterateur vide (0 rows)", count == 0)
+
+        local n = 0
+        for _ in db:query("SELECT * FROM t") do n = n + 1 end
+        ok("  ... mais l'INSERT a bien eu lieu", n == 1)
+
+        db:close()
+    end
+
+    -- ----- query sur SQL invalide ------------------------------------
+    do
+        local db = DB.open(":memory:")
+        local iter, err = db:query("SELECT * FROM bogus")
+        ok("query(SQL invalide) -> (nil, err)",
+            iter == nil and type(err) == "string")
+        ok("  err prefixe par 'sqlite: '",
+            type(err) == "string" and err:find("^sqlite: "))
+        db:close()
+    end
+
+    -- ----- multi-statement refuse ------------------------------------
+    do
+        local db = setup_users()
+        local iter, err = db:query("SELECT 1; SELECT 2;")
+        ok("multi-statement query -> (nil, err)",
+            iter == nil and type(err) == "string")
+        ok("  message mentionne 'one statement'",
+            type(err) == "string" and err:find("one statement"))
+        db:close()
+    end
+
+    -- ----- bind manquant : raise -------------------------------------
+    do
+        local db = setup_users()
+        local pok, perr = pcall(db.query, db,
+            "SELECT * FROM users WHERE age > ?", {})
+        ok("query avec param positionnel manquant -> leve", not pok)
+        ok("  message mentionne 'missing'",
+            type(perr) == "string" and perr:find("missing"))
+        db:close()
+    end
+
+    -- ----- close explicite + reprise ---------------------------------
+    do
+        local db = setup_users()
+        local iter = db:query("SELECT id FROM users ORDER BY id")
+
+        local first = iter()
+        ok("1er iter() -> row", first ~= nil and first.id == 1)
+
+        iter:close()
+        local after_close = iter()
+        ok("iter() apres close -> nil (termine)", after_close == nil)
+
+        local ok_ = iter:close()
+        ok("iter:close() idempotent", ok_ == true)
+
+        db:close()
+    end
+
+    -- ----- break dans la boucle : pas de crash, finalize via __gc ---
+    do
+        local db = setup_users()
+        for row in db:query("SELECT * FROM users ORDER BY id") do
+            if row.id == 1 then break end
+        end
+        ok("break mid-iteration: pas de crash", true)
+        local n = 0
+        for _ in db:query("SELECT * FROM users") do n = n + 1 end
+        ok("  db utilisable apres break: 3 rows again", n == 3)
+        db:close()
+    end
+
+    -- ----- db:close() pendant qu'un iter est encore actif -----------
+    do
+        local db = setup_users()
+        local iter = db:query("SELECT id FROM users ORDER BY id")
+        db:close()
+        local r1 = iter()
+        ok("iter() apres db:close(): marche encore (zombie SQLite)",
+            r1 ~= nil and r1.id == 1)
+        local r2 = iter()
+        ok("  encore une row", r2 ~= nil and r2.id == 2)
+        iter:close()
+        ok("iter:close() apres db:close(): OK", true)
+    end
+
+    -- ----- tostring(stmt) --------------------------------------------
+    do
+        local db = setup_users()
+        local iter = db:query("SELECT * FROM users")
+        local s = tostring(iter)
+        ok("tostring(stmt) contient 'sqlite.stmt'",
+            type(s) == "string" and s:find("sqlite.stmt"))
+        ok("  mentionne 'active'",
+            type(s) == "string" and s:find("active"))
+        iter:close()
+        local s2 = tostring(iter)
+        ok("tostring apres close mentionne 'closed'",
+            type(s2) == "string" and s2:find("closed"))
+        db:close()
+    end
+
+    -- ----- transactions manuelles ------------------------------------
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (x INTEGER)")
+
+        db:exec("BEGIN")
+        for i = 1, 5 do
+            db:exec("INSERT INTO t VALUES (?)", { i })
+        end
+        db:exec("COMMIT")
+
+        local n = 0
+        local sum = 0
+        for row in db:query("SELECT x FROM t ORDER BY x") do
+            n = n + 1
+            sum = sum + row.x
+        end
+        ok("BEGIN/INSERTs/COMMIT: 5 rows", n == 5)
+        ok("  sum == 15", sum == 15)
+
+        db:exec("BEGIN")
+        db:exec("INSERT INTO t VALUES (?)", { 999 })
+        db:exec("ROLLBACK")
+
+        local n2 = 0
+        for _ in db:query("SELECT * FROM t") do n2 = n2 + 1 end
+        ok("ROLLBACK: toujours 5 rows (pas 6)", n2 == 5)
+
+        db:close()
+    end
+
+    -- ----- round-trip de tous les types ------------------------------
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (i INTEGER, f REAL, s TEXT, b BLOB)")
+
+        assert(db:exec("INSERT INTO t VALUES (?, ?, ?, ?)",
+            { 42, 3.14, "hello", "\x01\x02\x03" }))
+
+        local row
+        for r in db:query("SELECT * FROM t") do row = r end
+        ok("round-trip integer", row.i == 42)
+        ok("round-trip float", math.abs(row.f - 3.14) < 1e-9)
+        ok("round-trip text", row.s == "hello")
+        ok("round-trip blob (3 bytes)", #row.b == 3)
+        ok("  blob byte 1 == 1", string.byte(row.b, 1) == 1)
+
+        db:close()
+    end
+end
+
 do
     local T = luapilot.toml
 

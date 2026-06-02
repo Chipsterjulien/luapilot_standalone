@@ -662,6 +662,242 @@ a buggy handler must not crash the program. If you want error
 visibility inside a handler, wrap your body in your own `pcall`
 and log explicitly.
 
+### sqlite — embedded SQL database
+
+A high-level wrapper around an embedded SQLite 3.53.1 (statically
+linked, no system dependency). Two methods cover most needs:
+`db:exec` for DDL/DML and `db:query` for SELECT iteration. The
+binding stays small and Lua-idiomatic; if you want
+prepare/bind/step/finalize granularity, you don't need this module.
+
+```lua
+local db = luapilot.sqlite.open("bot.db", {
+    wal = true,           -- writer + multiple readers in parallel
+    busy_timeout = 5000,  -- retry up to 5s on lock contention
+})
+
+db:exec([[
+    CREATE TABLE IF NOT EXISTS users (
+        id    INTEGER PRIMARY KEY,
+        name  TEXT NOT NULL,
+        age   INTEGER,
+        bio   TEXT
+    )
+]])
+
+-- INSERT with positional bind
+db:exec("INSERT INTO users (name, age) VALUES (?, ?)", { "alice", 30 })
+
+-- INSERT with named bind (:, @, $ all accepted)
+db:exec("INSERT INTO users (name, age) VALUES (:n, :a)",
+        { n = "bob", a = 25 })
+
+-- SELECT: lazy iterator, one row at a time
+for row in db:query("SELECT id, name, age FROM users WHERE age > ?", { 20 }) do
+    print(row.id, row.name, row.age)
+end
+
+db:close()
+```
+
+| Function / method                   | Returns                                                 |
+| ----------------------------------- | ------------------------------------------------------- |
+| `luapilot.sqlite.open(path, opts?)` | `db` on success, `(nil, err)` on failure                |
+| `db:exec(sql, params?)`             | `(true, nil)` or `(nil, err)`                           |
+| `db:query(sql, params?)`            | a callable iterator, or `(nil, err)`                    |
+| `db:close()`                        | `(true, nil)`; idempotent                               |
+| `iter:close()`                      | `(true, nil)`; idempotent; releases the statement early |
+
+The `db` userdata is finalized automatically by `__gc` if `close()`
+is forgotten, but explicit close is recommended for long-running
+programs.
+
+#### open: paths and options
+
+`path` is either `":memory:"` for an in-RAM database (lost on
+close) or a regular filesystem path (created if absent).
+
+`opts` is a table with two optional keys:
+
+| Key            | Type       | Default | Effect                                                                                                                                                                                                   |
+| -------------- | ---------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wal`          | boolean    | `false` | Issues `PRAGMA journal_mode=WAL`. WAL allows readers and one writer in parallel and is the recommended mode for most apps; silently falls back to a different mode for `:memory:` databases.             |
+| `busy_timeout` | integer ms | `0`     | Sets `sqlite3_busy_timeout`. When another connection holds a lock, this lets SQLite retry transparently for up to N ms before returning `SQLITE_BUSY`. Recommended: 1000-5000 for multi-connection apps. |
+
+#### exec: DDL and DML
+
+`db:exec(sql)` without params goes through `sqlite3_exec` and
+accepts multiple statements separated by `;`:
+
+```lua
+db:exec([[
+    CREATE TABLE t (a, b);
+    CREATE INDEX idx_t_a ON t(a);
+    INSERT INTO t VALUES (1, 'one');
+]])
+```
+
+`db:exec(sql, params)` compiles a single statement, binds the
+parameters, and steps it. Multi-statement SQL is rejected in this
+form (use the no-params form for that). SELECT works but results
+are discarded: use `query` to read rows.
+
+#### query: lazy iterator
+
+`db:query` returns a callable userdata. Used in a `for-in` loop
+it yields one row table per iteration until the result set is
+exhausted, then ends naturally:
+
+```lua
+for row in db:query("SELECT name FROM users") do
+    print(row.name)
+end
+```
+
+A row is a Lua table indexed by column name. Empty result sets
+just iterate zero times, no error.
+
+You can also call the iterator manually:
+
+```lua
+local iter = db:query("SELECT name FROM users")
+local first = iter()       -- the first row, or nil if empty
+iter:close()               -- release early; not strictly required
+```
+
+A `break` inside the loop is fine: when the iterator is garbage
+collected, `__gc` finalizes the underlying statement.
+
+#### Type mapping
+
+The same mapping is used in both directions (bind and read), with
+two asymmetries (booleans and BLOB inference) noted below.
+
+| SQLite type | Lua type (read)       | Lua bind value                         |
+| ----------- | --------------------- | -------------------------------------- |
+| `NULL`      | absent from row table | not bindable via params (see below)    |
+| `INTEGER`   | integer               | integer; also `true` → 1, `false` → 0  |
+| `REAL`      | number (float)        | non-integer number                     |
+| `TEXT`      | string                | string (default for all Lua strings)   |
+| `BLOB`      | string (binary-safe)  | not produced by bind in V1 (see below) |
+
+**Booleans**: Lua's `true`/`false` are bound as INTEGER `1`/`0`
+since SQLite has no BOOLEAN type. On read, the column comes back
+as integer (not boolean): the binding does not know your intent.
+
+**Strings always bind as TEXT in V1**: Lua has no separate binary
+type, and SQLite TEXT preserves NUL bytes, so there is no practical
+loss. A future `luapilot.sqlite.blob(data)` helper may be added if
+strict BLOB binding becomes useful.
+
+**NULL has two limitations**, both consequences of Lua's nil
+semantics:
+
+- *NULL cannot be bound via the params table* (Lua collapses
+  `{ x = nil }` to `{}`, so a binding cannot see `nil`). Workaround:
+  put `NULL` directly in the SQL, or use `COALESCE(?, NULL)` with a
+  sentinel value.
+- *NULL columns are absent from the row table*. `row.col == nil`
+  works as expected, but `pairs(row)` skips NULL columns (a Lua
+  table cannot store `nil` as a value). Document and test
+  accordingly.
+
+**Duplicate column names** (`SELECT a, a FROM t` or aliased
+conflicts) collapse in the row table; the last value wins. SQLite
+does not detect this at prepare time. Use explicit `AS` aliases
+when in doubt.
+
+#### Parameters: positional and named
+
+`?` is positional; `:name`, `@name`, `$name` are all valid named
+placeholders (SQLite accepts all three). The Lua table uses the
+name *without prefix*:
+
+```lua
+-- Positional
+db:exec("INSERT INTO t VALUES (?, ?)", { 1, "hello" })
+
+-- Named
+db:exec("INSERT INTO t VALUES (:id, :name)",
+        { id = 1, name = "hello" })
+
+-- Mixed (rare but allowed)
+db:exec("INSERT INTO t VALUES (?, :name, ?)",
+        { 1, 3, name = "middle" })
+```
+
+Mismatches always raise (programming error, not runtime SQL error):
+
+- *Missing param* — `INSERT (?, ?) VALUES` with `{ 1 }`: raises
+  *"missing positional param at index 2"*.
+- *Extra param* — `INSERT (?) VALUES` with `{ 1, 2 }`: raises
+  *"too many positional params"*.
+- *Extra named* — `:a` with `{ a = 1, zzz = "x" }`: raises
+  *"extra param 'zzz' (not used by this SQL)"*.
+- *Wrong type* — `{ function() end }`: raises *"cannot bind value
+  of type 'function' at slot 1"*.
+
+SQL errors (unknown column, constraint violation, etc.) return
+`(nil, err)` instead.
+
+#### Transactions
+
+No helper in V1. Use manual `BEGIN`/`COMMIT`/`ROLLBACK`:
+
+```lua
+db:exec("BEGIN")
+for _, item in ipairs(items) do
+    local ok, err = db:exec("INSERT INTO t VALUES (?, ?)",
+                            { item.id, item.name })
+    if not ok then
+        db:exec("ROLLBACK")
+        return nil, err
+    end
+end
+db:exec("COMMIT")
+```
+
+A `transaction(fn)` helper may come in V2 if a clean Lua API
+emerges (pcall semantics around errors are subtle).
+
+#### Workers and concurrency
+
+LuaPilot adds *no global lock* around SQLite. Concurrency is
+handled by SQLite's own file-level locks:
+
+- *Multiple readers* in parallel: always fine.
+- *One writer at a time*: SQLite serializes writes; other writers
+  see `SQLITE_BUSY` (rejected) unless `busy_timeout` lets them
+  retry, or unless WAL is enabled.
+- *WAL mode* allows readers and one writer in parallel against the
+  same file, with better throughput overall. Recommended for any
+  app that mixes reads and writes from multiple connections.
+
+Inside `luapilot.workers`: do not share a `db` userdata between
+threads. SQLite's official recommendation is *"do not pass a
+database connection from one thread to another"* — even with
+`SQLITE_THREADSAFE=1`. The clean pattern: either give each worker
+its own `open()`, or pick one worker as DB-owner and have others
+talk to it via the workers message queue.
+
+#### Lifetime edge case: close during iteration
+
+If you hold an active iterator from `db:query` when `db:close()`
+is called, the iterator *keeps working* until exhausted. SQLite's
+`sqlite3_close_v2` marks the handle as zombie and waits for the
+last statement to be finalized before truly closing. This is
+SQLite's own design, not a LuaPilot quirk:
+
+```lua
+local iter = db:query("SELECT id FROM t ORDER BY id")
+db:close()
+local row = iter()    -- still returns the first row
+iter:close()          -- now the underlying DB handle is truly freed
+```
+
+If you want stricter semantics, finalize the iterator yourself
+before closing the database.
+
 ### TOML
 
 `luapilot.toml.decode` parses a TOML string into a Lua table. The

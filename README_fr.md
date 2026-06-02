@@ -617,6 +617,250 @@ programme. Si vous voulez de la visibilité côté erreur, encapsulez
 le corps du callback dans votre propre `pcall` et loggez
 explicitement.
 
+### sqlite — base de données SQL embarquée
+
+Un wrapper haut niveau autour d'une SQLite 3.53.1 embarquée
+(linkée statiquement, aucune dépendance système). Deux méthodes
+couvrent l'essentiel : `db:exec` pour les DDL/DML et `db:query`
+pour itérer les SELECT. Le binding reste compact et idiomatique
+Lua ; si vous voulez de la granularité prepare/bind/step/finalize,
+ce module n'est pas l'outil.
+
+```lua
+local db = luapilot.sqlite.open("bot.db", {
+    wal = true,           -- un writer + plusieurs readers en parallele
+    busy_timeout = 5000,  -- retry jusqu'a 5s sur conflit de verrou
+})
+
+db:exec([[
+    CREATE TABLE IF NOT EXISTS users (
+        id    INTEGER PRIMARY KEY,
+        name  TEXT NOT NULL,
+        age   INTEGER,
+        bio   TEXT
+    )
+]])
+
+-- INSERT avec bind positionnel
+db:exec("INSERT INTO users (name, age) VALUES (?, ?)", { "alice", 30 })
+
+-- INSERT avec bind nomme (:, @, $ tous acceptes)
+db:exec("INSERT INTO users (name, age) VALUES (:n, :a)",
+        { n = "bob", a = 25 })
+
+-- SELECT : iterateur lazy, une ligne a la fois
+for row in db:query("SELECT id, name, age FROM users WHERE age > ?", { 20 }) do
+    print(row.id, row.name, row.age)
+end
+
+db:close()
+```
+
+| Fonction / methode                  | Retour                                               |
+| ----------------------------------- | ---------------------------------------------------- |
+| `luapilot.sqlite.open(path, opts?)` | `db` en succes, `(nil, err)` en echec                |
+| `db:exec(sql, params?)`             | `(true, nil)` ou `(nil, err)`                        |
+| `db:query(sql, params?)`            | un iterateur callable, ou `(nil, err)`               |
+| `db:close()`                        | `(true, nil)` ; idempotent                           |
+| `iter:close()`                      | `(true, nil)` ; idempotent ; libere le statement tot |
+
+Le userdata `db` est finalise automatiquement par `__gc` si vous
+oubliez `close()`, mais un close explicite est recommande pour les
+programmes longue duree.
+
+#### open : chemins et options
+
+`path` est soit `":memory:"` pour une base en RAM (perdue au
+close), soit un chemin de fichier (cree s'il n'existe pas).
+
+`opts` est une table avec deux cles optionnelles :
+
+| Cle            | Type       | Defaut  | Effet                                                                                                                                                                                                         |
+| -------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wal`          | boolean    | `false` | Emet `PRAGMA journal_mode=WAL`. WAL permet readers + un writer en parallele, c'est le mode recommande pour la plupart des apps ; fallback silencieux vers un autre mode pour les bases `:memory:`.            |
+| `busy_timeout` | integer ms | `0`     | Configure `sqlite3_busy_timeout`. Quand une autre connexion detient un verrou, SQLite retry transparent jusqu'a N ms avant de retourner `SQLITE_BUSY`. Recommande : 1000-5000 pour les apps multi-connexions. |
+
+#### exec : DDL et DML
+
+`db:exec(sql)` sans params passe par `sqlite3_exec` et accepte
+plusieurs statements separes par `;` :
+
+```lua
+db:exec([[
+    CREATE TABLE t (a, b);
+    CREATE INDEX idx_t_a ON t(a);
+    INSERT INTO t VALUES (1, 'one');
+]])
+```
+
+`db:exec(sql, params)` compile un seul statement, bind les
+parametres, puis step. Le SQL multi-statement est refuse dans
+cette forme (utilisez la version sans params pour ca). SELECT
+fonctionne mais les resultats sont jetes : utilisez `query` pour
+lire des lignes.
+
+#### query : iterateur lazy
+
+`db:query` retourne un userdata callable. Utilise dans un `for-in`,
+il rend une table par tour jusqu'a epuisement, puis termine
+naturellement :
+
+```lua
+for row in db:query("SELECT name FROM users") do
+    print(row.name)
+end
+```
+
+Une ligne est une table Lua indexee par nom de colonne. Un result
+set vide itere zero fois, sans erreur.
+
+On peut aussi appeler l'iterateur manuellement :
+
+```lua
+local iter = db:query("SELECT name FROM users")
+local first = iter()       -- la premiere ligne, ou nil si vide
+iter:close()               -- libere tot ; pas strictement necessaire
+```
+
+Un `break` dans la boucle est OK : quand l'iterateur est ramasse
+par le GC, `__gc` finalise le statement sous-jacent.
+
+#### Mapping des types
+
+Le meme mapping est utilise dans les deux sens (bind et lecture),
+avec deux asymetries (booleens et inference BLOB) notees plus bas.
+
+| Type SQLite | Type Lua (lecture)     | Valeur Lua bindable                         |
+| ----------- | ---------------------- | ------------------------------------------- |
+| `NULL`      | absent de la table row | non bindable via params (voir plus bas)     |
+| `INTEGER`   | integer                | integer ; aussi `true` -> 1, `false` -> 0   |
+| `REAL`      | number (float)         | number non-integer                          |
+| `TEXT`      | string                 | string (defaut pour toutes les strings Lua) |
+| `BLOB`      | string (binary-safe)   | non produit par bind en V1 (voir plus bas)  |
+
+**Booleens** : `true`/`false` Lua sont bindes en INTEGER `1`/`0`,
+puisque SQLite n'a pas de type BOOLEAN. A la lecture, la colonne
+revient en integer (pas en boolean) : le binding ne connait pas
+votre intention.
+
+**Strings toujours bindees en TEXT en V1** : Lua n'a pas de type
+binaire separe, et le TEXT SQLite preserve les octets NUL, donc
+pas de perte en pratique. Un futur helper
+`luapilot.sqlite.blob(data)` peut etre ajoute si le bind BLOB
+strict devient utile.
+
+**NULL a deux limitations**, toutes deux consequences de la
+semantique nil de Lua :
+
+- *NULL n'est pas bindable via la table params* (Lua reduit
+  `{ x = nil }` a `{}`, donc le bind ne voit jamais `nil`).
+  Workaround : `NULL` directement dans le SQL, ou
+  `COALESCE(?, NULL)` avec une valeur sentinelle.
+- *Les colonnes NULL sont absentes de la table row*.
+  `row.col == nil` fonctionne, mais `pairs(row)` saute les
+  colonnes NULL (une table Lua ne peut pas stocker `nil` comme
+  valeur). A documenter et tester en consequence.
+
+**Noms de colonnes dupliques** (`SELECT a, a FROM t` ou conflits
+d'alias) fusionnent dans la table row ; la derniere valeur
+gagne. SQLite ne detecte pas ca au prepare. Utilisez des alias
+`AS` explicites en cas de doute.
+
+#### Parametres : positionnel et nomme
+
+`?` est positionnel ; `:name`, `@name`, `$name` sont tous des
+placeholders nommes valides (SQLite accepte les trois). La table
+Lua utilise le nom *sans prefixe* :
+
+```lua
+-- Positionnel
+db:exec("INSERT INTO t VALUES (?, ?)", { 1, "hello" })
+
+-- Nomme
+db:exec("INSERT INTO t VALUES (:id, :name)",
+        { id = 1, name = "hello" })
+
+-- Melange (rare mais autorise)
+db:exec("INSERT INTO t VALUES (?, :name, ?)",
+        { 1, 3, name = "middle" })
+```
+
+Les mismatches font toujours raise (erreur de programmation, pas
+d'erreur SQL runtime) :
+
+- *Param manquant* — `INSERT (?, ?) VALUES` avec `{ 1 }` : raise
+  *"missing positional param at index 2"*.
+- *Param en trop* — `INSERT (?) VALUES` avec `{ 1, 2 }` : raise
+  *"too many positional params"*.
+- *Nomme en trop* — `:a` avec `{ a = 1, zzz = "x" }` : raise
+  *"extra param 'zzz' (not used by this SQL)"*.
+- *Mauvais type* — `{ function() end }` : raise *"cannot bind
+  value of type 'function' at slot 1"*.
+
+Les erreurs SQL (colonne inconnue, contrainte violee, etc.)
+retournent `(nil, err)` a la place.
+
+#### Transactions
+
+Pas de helper en V1. Utilisez `BEGIN`/`COMMIT`/`ROLLBACK` manuels :
+
+```lua
+db:exec("BEGIN")
+for _, item in ipairs(items) do
+    local ok, err = db:exec("INSERT INTO t VALUES (?, ?)",
+                            { item.id, item.name })
+    if not ok then
+        db:exec("ROLLBACK")
+        return nil, err
+    end
+end
+db:exec("COMMIT")
+```
+
+Un helper `transaction(fn)` arrivera peut-etre en V2 si une API
+Lua propre se degage (la semantique pcall autour des erreurs
+est subtile).
+
+#### Workers et concurrence
+
+LuaPilot n'ajoute *aucun lock global* autour de SQLite. La
+concurrence est gere par les verrous fichier propres de SQLite :
+
+- *Plusieurs readers* en parallele : toujours OK.
+- *Un writer a la fois* : SQLite serialise les ecritures ; les
+  autres writers voient `SQLITE_BUSY` (refuse) sauf si
+  `busy_timeout` leur permet un retry, ou si WAL est active.
+- *Mode WAL* permet readers + un writer en parallele sur le meme
+  fichier, avec un meilleur throughput global. Recommande pour
+  toute app qui melange lectures et ecritures depuis plusieurs
+  connexions.
+
+Dans `luapilot.workers` : ne partagez pas un userdata `db` entre
+threads. La recommandation officielle SQLite est *"do not pass a
+database connection from one thread to another"* — meme avec
+`SQLITE_THREADSAFE=1`. Le pattern propre : soit chaque worker a
+son `open()`, soit un worker est designe DB-owner et les autres
+lui parlent via la queue de messages des workers.
+
+#### Cas limite : close pendant l'iteration
+
+Si vous detenez un iterateur actif depuis `db:query` quand
+`db:close()` est appele, l'iterateur *continue a marcher*
+jusqu'a epuisement. Le `sqlite3_close_v2` de SQLite marque le
+handle zombie et attend que le dernier statement soit finalize
+avant de vraiment fermer. C'est la conception de SQLite, pas une
+curiosite LuaPilot :
+
+```lua
+local iter = db:query("SELECT id FROM t ORDER BY id")
+db:close()
+local row = iter()    -- rend toujours la premiere ligne
+iter:close()          -- maintenant le handle DB est vraiment libere
+```
+
+Pour une semantique plus stricte, finalisez l'iterateur vous-meme
+avant de fermer la base.
+
 ### TOML
 
 `luapilot.toml.decode` parse une chaîne TOML en table Lua. Le binding wrappe [toml++](https://github.com/marzer/tomlplusplus) (v1.0.0 de la spec TOML, header-only) et reflète le contrat d'erreur de `luapilot.json`.
@@ -745,7 +989,7 @@ srv:close()
 
 * **Succès** — valeur (socket, byte count, data, …) directement.
 * **Échecs runtime attendus** sous forme de chaînes typées, renvoyés comme `(nil, str)` :
-  * `"closed"` — le peer a fermé la connexion (EOF propre). Pour `recv_line` en milieu de ligne, les octets partiels arrivent comme 3ᵉ valeur de retour.
+  * `"closed"` — le peer a fermé la connexion (EOF propre). Pour `recv_line` en milieu de ligne, les octets partiels arrivent comme 3e valeur de retour.
   * `"timeout"` — `set_timeout` a expiré.
   * Les autres échecs de transport ont un préfixe `"socket: <description>"`.
 * **Mauvais usage** (argument manquant, mauvais type) — lève via `luaL_error`. Comme le reste de LuaPilot, `host` et `port` passent par `luaL_checkstring`/`luaL_checkinteger`, qui coercent silencieusement les nombres et les chaînes numériques. Passez une table pour forcer une erreur.
@@ -895,7 +1139,7 @@ for i, url in ipairs(urls) do
     ]], { url = url })
 end
 -- Join tout (bloque jusqu'à ce que chacun finisse). Wall-clock total
--- ≈ le plus lent des fetches, pas leur somme.
+-- ~ le plus lent des fetches, pas leur somme.
 for i, job in ipairs(jobs) do
     local ok, result = job:join()
     print(i, ok, result and result.status or result.error)
@@ -941,8 +1185,8 @@ WebSocket), ou tout ce qui doit survivre à une requête unique.
 | `workers.spawn(code [, args] [, opts])` | worker \| `(nil, err)`               | Démarre un worker. `opts.inbox_capacity` et `opts.outbox_capacity` fixent les capacités des queues bornées (défaut 64 chacune). Renvoie `(nil, err)` si la sérialisation échoue (`function`, `userdata`, `coroutine`, cycle, NaN/Inf, non-UTF-8) ou si `pthread_create` échoue. |
 | `w:join()`                              | `(ok, value)`                        | **Bloque** jusqu'à la fin du worker. `ok=true, value=<valeur de retour>` en succès ; `ok=false, value=<message d'erreur>` si le worker a levé.                                                                                                                                  |
 | `w:poll()`                              | `(state, value)`                     | **Non bloquant**, état du worker. `state` vaut `"running"`, `"done"`, ou `"error"`. `value` est nil tant que running, la valeur de retour en done, le message d'erreur en error.                                                                                                |
-| `w:send(value [, timeout])`             | `(true, nil)` \| `(false, reason)`   | Push un message dans l'inbox du worker. Bloque si pleine ; `timeout` en secondes. `reason` ∈ `"full"` (timeout=0 et queue pleine), `"timeout"` (timeout>0 expiré), `"closed"`.                                                                                                  |
-| `w:recv([timeout])`                     | `(true, value)` \| `(false, reason)` | Pop un message depuis l'outbox du worker. Bloque si vide ; `timeout` en secondes. `reason` ∈ `"empty"` (timeout=0 et queue vide), `"timeout"`, `"closed"`.                                                                                                                      |
+| `w:send(value [, timeout])`             | `(true, nil)` \| `(false, reason)`   | Push un message dans l'inbox du worker. Bloque si pleine ; `timeout` en secondes. `reason` $\in$ `"full"` (timeout=0 et queue pleine), `"timeout"` (timeout>0 expiré), `"closed"`.                                                                                                  |
+| `w:recv([timeout])`                     | `(true, value)` \| `(false, reason)` | Pop un message depuis l'outbox du worker. Bloque si vide ; `timeout` en secondes. `reason` $\in$ `"empty"` (timeout=0 et queue vide), `"timeout"`, `"closed"`.                                                                                                                      |
 | `w:close()`                             | `(true, nil)`                        | Ferme l'inbox du worker. Les `w:send` ultérieurs rendent `(false, "closed")` ; le `worker.recv()` côté worker rend `(false, "closed")` pour qu'il sorte proprement de sa boucle. Idempotent.                                                                                    |
 
 Côté worker :

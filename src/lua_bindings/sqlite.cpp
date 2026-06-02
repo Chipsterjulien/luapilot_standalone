@@ -576,6 +576,301 @@ namespace
     }
 
     // ============================================================
+    // Userdata Stmt : itérateur pour db:query() — session 3
+    // ============================================================
+    //
+    // Un Stmt encapsule un sqlite3_stmt prêt à itérer. Il est
+    // callable (métatable __call) ce qui permet l'idiome Lua :
+    //
+    //   for row in db:query("SELECT ...", { ... }) do ... end
+    //
+    // À chaque appel, sqlite3_step est invoqué :
+    //   SQLITE_ROW  → extrait la ligne en table dict {col=val, ...},
+    //                 returne la table.
+    //   SQLITE_DONE → finalize maintenant pour libérer les ressources
+    //                 tôt, retourne nil (signal de fin pour for-loop).
+    //   erreur      → finalize, puis luaL_error pour propager.
+    //
+    // Le Stmt est aussi finalize par __gc en cas de break, exception,
+    // ou simple oubli de l'itérateur (GC du Lua qui ramasse l'iter).
+    //
+    // ---------------------------------------------------------------
+    // Lifetime vs Db
+    // ---------------------------------------------------------------
+    //
+    // Un Stmt ne référence pas explicitement son Db parent. C'est
+    // possible parce que sqlite3_close_v2 (utilisé dans db_close et
+    // Db::~Db) ne libère pas vraiment le handle SQLite tant qu'il y
+    // a un sqlite3_stmt actif — il marque le handle "zombie" et le
+    // libère quand le dernier stmt est finalize.
+    //
+    // Conséquence pratique : si le user fait `db:close()` puis
+    // continue à appeler `iter()`, ça marche (le handle est zombie
+    // mais le stmt est encore valide). C'est le comportement SQLite
+    // natif, documenté dans README.
+
+    struct Stmt
+    {
+        sqlite3_stmt *handle;
+
+        Stmt() : handle(nullptr) {}
+        ~Stmt()
+        {
+            if (handle)
+            {
+                sqlite3_finalize(handle);
+                handle = nullptr;
+            }
+        }
+    };
+
+    const char *STMT_MT = "luapilot.sqlite.stmt";
+
+    Stmt *check_stmt(lua_State *L, int idx)
+    {
+        return static_cast<Stmt *>(luaL_checkudata(L, idx, STMT_MT));
+    }
+
+    // Extrait la row courante (après SQLITE_ROW) en table dict.
+    // NULL → la clé n'est pas posée (pas de sentinel V1).
+    //
+    // **Comportement documenté** : les colonnes SQL NULL disparaissent
+    // de la table Lua, car une table Lua ne peut pas stocker `nil`.
+    //   - `row.col == nil` fonctionne toujours.
+    //   - `pairs(row)` ne verra pas les colonnes NULL.
+    // Pour distinguer "colonne NULL" de "colonne inexistante", il
+    // faudrait un sentinel `luapilot.sqlite.null`. TODO V2 si besoin
+    // concret apparaît.
+    //
+    // Colonnes dupliquées (SELECT a, a FROM t) : la deuxième écrase
+    // la première dans la table dict. SQLite ne détecte pas ça lors
+    // du prepare, donc on ne peut rien faire de mieux. Documenté.
+    void extract_row(lua_State *L, sqlite3_stmt *stmt)
+    {
+        int n_cols = sqlite3_column_count(stmt);
+        lua_createtable(L, 0, n_cols);
+
+        for (int i = 0; i < n_cols; ++i)
+        {
+            const char *col_name = sqlite3_column_name(stmt, i);
+            if (!col_name)
+            {
+                // sqlite3_column_name peut renvoyer NULL en cas d'OOM.
+                // On skippe la colonne plutôt que de raise.
+                continue;
+            }
+
+            int t = sqlite3_column_type(stmt, i);
+            switch (t)
+            {
+            case SQLITE_NULL:
+                // Skip : la clé reste absente de la table Lua.
+                continue;
+            case SQLITE_INTEGER:
+                lua_pushinteger(L, sqlite3_column_int64(stmt, i));
+                break;
+            case SQLITE_FLOAT:
+                lua_pushnumber(L, sqlite3_column_double(stmt, i));
+                break;
+            case SQLITE_TEXT:
+            {
+                const unsigned char *text = sqlite3_column_text(stmt, i);
+                int len = sqlite3_column_bytes(stmt, i);
+                lua_pushlstring(L,
+                                reinterpret_cast<const char *>(text),
+                                static_cast<size_t>(len));
+                break;
+            }
+            case SQLITE_BLOB:
+            {
+                const void *blob = sqlite3_column_blob(stmt, i);
+                int len = sqlite3_column_bytes(stmt, i);
+                lua_pushlstring(L,
+                                static_cast<const char *>(blob),
+                                static_cast<size_t>(len));
+                break;
+            }
+            default:
+                // SQLite n'a que 5 types ; ce default est défensif.
+                continue;
+            }
+
+            lua_setfield(L, -2, col_name);
+        }
+    }
+
+    // Appelé via __call quand la boucle `for row in stmt do` itère.
+    // Retourne la prochaine row ou nil pour signaler la fin.
+    int stmt_call(lua_State *L)
+    {
+        Stmt *s = check_stmt(L, 1);
+        if (!s->handle)
+        {
+            // Stmt déjà finalize : fin de l'itération.
+            lua_pushnil(L);
+            return 1;
+        }
+
+        int rc = sqlite3_step(s->handle);
+        if (rc == SQLITE_DONE)
+        {
+            // Fin naturelle. Finalize dès maintenant pour libérer
+            // les ressources tôt (libère le verrou DB, le handle
+            // zombie si db_close avait été appelé, etc.). __gc le
+            // ferait aussi mais peut-être beaucoup plus tard.
+            sqlite3_finalize(s->handle);
+            s->handle = nullptr;
+            lua_pushnil(L);
+            return 1;
+        }
+        if (rc == SQLITE_ROW)
+        {
+            extract_row(L, s->handle);
+            return 1;
+        }
+
+        // Erreur runtime pendant l'itération. On récupère le handle
+        // SQLite via sqlite3_db_handle (depuis le stmt), pour ne pas
+        // dépendre du Db userdata (qui peut être close).
+        std::string msg = sqlite3_errmsg(sqlite3_db_handle(s->handle));
+        sqlite3_finalize(s->handle);
+        s->handle = nullptr;
+
+        // Pas de (nil, err) ici : le contrat `for row in ...` ne
+        // permet pas de signaler une erreur en cours d'itération.
+        // luaL_error est ce qui fait sens, et le user peut rattraper
+        // avec pcall autour de la boucle.
+        luaL_error(L, "sqlite.query: step failed: %s", msg.c_str());
+        return 0; // unreachable
+    }
+
+    // stmt:close() → (true, nil)
+    //
+    // Idempotent. Permet de libérer les ressources tôt sans
+    // attendre le GC, utile par exemple si on garde l'itérateur
+    // dans une variable et qu'on veut s'assurer qu'il est libéré.
+    int stmt_close(lua_State *L)
+    {
+        Stmt *s = check_stmt(L, 1);
+        if (s->handle)
+        {
+            sqlite3_finalize(s->handle);
+            s->handle = nullptr;
+        }
+        return push_ok(L);
+    }
+
+    int stmt_gc(lua_State *L)
+    {
+        Stmt *s = check_stmt(L, 1);
+        s->~Stmt();
+        return 0;
+    }
+
+    int stmt_tostring(lua_State *L)
+    {
+        Stmt *s = check_stmt(L, 1);
+        if (s->handle)
+        {
+            lua_pushfstring(L, "luapilot.sqlite.stmt (active, %p)", s->handle);
+        }
+        else
+        {
+            lua_pushliteral(L, "luapilot.sqlite.stmt (closed)");
+        }
+        return 1;
+    }
+
+    // db:query(sql, params?) → stmt (callable iterator) | (nil, err)
+    //
+    // Prépare le SQL, bind les params si fournis, retourne un Stmt
+    // callable. Si quelque chose échoue avant l'itération (prepare
+    // ou bind), on retourne (nil, err) sans créer le Stmt.
+    //
+    // Refuse le multi-statement même sans params : un SELECT itéré
+    // multiple n'a pas de sens pour la boucle `for row in ...`.
+    // Cohérent avec exec(sql, params).
+    //
+    // Erreurs runtime pendant le step : remontées via luaL_error
+    // dans stmt_call (pas un (nil, err)).
+    int db_query(lua_State *L)
+    {
+        Db *db = check_db(L, 1);
+        if (!db->handle)
+        {
+            return push_sqlite_fail(L, "connection closed");
+        }
+
+        luaL_checktype(L, 2, LUA_TSTRING);
+        size_t sql_len = 0;
+        const char *sql = lua_tolstring(L, 2, &sql_len);
+
+        int top = lua_gettop(L);
+        bool has_params = false;
+        if (top >= 3 && !lua_isnil(L, 3))
+        {
+            luaL_checktype(L, 3, LUA_TTABLE);
+            has_params = true;
+        }
+
+        sqlite3_stmt *stmt = nullptr;
+        const char *pzTail = nullptr;
+        int rc = sqlite3_prepare_v2(db->handle, sql,
+                                    static_cast<int>(sql_len),
+                                    &stmt, &pzTail);
+        if (rc != SQLITE_OK)
+        {
+            std::string msg = sqlite3_errmsg(db->handle);
+            if (stmt)
+                sqlite3_finalize(stmt);
+            return push_sqlite_fail(L, msg);
+        }
+
+        // Refuser le multi-statement (avec ou sans params).
+        if (pzTail && *pzTail)
+        {
+            const char *p = pzTail;
+            while (*p && (*p == ' ' || *p == '\t' || *p == '\n' ||
+                          *p == '\r' || *p == ';'))
+            {
+                ++p;
+            }
+            if (*p)
+            {
+                sqlite3_finalize(stmt);
+                return push_sqlite_fail(L,
+                                        "query supports only one statement; "
+                                        "use exec(sql) for multi-statement SQL");
+            }
+        }
+
+        if (has_params)
+        {
+            std::string bind_err;
+            bool bind_ok = bind_params_from_table(L, stmt, 3, bind_err);
+            if (!bind_ok)
+            {
+                sqlite3_finalize(stmt);
+                luaL_error(L, "sqlite.query: %s", bind_err.c_str());
+                // unreachable
+            }
+        }
+
+        // Allouer le userdata Stmt et lui transférer l'ownership
+        // du sqlite3_stmt. À partir d'ici, le Stmt::~Stmt() (ou
+        // un finalize explicite dans stmt_call/stmt_close) prend
+        // en charge le cleanup.
+        Stmt *s = static_cast<Stmt *>(lua_newuserdata(L, sizeof(Stmt)));
+        new (s) Stmt();
+        s->handle = stmt;
+
+        luaL_getmetatable(L, STMT_MT);
+        lua_setmetatable(L, -2);
+
+        return 1;
+    }
+
+    // ============================================================
     // API du module : luapilot.sqlite.open
     // ============================================================
 
@@ -683,15 +978,44 @@ namespace
         lua_pushcfunction(L, db_tostring);
         lua_setfield(L, -2, "__tostring");
 
-        // Méthodes : close, exec.
-        // (query arrivera session 3.)
+        // Méthodes : close, exec, query.
         lua_pushcfunction(L, db_close);
         lua_setfield(L, -2, "close");
 
         lua_pushcfunction(L, db_exec);
         lua_setfield(L, -2, "exec");
 
+        lua_pushcfunction(L, db_query);
+        lua_setfield(L, -2, "query");
+
         // On dépile la métatable, elle reste en registry.
+        lua_pop(L, 1);
+    }
+
+    void create_stmt_metatable(lua_State *L)
+    {
+        luaL_newmetatable(L, STMT_MT);
+
+        // __index = self : permet stmt:close() etc.
+        lua_pushvalue(L, -1);
+        lua_setfield(L, -2, "__index");
+
+        // __call : permet for row in stmt do ... end.
+        lua_pushcfunction(L, stmt_call);
+        lua_setfield(L, -2, "__call");
+
+        // __gc : finalize le sqlite3_stmt si pas déjà fait.
+        lua_pushcfunction(L, stmt_gc);
+        lua_setfield(L, -2, "__gc");
+
+        // __tostring : print(iter) lisible.
+        lua_pushcfunction(L, stmt_tostring);
+        lua_setfield(L, -2, "__tostring");
+
+        // Méthode explicite : close.
+        lua_pushcfunction(L, stmt_close);
+        lua_setfield(L, -2, "close");
+
         lua_pop(L, 1);
     }
 
@@ -705,8 +1029,9 @@ void register_sqlite(lua_State *L)
 {
     // Précondition : la table luapilot est au sommet.
 
-    // Créer la métatable du userdata Db (en registry).
+    // Créer les métatables des userdatas (en registry).
     create_db_metatable(L);
+    create_stmt_metatable(L);
 
     // Sous-table luapilot.sqlite avec la fonction open.
     lua_newtable(L);
