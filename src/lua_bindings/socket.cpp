@@ -1378,6 +1378,25 @@ namespace
                 lua_pushlstring(L, acc.data(), acc.size());
                 return 1;
             }
+            // Garde contre DoS : sans limite, un peer malveillant ou
+            // un serveur buggué qui envoie un flux infini sans '\n'
+            // ferait grossir `acc` jusqu'à OOM (cf. retour audit
+            // sécurité). 8 MiB est large pour du texte (RFC IRC :
+            // 512 octets max ; HTTP : pas de limite hard mais
+            // typique < 8 KB), et donne une marge confortable pour
+            // les usages applicatifs légitimes. Si un cas concret
+            // demande plus, on ajoutera une option recv_line(max)
+            // sous SemVer.
+            //
+            // On vide pending pour qu'un futur appel ne retombe pas
+            // sur la même donnée empoisonnée — le contrat est que
+            // "line too long" jette aussi les octets accumulés.
+            constexpr size_t MAX_LINE_BYTES = 8 * 1024 * 1024;
+            if (acc.size() >= MAX_LINE_BYTES)
+            {
+                s->recv_line_pending.clear();
+                return push_fail(L, "line too long");
+            }
             acc.push_back(c);
         }
     }

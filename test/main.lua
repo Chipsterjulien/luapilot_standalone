@@ -1984,6 +1984,53 @@ do
         local pok = pcall(S.handle, name, function() end)
         ok("handle('" .. name .. "', fn) refused", not pok)
     end
+
+    -- ----- hardening: handle(name) without 2nd arg refused ----------
+    -- (audit point 5) handle("TERM") with no 2nd arg used to be
+    -- equivalent to handle("TERM", nil), which silently uninstalls
+    -- the handler. Now requires explicit arg.
+    do
+        local pok, perr = pcall(S.handle, "USR1")
+        ok("handle('USR1') without 2nd arg -> raises", not pok)
+        ok("  message mentions 'missing handler'",
+            type(perr) == "string" and perr:find("missing handler"))
+    end
+
+    -- ----- hardening: signal.* refused from workers -----------------
+    -- (audit point 4) POSIX signal handlers are process-wide; calling
+    -- handle/ignore/default from a worker installs a system handler
+    -- but stores the Lua callback in the worker's registry — and
+    -- since workers block signals via pthread_sigmask, the callback
+    -- never fires. Refuse this with a clear error.
+    do
+        local W = luapilot.workers
+        local w = W.spawn([[
+            local ok, err = pcall(luapilot.signal.handle, "USR1", function() end)
+            return { ok = ok, err = err }
+        ]])
+        local ok_, res = w:join()
+        ok("worker spawn + join OK", ok_ == true and type(res) == "table")
+        ok("  worker's signal.handle pcall returned false", res.ok == false)
+        ok("  err mentions 'main thread'",
+            type(res.err) == "string" and res.err:find("main thread"))
+
+        -- ignore and default same check
+        local w2 = W.spawn([[
+            local ok, err = pcall(luapilot.signal.ignore, "USR1")
+            return { ok = ok, err = err }
+        ]])
+        local _, res2 = w2:join()
+        ok("worker's signal.ignore -> raises 'main thread'",
+            res2.ok == false and res2.err:find("main thread"))
+
+        local w3 = W.spawn([[
+            local ok, err = pcall(luapilot.signal.default, "USR1")
+            return { ok = ok, err = err }
+        ]])
+        local _, res3 = w3:join()
+        ok("worker's signal.default -> raises 'main thread'",
+            res3.ok == false and res3.err:find("main thread"))
+    end
 end
 
 -- =====================================================================
@@ -2790,6 +2837,95 @@ do
 
         db:close()
     end
+
+    -- ----- hardening: SQL with placeholders but no params -----------
+    -- (audit point 1) Without this check, "INSERT VALUES (?)" without
+    -- params would bind NULL silently. We want explicit error instead.
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (a)")
+
+        local ok_, err = db:exec("INSERT INTO t VALUES (?)")
+        ok("exec with '?' but no params -> (nil, err)",
+            ok_ == nil and type(err) == "string")
+        ok("  message mentions 'placeholders'",
+            type(err) == "string" and err:find("placeholders"))
+
+        -- Named placeholders too
+        local ok2, err2 = db:exec("INSERT INTO t VALUES (:x)")
+        ok("exec with ':name' but no params -> (nil, err)",
+            ok2 == nil and type(err2) == "string")
+
+        -- query() same check
+        local iter, err3 = db:query("SELECT * FROM t WHERE a = ?")
+        ok("query with '?' but no params -> (nil, err)",
+            iter == nil and type(err3) == "string")
+        ok("  message mentions 'placeholders'",
+            type(err3) == "string" and err3:find("placeholders"))
+
+        -- Without placeholders, no params is still OK
+        local ok4 = db:exec("INSERT INTO t VALUES (1)")
+        ok("exec without placeholders, no params -> still OK", ok4 == true)
+
+        db:close()
+    end
+
+    -- ----- hardening: sparse numeric keys in params -----------------
+    -- (audit point 2) Without this check, { [10] = "x" } would be
+    -- silently ignored.
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (a)")
+
+        local pok, perr = pcall(db.exec, db,
+            "INSERT INTO t VALUES (?)", { "ok", [10] = "ignored" })
+        ok("bind with sparse numeric key [10] -> raises", not pok)
+        ok("  message mentions 'index 10'",
+            type(perr) == "string" and perr:find("index 10"))
+
+        local pok2, perr2 = pcall(db.exec, db,
+            "INSERT INTO t VALUES (?)", { [1] = "ok", [1.5] = "weird" })
+        ok("bind with non-integer numeric key [1.5] -> raises", not pok2)
+        ok("  message mentions 'non-integer'",
+            type(perr2) == "string" and perr2:find("non%-integer"))
+
+        db:close()
+    end
+
+    -- ----- hardening: empty BLOB ------------------------------------
+    -- (audit point 3) sqlite3_column_blob() may return NULL for a
+    -- zero-byte BLOB. We push an explicit empty string instead.
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (b BLOB)")
+        db:exec("INSERT INTO t VALUES (X'')") -- BLOB of length 0
+
+        local row
+        for r in db:query("SELECT b FROM t") do row = r end
+        ok("empty BLOB: row fetched", row ~= nil)
+        ok("  b is a string", type(row.b) == "string")
+        ok("  #b == 0", #row.b == 0)
+
+        db:close()
+    end
+
+    -- ----- hardening: empty TEXT ------------------------------------
+    -- (audit follow-up) Same UB risk as BLOB: sqlite3_column_text()
+    -- may return NULL for a zero-byte TEXT, and
+    -- lua_pushlstring(L, NULL, 0) is UB. We push explicit empty.
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (s TEXT)")
+        db:exec("INSERT INTO t VALUES ('')") -- TEXT of length 0
+
+        local row
+        for r in db:query("SELECT s FROM t") do row = r end
+        ok("empty TEXT: row fetched", row ~= nil)
+        ok("  s is a string", type(row.s) == "string")
+        ok("  #s == 0", #row.s == 0)
+
+        db:close()
+    end
 end
 
 do
@@ -3189,6 +3325,33 @@ do
                         partial == "partial-no-newline",
                         "partial=" .. tostring(partial))
                     p2:close()
+                end
+            end
+
+            -- ----- recv_line : DoS guard (8 MiB max line length) ----
+            -- Audit security: a malicious peer that sends a flood
+            -- without '\n' must not grow acc to OOM. The C++ code
+            -- refuses with "line too long" past 8 MiB. We don't test
+            -- 8 MiB literally (slow + memory-intensive), we just
+            -- verify the normal path on a moderately large buffer
+            -- (100 KiB, well under the cap).
+            do
+                local c4, ce = S.connect("127.0.0.1", port, 2)
+                ok_val("4th connect (for big-line test)", c4, ce)
+                local p4, pe = srv:accept()
+                ok_val("4th accept", p4, pe)
+                if c4 and p4 then
+                    -- 100 KiB of 'A' then close, no \n
+                    local payload = string.rep("A", 100 * 1024)
+                    c4:send(payload)
+                    c4:close()
+                    p4:set_timeout(2)
+                    local line, eerr, partial = p4:recv_line()
+                    ok("recv_line 100 KiB no-newline: closed with partial",
+                        line == nil and eerr == "closed"
+                        and type(partial) == "string"
+                        and #partial == 100 * 1024)
+                    p4:close()
                 end
             end
 

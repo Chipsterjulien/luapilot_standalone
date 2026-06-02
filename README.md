@@ -667,8 +667,9 @@ and log explicitly.
 A high-level wrapper around an embedded SQLite 3.53.1 (statically
 linked, no system dependency). Two methods cover most needs:
 `db:exec` for DDL/DML and `db:query` for SELECT iteration. The
-binding stays small and Lua-idiomatic; if you want
-prepare/bind/step/finalize granularity, you don't need this module.
+binding stays small and Lua-idiomatic; if you need
+prepare/bind/step/finalize-level control, a lower-level SQLite
+binding may be more appropriate.
 
 ```lua
 local db = luapilot.sqlite.open("bot.db", {
@@ -1046,6 +1047,7 @@ srv:close()
 * **Expected runtime failures** are typed strings, returned as `(nil, str)`:
   * `"closed"` — peer closed the connection (graceful EOF). For `recv_line` mid-line, the partial bytes come as a 3ʳᵈ return value.
   * `"timeout"` — `set_timeout` expired.
+  * `"line too long"` — `recv_line` refuses lines larger than 8 MiB. A peer that floods bytes without a newline can no longer grow the internal buffer to OOM. Accumulated bytes are discarded with this error.
   * Other transport failures get a `"socket: <description>"` prefix.
 * **Programmer misuse** (missing argument, wrong type) — raises via `luaL_error`. Like the rest of LuaPilot, `host` and `port` go through `luaL_checkstring`/`luaL_checkinteger`, which silently coerce numbers and numeric strings. Pass a table to force an error.
 

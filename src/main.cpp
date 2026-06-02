@@ -322,6 +322,13 @@ static void push_lua_arg(lua_State *L, int argc, char *argv[], int script_index)
 
 int main(int argc, char *argv[])
 {
+    // === ÉTAPE 0 : capturer le thread principal pour signal.cpp =====
+    // Doit être fait avant tout spawn de worker. Permet à
+    // luapilot.signal.handle/ignore/default de refuser les appels
+    // depuis un autre thread (les handlers POSIX sont process-wide ;
+    // installer depuis un worker mène à un bug latent silencieux).
+    register_main_thread();
+
     // === ÉTAPE 1 : IDENTITÉ (avant toute lecture de argv) ===========
     // Un binaire « packagé » = un binaire qui contient un main.lua
     // embarqué. Dans ce cas il EST l'application finale : LuaPilot ne

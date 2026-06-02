@@ -214,7 +214,8 @@ TOMLPP_INCLUDE_FILE="${TOMLPP_INSTALL_DIR}/toml++/toml.hpp"
 #
 # SQLite : amalgamation officielle (sqlite3.c + sqlite3.h, un seul
 # fichier C de ~250k lignes). Pas de threads, pas de dépendances
-# externes au-delà de la libc. Trade-off acceptable pour avoir une vraie
+# externes au-delà de la libc. Compile en quelques secondes sur
+# x86_64, ~30-60s sur Pi0. Trade-off acceptable pour avoir une vraie
 # DB embarquée sans réinventer la persistance.
 #
 # Version : déclarée selon le format SQLite XXYYZZBB
@@ -427,14 +428,23 @@ fi
 cd "$SCRIPT_DIR" || exit 1
 
 
-# Chercher libssl.a
-OPENSSL_LIB_NAME="libssl.a"
-OPENSSL_PATH=$(find /usr /usr/local -name "${OPENSSL_LIB_NAME}" 2>/dev/null | head -n 1)
-OPENSSL_PATH_LOCAL=$(find . -name "libssl.a" -print -quit | sed 's|^\./||')
-CRYPTO_LIB_NAME="libcrypto.a"
-CRYPTO_PATH=$(find /usr /usr/local -name "${CRYPTO_LIB_NAME}" 2>/dev/null | head -n 1)
-if [ -z "${OPENSSL_PATH}" ] && [ -z "${OPENSSL_PATH_LOCAL}" ]; then
-    echo "openssl n'est pas installé et non compilé en local"
+# OpenSSL : TOUJOURS compilé en local depuis la version pinnée
+# ci-dessus, jamais utilisé depuis le système.
+#
+# Pourquoi : la libssl-dev d'Ubuntu, celle d'Arch et celle de
+# Raspberry Pi OS sont des versions différentes (souvent une
+# 3.0.x ou 3.2.x sur les Ubuntu LTS), et linker contre la version
+# système donnerait 3 binaires non-reproductibles selon la machine
+# qui compile. Cohérence avec miniz, json, httplib, tomlpp, sqlite
+# qui sont tous vendored.
+#
+# Trade-off accepté : premier build ~30-60s sur x86_64 (variable
+# selon CPU), 1-2h sur RPi0. Builds suivants instantanés grâce au
+# cache build/openssl/.
+OPENSSL_PATH_LOCAL=$(find "${OPENSSL_BUILD_DIR}" -name "libssl.a" -print -quit 2>/dev/null | sed 's|^\./||')
+
+if [ ! -f "${OPENSSL_PATH_LOCAL}" ]; then
+    echo "openssl ${OPENSSL_VERSION} : pas encore compilé localement"
 
     if [ ! -f "${DOWNLOAD_DIR}/${OPENSSL_TAR}" ]; then
         echo "Téléchargement de openssl ${OPENSSL_VERSION}..."
@@ -445,8 +455,7 @@ if [ -z "${OPENSSL_PATH}" ] && [ -z "${OPENSSL_PATH_LOCAL}" ]; then
         fi
     fi
 
-    # Dépendance crypto : vérifiée avant toute compilation/lien, même
-    # si déjà en cache.
+    # SHA256 vérifié systématiquement, même si déjà en cache.
     verify_sha256 "${DOWNLOAD_DIR}/${OPENSSL_TAR}" "${OPENSSL_SHA256}" "openssl"
 
     if [ ! -d "${OPENSSL_BUILD_DIR}/${OPENSSL_DIR}" ]; then
@@ -459,20 +468,19 @@ if [ -z "${OPENSSL_PATH}" ] && [ -z "${OPENSSL_PATH_LOCAL}" ]; then
         fi
     fi
 
-    OPENSSL_PATH_LOCAL=$(find . -name "libssl.a" -print -quit | sed 's|^\./||')
-    if [ ! -f "${OPENSSL_PATH_LOCAL}" ]; then
-        echo "Compilation de openssl ${OPENSSL_VERSION}..."
-        cd "${OPENSSL_BUILD_DIR}/${OPENSSL_DIR}" || exit 1
-        ./Configure no-shared
-        make clean
-        make -j"$(nproc)"
+    echo "Compilation de openssl ${OPENSSL_VERSION} (peut prendre du temps)..."
+    cd "${OPENSSL_BUILD_DIR}/${OPENSSL_DIR}" || exit 1
+    ./Configure no-shared
+    make clean
+    make -j"$(nproc)"
+    if [ $? -ne 0 ]; then
+        echo "Échec de la compilation d'openssl."
+        exit 1
     fi
 fi
 
-if [ -z "${OPENSSL_PATH}" ]; then
-    OPENSSL_PATH="${OPENSSL_BUILD_DIR}/${OPENSSL_DIR}/${OPENSSL_LIB_NAME}"
-    CRYPTO_PATH="${OPENSSL_BUILD_DIR}/${OPENSSL_DIR}/${CRYPTO_LIB_NAME}"
-fi
+OPENSSL_PATH="${OPENSSL_BUILD_DIR}/${OPENSSL_DIR}/libssl.a"
+CRYPTO_PATH="${OPENSSL_BUILD_DIR}/${OPENSSL_DIR}/libcrypto.a"
 
 # Revenir au répertoire du script
 cd "$SCRIPT_DIR" || exit 1

@@ -1970,6 +1970,44 @@ do
         local pok = pcall(S.handle, name, function() end)
         ok("handle('" .. name .. "', fn) refuse", not pok)
     end
+
+    -- ----- hardening: handle(name) sans 2eme arg refuse -------------
+    do
+        local pok, perr = pcall(S.handle, "USR1")
+        ok("handle('USR1') sans 2eme arg -> leve", not pok)
+        ok("  message mentionne 'missing handler'",
+            type(perr) == "string" and perr:find("missing handler"))
+    end
+
+    -- ----- hardening: signal.* refuse depuis un worker --------------
+    do
+        local W = luapilot.workers
+        local w = W.spawn([[
+            local ok, err = pcall(luapilot.signal.handle, "USR1", function() end)
+            return { ok = ok, err = err }
+        ]])
+        local ok_, res = w:join()
+        ok("worker spawn + join OK", ok_ == true and type(res) == "table")
+        ok("  signal.handle dans un worker echoue", res.ok == false)
+        ok("  err mentionne 'main thread'",
+            type(res.err) == "string" and res.err:find("main thread"))
+
+        local w2 = W.spawn([[
+            local ok, err = pcall(luapilot.signal.ignore, "USR1")
+            return { ok = ok, err = err }
+        ]])
+        local _, res2 = w2:join()
+        ok("signal.ignore dans worker -> 'main thread'",
+            res2.ok == false and res2.err:find("main thread"))
+
+        local w3 = W.spawn([[
+            local ok, err = pcall(luapilot.signal.default, "USR1")
+            return { ok = ok, err = err }
+        ]])
+        local _, res3 = w3:join()
+        ok("signal.default dans worker -> 'main thread'",
+            res3.ok == false and res3.err:find("main thread"))
+    end
 end
 
 -- =====================================================================
@@ -2731,6 +2769,81 @@ do
 
         db:close()
     end
+
+    -- ----- hardening: SQL avec placeholders mais sans params --------
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (a)")
+
+        local ok_, err = db:exec("INSERT INTO t VALUES (?)")
+        ok("exec avec '?' sans params -> (nil, err)",
+            ok_ == nil and type(err) == "string")
+        ok("  message mentionne 'placeholders'",
+            type(err) == "string" and err:find("placeholders"))
+
+        local ok2, err2 = db:exec("INSERT INTO t VALUES (:x)")
+        ok("exec avec ':name' sans params -> (nil, err)",
+            ok2 == nil and type(err2) == "string")
+
+        local iter, err3 = db:query("SELECT * FROM t WHERE a = ?")
+        ok("query avec '?' sans params -> (nil, err)",
+            iter == nil and type(err3) == "string")
+
+        local ok4 = db:exec("INSERT INTO t VALUES (1)")
+        ok("exec sans placeholders, sans params -> toujours OK", ok4 == true)
+
+        db:close()
+    end
+
+    -- ----- hardening: cles numeriques sparse dans params ------------
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (a)")
+
+        local pok, perr = pcall(db.exec, db,
+            "INSERT INTO t VALUES (?)", { "ok", [10] = "ignored" })
+        ok("bind avec cle sparse [10] -> leve", not pok)
+        ok("  message mentionne 'index 10'",
+            type(perr) == "string" and perr:find("index 10"))
+
+        local pok2, perr2 = pcall(db.exec, db,
+            "INSERT INTO t VALUES (?)", { [1] = "ok", [1.5] = "weird" })
+        ok("bind avec cle non-integer [1.5] -> leve", not pok2)
+        ok("  message mentionne 'non-integer'",
+            type(perr2) == "string" and perr2:find("non%-integer"))
+
+        db:close()
+    end
+
+    -- ----- hardening: BLOB vide -------------------------------------
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (b BLOB)")
+        db:exec("INSERT INTO t VALUES (X'')")
+
+        local row
+        for r in db:query("SELECT b FROM t") do row = r end
+        ok("BLOB vide: row fetchee", row ~= nil)
+        ok("  b est une string", type(row.b) == "string")
+        ok("  #b == 0", #row.b == 0)
+
+        db:close()
+    end
+
+    -- ----- hardening: TEXT vide -------------------------------------
+    do
+        local db = DB.open(":memory:")
+        db:exec("CREATE TABLE t (s TEXT)")
+        db:exec("INSERT INTO t VALUES ('')")
+
+        local row
+        for r in db:query("SELECT s FROM t") do row = r end
+        ok("TEXT vide: row fetchee", row ~= nil)
+        ok("  s est une string", type(row.s) == "string")
+        ok("  #s == 0", #row.s == 0)
+
+        db:close()
+    end
 end
 
 do
@@ -3130,6 +3243,30 @@ do
                         partial == "partial-no-newline",
                         "partial=" .. tostring(partial))
                     p2:close()
+                end
+            end
+
+            -- ----- recv_line : garde DoS (max 8 MiB par ligne) -------
+            -- Audit sécurité : un peer qui floode sans '\n' ne doit
+            -- pas faire grossir le buffer jusqu'à OOM. Test à 100 KiB
+            -- pour vérifier que les lignes légitimement grandes
+            -- passent (sous la limite de 8 MiB).
+            do
+                local c4, ce = S.connect("127.0.0.1", port, 2)
+                ok_val("4th connect (test grande ligne)", c4, ce)
+                local p4, pe = srv:accept()
+                ok_val("4th accept", p4, pe)
+                if c4 and p4 then
+                    local payload = string.rep("A", 100 * 1024)
+                    c4:send(payload)
+                    c4:close()
+                    p4:set_timeout(2)
+                    local line, eerr, partial = p4:recv_line()
+                    ok("recv_line 100 KiB sans newline: closed + partial",
+                        line == nil and eerr == "closed"
+                        and type(partial) == "string"
+                        and #partial == 100 * 1024)
+                    p4:close()
                 end
             end
 

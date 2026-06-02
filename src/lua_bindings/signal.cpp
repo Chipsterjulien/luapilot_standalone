@@ -20,6 +20,51 @@ namespace
 {
 
     // ============================================================
+    // Restriction au thread principal
+    // ============================================================
+    //
+    // Les handlers de signaux POSIX sont **process-wide**, jamais
+    // thread-wide. Si un worker installe un handler via sigaction(),
+    // celui-ci s'applique à tout le process — mais le callback Lua
+    // qu'on stocke dans la registry est dans le state du worker.
+    // Comme les workers ont pthread_sigmask(SIG_BLOCK) sur tous les
+    // signaux supportés (cf. workers.cpp), le signal est délivré au
+    // main thread, qui n'a pas le callback du worker. Résultat : le
+    // callback ne se déclenche jamais. Bug latent silencieux.
+    //
+    // Solution : refuser handle/ignore/default depuis tout autre
+    // thread que le principal. main.cpp doit appeler
+    // register_main_thread() au tout début, avant le register_signal
+    // ou le spawn de workers.
+
+    pthread_t g_main_thread{};
+    bool g_main_thread_set = false;
+
+    bool is_main_thread()
+    {
+        // Avant l'appel à register_main_thread, on accepte par
+        // défaut (cas du démarrage). Ce point est rendu sûr par
+        // le fait que workers.cpp n'est utilisable qu'après le
+        // register_signal (et donc après que main.cpp ait appelé
+        // register_main_thread).
+        if (!g_main_thread_set)
+            return true;
+        return pthread_equal(pthread_self(), g_main_thread) != 0;
+    }
+
+    int check_main_thread(lua_State *L, const char *fn_name)
+    {
+        if (!is_main_thread())
+        {
+            return luaL_error(L,
+                              "signal.%s: signal handlers can only be configured "
+                              "from the main thread, not from a worker",
+                              fn_name);
+        }
+        return 0;
+    }
+
+    // ============================================================
     // Liste blanche des signaux supportés
     // ============================================================
     //
@@ -204,6 +249,21 @@ namespace
     // luapilot.signal.handle(name, fn_or_nil) -> true | (nil, err)
     int l_handle(lua_State *L)
     {
+        check_main_thread(L, "handle");
+
+        // Exiger explicitement le 2e argument. Sans ça,
+        // handle("TERM") (un seul arg) serait équivalent à
+        // handle("TERM", nil), donc désinstallerait silencieusement
+        // le handler — typique foot-gun pour quelqu'un qui voulait
+        // juste interroger l'état.
+        if (lua_gettop(L) < 2)
+        {
+            return luaL_error(L,
+                              "signal.handle: missing handler argument; "
+                              "use handle(name, fn) to install, "
+                              "or handle(name, nil) to remove");
+        }
+
         int signum = check_signum(L);
 
         int t = lua_type(L, 2);
@@ -250,6 +310,8 @@ namespace
     // luapilot.signal.ignore(name) -> true | (nil, err)
     int l_ignore(lua_State *L)
     {
+        check_main_thread(L, "ignore");
+
         int signum = check_signum(L);
 
         if (!apply_sigaction(L, signum, SIG_IGN))
@@ -269,6 +331,8 @@ namespace
     // luapilot.signal.default(name) -> true | (nil, err)
     int l_default(lua_State *L)
     {
+        check_main_thread(L, "default");
+
         int signum = check_signum(L);
 
         if (!apply_sigaction(L, signum, SIG_DFL))
@@ -342,6 +406,20 @@ bool signal_any_handled_pending()
         }
     }
     return false;
+}
+
+// ============================================================
+// Fonctions exportées (déclarées dans signal.hpp)
+// ============================================================
+
+// À appeler une fois au tout début du main(), avant tout autre
+// register_* et avant le spawn de workers. Capture le pthread_t
+// du thread courant pour permettre à is_main_thread() de
+// fonctionner ensuite.
+void register_main_thread()
+{
+    g_main_thread = pthread_self();
+    g_main_thread_set = true;
 }
 
 void register_signal(lua_State *L)

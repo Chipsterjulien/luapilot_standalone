@@ -17,6 +17,7 @@ extern "C"
 
 #include "sqlite3.h"
 
+#include <cstdio>
 #include <cstring>
 #include <set>
 #include <string>
@@ -373,14 +374,22 @@ namespace
             return false;
         }
 
-        // Vérifier les extras nommés : itérer sur la table, ignorer
-        // les clés numériques (déjà gérées), vérifier que les autres
-        // sont dans required_names.
+        // Vérifier les extras nommés ET les clés numériques sparse :
+        // itérer sur toute la table, ignorer les clés numériques
+        // dans la plage [1..pos_seen] (déjà consommées), refuser
+        // tout le reste.
+        //
+        // Couvre :
+        //   { "a", "b" } pour 1 slot  → "extra positional at 2"
+        //   { "a", [10] = "x" } pour 1 slot → "extra positional at 10"
+        //   { a = 1, zzz = "x" } pour :a → "extra named 'zzz'"
+        //   { [1.5] = "x" }            → "non-integer numeric key"
         lua_pushnil(L); // first key
         while (lua_next(L, params_idx) != 0)
         {
             // -2 = key, -1 = value
-            if (lua_type(L, -2) == LUA_TSTRING)
+            int kt = lua_type(L, -2);
+            if (kt == LUA_TSTRING)
             {
                 const char *key = lua_tostring(L, -2);
                 if (required_names.find(key) == required_names.end())
@@ -392,6 +401,28 @@ namespace
                     return false;
                 }
             }
+            else if (kt == LUA_TNUMBER)
+            {
+                if (!lua_isinteger(L, -2))
+                {
+                    err = "params table has a non-integer numeric key";
+                    lua_pop(L, 2);
+                    return false;
+                }
+                lua_Integer idx = lua_tointeger(L, -2);
+                if (idx < 1 || idx > pos_seen)
+                {
+                    err = "extra positional param at index " +
+                          std::to_string(idx) +
+                          " (statement uses " +
+                          std::to_string(positional_count) + ")";
+                    lua_pop(L, 2);
+                    return false;
+                }
+            }
+            // Autres types de clés (table, boolean...) : très rare et
+            // sans signification ici. On les ignore silencieusement
+            // plutôt que de raise pour rester pragmatique.
             // Pop value, keep key for next iteration.
             lua_pop(L, 1);
         }
@@ -461,12 +492,51 @@ namespace
         }
 
         // -------------------------------------------------------
-        // Cas simple : pas de params → sqlite3_exec (multi-stmt OK).
+        // Cas simple : pas de params → on prepare d'abord pour
+        // détecter d'éventuels placeholders non liés.
+        //
+        // Sans ce check, "INSERT INTO t VALUES (?)" sans params
+        // bind silencieusement NULL — typiquement un bug de
+        // copier-coller chez l'appelant qui insère du NULL
+        // silencieusement. On préfère raise.
+        //
+        // Si 0 placeholders, on finalise et on repasse à
+        // sqlite3_exec pour conserver le support multi-statement
+        // (CREATE TABLE ... ; CREATE INDEX ... ;).
         // -------------------------------------------------------
         if (!has_params)
         {
+            sqlite3_stmt *probe = nullptr;
+            const char *probe_tail = nullptr;
+            int rc = sqlite3_prepare_v2(db->handle, sql,
+                                        static_cast<int>(sql_len),
+                                        &probe, &probe_tail);
+            if (rc != SQLITE_OK)
+            {
+                std::string msg = sqlite3_errmsg(db->handle);
+                if (probe)
+                    sqlite3_finalize(probe);
+                return push_sqlite_fail(L, msg);
+            }
+
+            int n_placeholders = probe ? sqlite3_bind_parameter_count(probe) : 0;
+
+            if (n_placeholders > 0)
+            {
+                sqlite3_finalize(probe);
+                return push_sqlite_fail(L,
+                                        "SQL contains placeholders but no params table "
+                                        "provided; pass params to bind, or remove "
+                                        "placeholders from SQL");
+            }
+
+            // 0 placeholders : retomber sur sqlite3_exec pour le
+            // multi-statement. Le probe est seulement le premier
+            // statement, donc on l'abandonne et on relance via exec.
+            sqlite3_finalize(probe);
+
             char *errmsg = nullptr;
-            int rc = sqlite3_exec(db->handle, sql, nullptr, nullptr, &errmsg);
+            rc = sqlite3_exec(db->handle, sql, nullptr, nullptr, &errmsg);
             if (rc != SQLITE_OK)
             {
                 std::string msg = errmsg ? errmsg : sqlite3_errmsg(db->handle);
@@ -521,9 +591,16 @@ namespace
         if (!bind_ok)
         {
             sqlite3_finalize(stmt);
-            // Message verbeux mais ciblé : on préfixe "sqlite.exec: "
-            // pour identifier l'origine en lecture.
-            luaL_error(L, "sqlite.exec: %s", bind_err.c_str());
+            // luaL_error fait un longjmp ; la std::string `bind_err`
+            // serait encore vivante sur la pile et son heap fuirait
+            // (le destructeur C++ n'est pas appelé). On copie le
+            // message dans un buffer C local, on libère explicitement
+            // le heap de bind_err via swap, puis seulement on raise.
+            char err_msg[512];
+            std::snprintf(err_msg, sizeof(err_msg),
+                          "sqlite.exec: %s", bind_err.c_str());
+            std::string().swap(bind_err); // libère le heap interne
+            luaL_error(L, "%s", err_msg);
             // unreachable
         }
 
@@ -674,20 +751,43 @@ namespace
                 break;
             case SQLITE_TEXT:
             {
-                const unsigned char *text = sqlite3_column_text(stmt, i);
                 int len = sqlite3_column_bytes(stmt, i);
-                lua_pushlstring(L,
-                                reinterpret_cast<const char *>(text),
-                                static_cast<size_t>(len));
+                if (len == 0)
+                {
+                    // sqlite3_column_text() peut retourner NULL pour
+                    // un TEXT de 0 octet (même cas que BLOB ci-dessous).
+                    // lua_pushlstring(L, NULL, 0) est UB selon la doc
+                    // Lua, on pousse explicitement une string vide.
+                    lua_pushliteral(L, "");
+                }
+                else
+                {
+                    const unsigned char *text = sqlite3_column_text(stmt, i);
+                    lua_pushlstring(L,
+                                    reinterpret_cast<const char *>(text),
+                                    static_cast<size_t>(len));
+                }
                 break;
             }
             case SQLITE_BLOB:
             {
-                const void *blob = sqlite3_column_blob(stmt, i);
                 int len = sqlite3_column_bytes(stmt, i);
-                lua_pushlstring(L,
-                                static_cast<const char *>(blob),
-                                static_cast<size_t>(len));
+                if (len == 0)
+                {
+                    // sqlite3_column_blob() peut retourner NULL pour
+                    // un BLOB de 0 octets. lua_pushlstring(L, NULL, 0)
+                    // est UB selon la doc Lua, même si la plupart des
+                    // implémentations le tolèrent. Mieux : pousser
+                    // explicitement une string vide.
+                    lua_pushliteral(L, "");
+                }
+                else
+                {
+                    const void *blob = sqlite3_column_blob(stmt, i);
+                    lua_pushlstring(L,
+                                    static_cast<const char *>(blob),
+                                    static_cast<size_t>(len));
+                }
                 break;
             }
             default:
@@ -740,7 +840,16 @@ namespace
         // permet pas de signaler une erreur en cours d'itération.
         // luaL_error est ce qui fait sens, et le user peut rattraper
         // avec pcall autour de la boucle.
-        luaL_error(L, "sqlite.query: step failed: %s", msg.c_str());
+        //
+        // Même précaution que db_exec et db_query : luaL_error fait
+        // un longjmp qui ne déroule pas la pile C++. La std::string
+        // `msg` fuirait. On copie dans un buffer C local, on libère
+        // le heap via swap, puis on raise.
+        char err_msg[512];
+        std::snprintf(err_msg, sizeof(err_msg),
+                      "sqlite.query: step failed: %s", msg.c_str());
+        std::string().swap(msg);
+        luaL_error(L, "%s", err_msg);
         return 0; // unreachable
     }
 
@@ -844,6 +953,22 @@ namespace
             }
         }
 
+        // Si pas de params fournis mais le statement a des
+        // placeholders, raise plutôt que de binder NULL implicitement.
+        // Cohérent avec db_exec (audit point 1).
+        if (!has_params)
+        {
+            int n_placeholders = sqlite3_bind_parameter_count(stmt);
+            if (n_placeholders > 0)
+            {
+                sqlite3_finalize(stmt);
+                return push_sqlite_fail(L,
+                                        "SQL contains placeholders but no params table "
+                                        "provided; pass params to bind, or remove "
+                                        "placeholders from SQL");
+            }
+        }
+
         if (has_params)
         {
             std::string bind_err;
@@ -851,7 +976,13 @@ namespace
             if (!bind_ok)
             {
                 sqlite3_finalize(stmt);
-                luaL_error(L, "sqlite.query: %s", bind_err.c_str());
+                // Même précaution que db_exec : libérer le heap de
+                // bind_err avant le longjmp pour éviter la fuite.
+                char err_msg[512];
+                std::snprintf(err_msg, sizeof(err_msg),
+                              "sqlite.query: %s", bind_err.c_str());
+                std::string().swap(bind_err);
+                luaL_error(L, "%s", err_msg);
                 // unreachable
             }
         }

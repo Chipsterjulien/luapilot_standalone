@@ -83,6 +83,15 @@ struct lua_State;
 // comme champ "signal" de luapilot).
 void register_signal(lua_State *L);
 
+// Capture le pthread_t du thread courant comme "main thread". Doit
+// être appelée une fois, depuis main(), AVANT register_signal et
+// AVANT tout spawn de worker. Permet ensuite à handle/ignore/default
+// de refuser les appels depuis un autre thread (les signaux POSIX
+// sont process-wide, donc configurer un handler depuis un worker
+// produirait un bug latent : le signal serait routé vers le main
+// thread, qui n'a pas le callback Lua du worker).
+void register_main_thread(void);
+
 // Vérifie les flags pending et invoque les callbacks Lua correspondants.
 // Appelée automatiquement depuis le debug hook count installé par
 // handle(). Peut aussi être appelée explicitement par d'autres modules
