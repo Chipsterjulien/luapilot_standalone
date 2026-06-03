@@ -3248,24 +3248,33 @@ do
 
             -- ----- recv_line : garde DoS (max 8 MiB par ligne) -------
             -- Audit sécurité : un peer qui floode sans '\n' ne doit
-            -- pas faire grossir le buffer jusqu'à OOM. Test à 100 KiB
-            -- pour vérifier que les lignes légitimement grandes
-            -- passent (sous la limite de 8 MiB).
+            -- pas faire grossir le buffer jusqu'à OOM. Test sur un
+            -- payload raisonnable (sous la limite de 8 MiB).
+            --
+            -- Taille payload : 8 KiB. Raison : client et server sont
+            -- dans le MÊME process. Si on envoie trop, le buffer TCP
+            -- kernel local se remplit avant que le serveur ne lise,
+            -- et send() bloque → deadlock jusqu'au timeout côté
+            -- lecture. Sur x86_64 le buffer TCP fait ~256 KB et 100
+            -- KiB passe ; sur Raspberry Pi 0 le buffer est plus
+            -- petit (~64 KB) et 100 KiB deadlock. 8 KiB est en
+            -- dessous de tout buffer kernel plausible. Le test
+            -- exerce toujours l'accumulator (plusieurs recv()).
             do
                 local c4, ce = S.connect("127.0.0.1", port, 2)
                 ok_val("4th connect (test grande ligne)", c4, ce)
                 local p4, pe = srv:accept()
                 ok_val("4th accept", p4, pe)
                 if c4 and p4 then
-                    local payload = string.rep("A", 100 * 1024)
+                    local payload = string.rep("A", 8 * 1024)
                     c4:send(payload)
                     c4:close()
                     p4:set_timeout(2)
                     local line, eerr, partial = p4:recv_line()
-                    ok("recv_line 100 KiB sans newline: closed + partial",
+                    ok("recv_line 8 KiB sans newline: closed + partial",
                         line == nil and eerr == "closed"
                         and type(partial) == "string"
-                        and #partial == 100 * 1024)
+                        and #partial == 8 * 1024)
                     p4:close()
                 end
             end

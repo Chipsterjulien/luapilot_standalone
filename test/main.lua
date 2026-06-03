@@ -3333,24 +3333,33 @@ do
             -- without '\n' must not grow acc to OOM. The C++ code
             -- refuses with "line too long" past 8 MiB. We don't test
             -- 8 MiB literally (slow + memory-intensive), we just
-            -- verify the normal path on a moderately large buffer
-            -- (100 KiB, well under the cap).
+            -- verify the normal path on a moderately sized buffer.
+            --
+            -- Payload size: 8 KiB. Reason: client and server are in
+            -- the SAME process. If we send too much, the local TCP
+            -- kernel buffer fills up before the server reads, and
+            -- send() blocks → deadlock until the read-side
+            -- timeout fires. On x86_64 the kernel TCP buffer is
+            -- ~256 KB and 100 KiB worked; on Raspberry Pi 0 the
+            -- buffer is smaller (~64 KB) and 100 KiB deadlocks.
+            -- 8 KiB is well under any plausible kernel buffer
+            -- ceiling. It still exercises the accumulator (many
+            -- recv() iterations).
             do
                 local c4, ce = S.connect("127.0.0.1", port, 2)
                 ok_val("4th connect (for big-line test)", c4, ce)
                 local p4, pe = srv:accept()
                 ok_val("4th accept", p4, pe)
                 if c4 and p4 then
-                    -- 100 KiB of 'A' then close, no \n
-                    local payload = string.rep("A", 100 * 1024)
+                    local payload = string.rep("A", 8 * 1024)
                     c4:send(payload)
                     c4:close()
                     p4:set_timeout(2)
                     local line, eerr, partial = p4:recv_line()
-                    ok("recv_line 100 KiB no-newline: closed with partial",
+                    ok("recv_line 8 KiB no-newline: closed with partial",
                         line == nil and eerr == "closed"
                         and type(partial) == "string"
-                        and #partial == 100 * 1024)
+                        and #partial == 8 * 1024)
                     p4:close()
                 end
             end
