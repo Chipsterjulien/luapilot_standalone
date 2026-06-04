@@ -13,6 +13,7 @@
 #include "lua_bindings/find.hpp"
 #include "lua_bindings/helloThere.hpp"
 #include "lua_bindings/http.hpp"
+#include "lua_bindings/inotify.hpp"
 #include "lua_bindings/isdir.hpp"
 #include "lua_bindings/isfile.hpp"
 #include "lua_bindings/json.hpp"
@@ -236,6 +237,13 @@ void register_luapilot(lua_State *L)
     // (table luapilot au sommet) ; register_socket pose en passant
     // la métatable dans le registry, mais laisse la pile inchangée.
     register_socket(L);
+
+    // Sous-table luapilot.inotify (new + métatable LuapilotInotify
+    // dans le registry). Surveillance de système de fichiers via
+    // inotify(7). Même précondition de pile (table luapilot au
+    // sommet) ; register_inotify pose la métatable dans le registry
+    // et laisse la pile inchangée. Cf. inotify.hpp pour le design.
+    register_inotify(L);
 
     // Sous-table luapilot.workers (spawn + métatable LuapilotWorker
     // dans le registry). Même précondition de pile (table luapilot

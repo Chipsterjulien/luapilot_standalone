@@ -146,8 +146,11 @@ namespace
     // Maintenant : chaque opération (send, recv, recv_line, recv_all,
     // accept) calcule une DEADLINE absolue au début, puis recalcule
     // le temps restant à chaque tour. Si remaining_ms() retourne 0,
-    // la deadline est dépassée -> (nil, "timeout") immédiat sans
-    // tentative supplémentaire.
+    // on appelle quand même poll(fd, 1, 0) une dernière fois : POSIX
+    // garantit que c'est un check non bloquant qui rend tout de
+    // suite l'état du fd (prêt ou pas). Court-circuiter avant ce
+    // poll ferait rater des octets/connexions qui sont arrivés
+    // pendant le temps imparti mais juste avant qu'on regarde.
     //
     // Cohérent avec http qui utilise set_max_timeout (cpp-httplib
     // v0.45.0+) = "durée max bout-en-bout". Sémantique unifiée dans
@@ -173,7 +176,8 @@ namespace
 
     // Renvoie le timeout effectif à passer à poll() :
     //   < 0  = bloquant infini (deadline == NO_DEADLINE)
-    //   0    = deadline dépassée (poll() ne bloquera pas, retournera 0)
+    //   0    = deadline dépassée (poll() non bloquant : rend
+    //          tout de suite ce qui est prêt, ou 0 si rien)
     //   > 0  = millisecondes restantes
     int remaining_ms(Deadline deadline)
     {
@@ -222,11 +226,14 @@ namespace
         pfd.events = events;
         for (;;)
         {
+            // Note : on ne court-circuite PAS quand t == 0. POSIX
+            // garantit que poll(..., 0) retourne immédiatement avec
+            // les fd déjà prêts (sans bloquer). Court-circuiter avant
+            // poll() ferait rater des octets/connexions déjà
+            // disponibles dans le cas où la deadline expire juste
+            // avant l'entrée dans la boucle (très petits timeouts
+            // configurés via set_timeout, ou délai de scheduling).
             int t = remaining_ms(deadline);
-            if (deadline != NO_DEADLINE && t == 0)
-            {
-                return 0; // déjà dépassé
-            }
             pfd.revents = 0;
             int r = ::poll(&pfd, 1, t);
             if (r < 0)

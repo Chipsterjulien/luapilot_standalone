@@ -1192,6 +1192,124 @@ modern server should rely on them.
 
 See the [examples](https://github.com/Chipsterjulien/luapilot_standalone/tree/main/examples) if you want to learn more …
 
+### inotify — filesystem watching
+
+`luapilot.inotify` wraps [inotify(7)](https://man7.org/linux/man-pages/man7/inotify.7.html), the Linux kernel mechanism that notifies a program the moment a file or directory changes — created, written, deleted, moved. It's the clean way to react to an event *instead of* polling a directory in a loop: near-instant wakeup, zero CPU at rest. Pure POSIX/Linux, no external dependency (like `socket` and `signal`), and a userdata with `__gc` so a forgotten `close()` never leaks a file descriptor.
+
+```lua
+local inotify = luapilot.inotify
+
+local w = assert(inotify.new())
+
+-- Watch a drop directory. The event list is REQUIRED and explicit —
+-- there is no implicit "everything".
+local wd, err = w:add("/srv/incoming", { "close_write", "moved_to" })
+if not wd then
+    io.stderr:write(err, "\n"); return
+end
+
+-- Watch loop. read() blocks until an event (or the timeout) and
+-- returns an ARRAY of events (the kernel batches several together).
+while true do
+    local events, rerr = w:read(5)        -- 5s timeout
+    if not events then
+        if rerr == "timeout" then
+            -- nothing in 5s: a chance to do other work, then loop
+        elseif rerr == "interrupted" then
+            break                          -- a handled signal arrived (SIGTERM…)
+        else
+            io.stderr:write("inotify: ", rerr, "\n"); break
+        end
+    else
+        for _, ev in ipairs(events) do
+            if ev.events.overflow then
+                -- the kernel queue overflowed: events were lost, you
+                -- must rescan the directory yourself.
+                rescan("/srv/incoming")
+            elseif ev.events.close_write or ev.events.moved_to then
+                process_new_file("/srv/incoming/" .. ev.name)
+            end
+        end
+    end
+end
+
+w:close()
+```
+
+**Why `close_write` / `moved_to` rather than `create`** : watching the *end* of a write (`close_write`) or an *arrival via rename* (`moved_to`) guarantees a complete file. A `create` fires as soon as the file is opened, before the writer is done — you would read a truncated file. If the producer writes to a `.tmp` then `rename()`s it to the final name (the recommended pattern), `moved_to` is the event to listen for.
+
+**Functions**
+
+| Function        | Returns                 | Notes                                                                                               |
+| --------------- | ----------------------- | --------------------------------------------------------------------------------------------------- |
+| `inotify.new()` | watcher \| `(nil, err)` | Creates an inotify instance (a kernel FD). Runtime failure (too many FDs/instances) → `(nil, err)`. |
+
+**Methods** (on a watcher returned by `new()`) :
+
+| Method                         | Returns                                                                         | Notes                                                                                                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `w:add(path, events [, opts])` | `(wd, nil)` \| `(nil, err)`                                                     | Adds a watch. `events` = **required**, non-empty list of names (see table below). Returns the watch descriptor (integer). `opts.onlydir = true` → fails if `path` is not a directory. |
+| `w:read([timeout])`            | `(events, nil)` \| `(nil, "timeout")` \| `(nil, "interrupted")` \| `(nil, err)` | Reads pending events. `timeout` in seconds (float) ; **absent = block forever**, `0` = non-blocking (return whatever is available right now). Returns an array of batched events.     |
+| `w:remove(wd)`                 | `(true, nil)` \| `(nil, err)`                                                   | Removes a watch by its descriptor. The kernel emits an `ignored` event for that `wd` right after — visible on the next `read()`.                                                      |
+| `w:close()`                    | `(true, nil)`                                                                   | Closes the inotify FD. Idempotent. `__gc` safety net if forgotten.                                                                                                                    |
+
+**Event shape** (one entry of the array returned by `read()`) :
+
+| Field    | Type    | Notes                                                                                                                        |
+| -------- | ------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `wd`     | integer | The originating watch descriptor (`-1` for an overflow event).                                                               |
+| `name`   | string  | The affected entry within the watched directory. `""` when the event targets the watched target itself (e.g. `delete_self`). |
+| `events` | table   | The mask decoded into readable flags, e.g. `{ close_write = true }`. May combine several.                                    |
+| `is_dir` | boolean | `true` if the affected entry is a directory (`IN_ISDIR`).                                                                    |
+| `cookie` | integer | `0` most of the time ; non-zero to pair a `moved_from` with a `moved_to` from the same rename.                               |
+
+**Available events**
+
+Names you can pass to `add()` (and that appear in `ev.events` on read) :
+
+| Name            | Triggered by                                       |
+| --------------- | -------------------------------------------------- |
+| `access`        | File was read.                                     |
+| `modify`        | File was written.                                  |
+| `attrib`        | Metadata changed (permissions, mtime, owner…).     |
+| `close_write`   | A file opened for writing was closed.              |
+| `close_nowrite` | A file opened read-only was closed.                |
+| `close`         | Shortcut: `close_write` **or** `close_nowrite`.    |
+| `open`          | File was opened.                                   |
+| `moved_from`    | An entry was moved *out of* the watched directory. |
+| `moved_to`      | An entry was moved *into* the watched directory.   |
+| `move`          | Shortcut: `moved_from` **or** `moved_to`.          |
+| `create`        | An entry was created in the watched directory.     |
+| `delete`        | An entry was deleted from the watched directory.   |
+| `delete_self`   | The watched target itself was deleted.             |
+| `move_self`     | The watched target itself was moved.               |
+
+Two extra flags appear in `ev.events` **without being requestable** in `add()` (the kernel sets them on its own) :
+
+| Name       | Meaning                                                                                      |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| `ignored`  | The watch was removed — by `remove()`, or because the target was deleted / its FS unmounted. |
+| `unmount`  | The filesystem holding the target was unmounted.                                             |
+| `overflow` | **The kernel event queue overflowed: events were lost.** See below.                          |
+
+**Overflow: never ignore it.** If events arrive faster than you `read()` them, the kernel eventually overflows its internal queue and emits **one** special event `{ wd = -1, events = { overflow = true } }`. This is the only case where inotify silently drops notifications. When you see it, the only correct response is to **rescan** the watched directory yourself to recover the real state — the lost events will not come back. That's why LuaPilot surfaces it explicitly rather than swallowing it.
+
+**Error contract** (consistent with `socket` / `http` / `toml`) :
+
+* **Misuse** (wrong argument *type*, `events` missing or not a table) → raises via `luaL_error`, like everywhere in LuaPilot.
+* **Bad value / runtime error** → `(nil, err)` : empty event list, unknown event name, non-existent path, invalid watch descriptor, watcher already closed, etc.
+* **Successful action** (`remove`, `close`) → `(true, nil)`.
+
+**Signal interruption.** Like `socket:recv` and `luapilot.sleep` : if a signal handled by `luapilot.signal` (e.g. `SIGTERM` from `systemctl stop`) arrives during a blocking `w:read()`, the call returns `(nil, "interrupted")` immediately and your signal callback runs before it returns. This is what lets you shut down a long-running watcher cleanly without waiting for the timeout to expire.
+
+**Out of v1** (additive later under SemVer) :
+
+* **Recursive watching** — inotify(7) itself is not recursive: a watch covers a single directory, not its subtree. Proper recursion (tree-walk + dynamically adding watches as subdirectories appear + careful overflow handling) is a real design job ; it can be built in pure Lua on top of the current API.
+* **Extra `add()` modifiers** : `dont_follow` (do not dereference a symlink), `oneshot` (a single event then auto-remove), `mask_add` (merge with an existing mask). v1 exposes the minimal useful set (`onlydir`).
+* **fanotify** — mount-wide watching, requires `CAP_SYS_ADMIN` : different API, different use case.
+
+See the [examples](https://github.com/Chipsterjulien/luapilot_standalone/tree/main/examples) if you want to learn more …
+
 ### workers — parallel jobs
 
 `luapilot.workers` runs Lua code in parallel using OS threads.

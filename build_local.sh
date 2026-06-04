@@ -104,6 +104,49 @@ verify_sha256() {
     echo "Checksum SHA256 OK pour ${name}."
 }
 
+# --- Téléchargement avec fallback ----------------------------------
+# Certains sites amont (notamment lua.org) ont des indisponibilités
+# récurrentes. Cette fonction essaie une liste d'URLs dans l'ordre et
+# s'arrête à la première qui marche.
+#
+# La 2e URL est typiquement web.archive.org (Wayback Machine), qui
+# archive les tarballs publics et redistribue le binaire raw via
+# le suffixe `id_` (sans la barre de navigation Wayback).
+#
+# Sécurité : le SHA256 reste vérifié APRÈS le téléchargement par
+# verify_sha256(). Donc même si une archive distante servait un
+# fichier altéré ou un tarball différent (ex: même chemin mais
+# release amont qui a re-uploadé sans bump de version), la
+# divergence serait détectée et le build refusé.
+#
+# Cas non couvert : tous les serveurs distants sont down simultanément.
+# Dans ce cas, place le tarball à la main dans downloads/<file> avant
+# de relancer le script — il sera vérifié SHA256 sans être retéléchargé.
+download_with_fallback() {
+    local dest="$1" ; shift
+    local name="$1" ; shift
+    # Le reste des arguments est la liste d'URLs à essayer dans l'ordre.
+    local i=1
+    local total=$#
+    for url in "$@"; do
+        if [ "${total}" -gt 1 ]; then
+            echo "Téléchargement de ${name} (source ${i}/${total})..."
+        else
+            echo "Téléchargement de ${name}..."
+        fi
+        # --tries=2 : un retry pour tolérer un blip réseau, mais sans
+        # bloquer trop longtemps sur une URL morte.
+        # --timeout=30 : limite la durée d'attente par tentative.
+        if wget --tries=2 --timeout=30 "${url}" -O "${dest}"; then
+            return 0
+        fi
+        echo "  -> échec sur ${url}"
+        rm -f "${dest}"
+        i=$((i+1))
+    done
+    return 1
+}
+
 # Variables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
@@ -118,6 +161,13 @@ LUA_DIR="lua-$LUA_VERSION"
 LUA_TAR="$LUA_DIR.tar.gz"
 LUA_BUILD_DIR="${BUILD_DIR}/lua_build"
 LUA_URL="https://www.lua.org/ftp/$LUA_TAR"
+# Sources alternatives pour Lua (lua.org a connu plusieurs
+# indisponibilités récentes). Wayback Machine archive le tarball
+# binaire et le SHA256 est revérifié après téléchargement.
+LUA_URLS=(
+    "${LUA_URL}"
+    "https://web.archive.org/web/2025id_/${LUA_URL}"
+)
 # Pour renseigner LUA_SHA256, calcule le hash depuis la source
 # officielle (laisse vide = build refusé) :
 #   wget -qO- https://www.lua.org/ftp/lua-5.5.0.tar.gz | sha256sum
@@ -136,6 +186,12 @@ OPENSSL_BUILD_DIR="${BUILD_DIR}/openssl"
 # et recoupe avec le hash publié officiellement par le projet :
 #   wget -qO- https://www.openssl.org/source/openssl-3.5.6.tar.gz.sha256
 OPENSSL_SHA256="deae7c80cba99c4b4f940ecadb3c3338b13cb77418409238e57d7f31f2a3b736"
+OPENSSL_URL="https://www.openssl.org/source/${OPENSSL_TAR}"
+# Sources alternatives pour OpenSSL (Wayback en filet, comme Lua).
+OPENSSL_URLS=(
+    "${OPENSSL_URL}"
+    "https://web.archive.org/web/2025id_/${OPENSSL_URL}"
+)
 #
 MINIZ_VERSION="3.1.1"
 MINIZ_DIR="miniz-${MINIZ_VERSION}"
@@ -228,6 +284,11 @@ SQLITE_YEAR="2026"
 SQLITE_DIR="sqlite-amalgamation-${SQLITE_VERSION}"
 SQLITE_ZIP="${SQLITE_DIR}.zip"
 SQLITE_URL="https://sqlite.org/${SQLITE_YEAR}/${SQLITE_ZIP}"
+# Sources alternatives pour SQLite (Wayback en filet, comme Lua/OpenSSL).
+SQLITE_URLS=(
+    "${SQLITE_URL}"
+    "https://web.archive.org/web/2025id_/${SQLITE_URL}"
+)
 # Calcule au premier build :
 #   wget -qO- "${SQLITE_URL}" | sha256sum
 # puis colle ici. SHA3-256 publié officiellement sur sqlite.org peut
@@ -360,10 +421,12 @@ if [ ! -f "${SQLITE_C}" ] || [ ! -f "${SQLITE_H}" ]; then
     mkdir -p "${SQLITE_BUILD_DIR}"
 
     if [ ! -f "${DOWNLOAD_DIR}/${SQLITE_ZIP}" ]; then
-        echo "Téléchargement de SQLite ${SQLITE_VERSION}..."
-        if ! wget "${SQLITE_URL}" -O "${DOWNLOAD_DIR}/${SQLITE_ZIP}"; then
-            echo "Échec du téléchargement de SQLite."
-            rm -f "${DOWNLOAD_DIR}/${SQLITE_ZIP}"
+        if ! download_with_fallback "${DOWNLOAD_DIR}/${SQLITE_ZIP}" \
+                "SQLite ${SQLITE_VERSION}" "${SQLITE_URLS[@]}"; then
+            echo "Échec du téléchargement de SQLite depuis toutes les sources."
+            echo "Astuce : si tu as le zip ailleurs, place-le manuellement"
+            echo "  dans ${DOWNLOAD_DIR}/${SQLITE_ZIP}"
+            echo "et relance le script. Le SHA256 sera vérifié."
             exit 1
         fi
     fi
@@ -385,10 +448,12 @@ fi
 
 # Télécharger Lua si nécessaire
 if [ ! -f "$DOWNLOAD_DIR/$LUA_TAR" ]; then
-    echo "Téléchargement de Lua $LUA_VERSION..."
-    if ! wget "${LUA_URL}" -O "$DOWNLOAD_DIR/$LUA_TAR"; then
-        echo "Échec du téléchargement de Lua."
-        rm -f "$DOWNLOAD_DIR/$LUA_TAR"
+    if ! download_with_fallback "$DOWNLOAD_DIR/$LUA_TAR" \
+            "Lua $LUA_VERSION" "${LUA_URLS[@]}"; then
+        echo "Échec du téléchargement de Lua depuis toutes les sources."
+        echo "Astuce : si tu as le tarball ailleurs, place-le manuellement"
+        echo "  dans ${DOWNLOAD_DIR}/${LUA_TAR}"
+        echo "et relance le script. Le SHA256 sera vérifié."
         exit 1
     fi
 fi
@@ -447,10 +512,12 @@ if [ ! -f "${OPENSSL_PATH_LOCAL}" ]; then
     echo "openssl ${OPENSSL_VERSION} : pas encore compilé localement"
 
     if [ ! -f "${DOWNLOAD_DIR}/${OPENSSL_TAR}" ]; then
-        echo "Téléchargement de openssl ${OPENSSL_VERSION}..."
-        if ! wget "https://www.openssl.org/source/${OPENSSL_TAR}" -O "${DOWNLOAD_DIR}/${OPENSSL_TAR}"; then
-            echo "Échec du téléchargement de openssl."
-            rm -f "${DOWNLOAD_DIR}/${OPENSSL_TAR}"
+        if ! download_with_fallback "${DOWNLOAD_DIR}/${OPENSSL_TAR}" \
+                "openssl ${OPENSSL_VERSION}" "${OPENSSL_URLS[@]}"; then
+            echo "Échec du téléchargement d'openssl depuis toutes les sources."
+            echo "Astuce : si tu as le tarball ailleurs, place-le manuellement"
+            echo "  dans ${DOWNLOAD_DIR}/${OPENSSL_TAR}"
+            echo "et relance le script. Le SHA256 sera vérifié."
             exit 1
         fi
     fi

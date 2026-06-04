@@ -1088,6 +1088,125 @@ plain:send("EHLO me.example.com\r\n")
 
 Voir les [exemples](https://github.com/Chipsterjulien/luapilot_standalone/tree/main/examples) pour aller plus loin…
 
+### inotify — surveillance de système de fichiers
+
+`luapilot.inotify` enveloppe [inotify(7)](https://man7.org/linux/man-pages/man7/inotify.7.html), le mécanisme du noyau Linux qui notifie un programme dès qu'un fichier ou un répertoire change — création, écriture, suppression, déplacement. C'est l'outil propre pour réagir à un événement *au lieu* de scruter un dossier en boucle : réveil quasi-instantané, zéro CPU au repos. POSIX/Linux direct, zéro dépendance externe (comme `socket` et `signal`), et un userdata avec `__gc` pour qu'un `close()` oublié ne fuie jamais de file descriptor.
+
+```lua
+local inotify = luapilot.inotify
+
+local w = assert(inotify.new())
+
+-- Surveiller un dossier de dépôt. La liste d'événements est
+-- OBLIGATOIRE et explicite — pas d'implicite « tout ».
+local wd, err = w:add("/srv/incoming", { "close_write", "moved_to" })
+if not wd then
+    io.stderr:write(err, "\n"); return
+end
+
+-- Boucle de surveillance. read() bloque jusqu'à un événement (ou
+-- le timeout), et rend un ARRAY d'événements (le noyau en batche
+-- plusieurs).
+while true do
+    local events, rerr = w:read(5)        -- timeout 5s
+    if not events then
+        if rerr == "timeout" then
+            -- rien en 5s : occasion de faire autre chose, puis reboucler
+        elseif rerr == "interrupted" then
+            break                          -- un signal géré est arrivé (SIGTERM…)
+        else
+            io.stderr:write("inotify: ", rerr, "\n"); break
+        end
+    else
+        for _, ev in ipairs(events) do
+            if ev.events.overflow then
+                -- la queue noyau a débordé : des événements ont été
+                -- perdus, il faut rescanner le dossier soi-même.
+                rescan("/srv/incoming")
+            elseif ev.events.close_write or ev.events.moved_to then
+                process_new_file("/srv/incoming/" .. ev.name)
+            end
+        end
+    end
+end
+
+w:close()
+```
+
+**Pourquoi `close_write` / `moved_to` plutôt que `create`** : surveiller la *fin* d'écriture (`close_write`) ou l'*arrivée par renommage* (`moved_to`) garantit un fichier complet. Un `create` se déclenche dès l'ouverture, avant que l'écrivain ait fini — on lirait un fichier tronqué. Si le producteur écrit dans un `.tmp` puis fait `rename()` vers le nom final (pattern recommandé), `moved_to` est le bon événement à écouter.
+
+**Fonctions**
+
+| Fonction        | Renvoie                 | Notes                                                                                         |
+| --------------- | ----------------------- | --------------------------------------------------------------------------------------------- |
+| `inotify.new()` | watcher \| `(nil, err)` | Crée une instance inotify (un FD noyau). Échec runtime (trop de FD/instances) → `(nil, err)`. |
+
+**Méthodes** (sur un watcher venant de `new()`) :
+
+| Méthode                        | Renvoie                                                                         | Notes                                                                                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `w:add(path, events [, opts])` | `(wd, nil)` \| `(nil, err)`                                                     | Pose une surveillance. `events` = liste **obligatoire** et non vide de noms (voir table ci-dessous). Renvoie le watch descriptor (integer). `opts.onlydir = true` → échoue si `path` n'est pas un répertoire. |
+| `w:read([timeout])`            | `(events, nil)` \| `(nil, "timeout")` \| `(nil, "interrupted")` \| `(nil, err)` | Lit les événements en attente. `timeout` en secondes (float) ; **absent = bloquant infini**, `0` = non bloquant (rends ce qui est dispo tout de suite). Renvoie un array d'événements batchés.                |
+| `w:remove(wd)`                 | `(true, nil)` \| `(nil, err)`                                                   | Retire une surveillance par son watch descriptor. Le noyau émet un événement `ignored` pour ce `wd` juste après — visible au prochain `read()`.                                                               |
+| `w:close()`                    | `(true, nil)`                                                                   | Ferme le FD inotify. Idempotent. Filet `__gc` si oublié.                                                                                                                                                      |
+
+**Forme d'un événement** (une entrée de l'array renvoyé par `read()`) :
+
+| Champ    | Type    | Notes                                                                                                             |
+| -------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| `wd`     | integer | Le watch descriptor d'origine (`-1` si c'est un événement d'overflow).                                            |
+| `name`   | string  | L'entrée concernée dans le répertoire surveillé. `""` si l'événement vise la cible elle-même (ex. `delete_self`). |
+| `events` | table   | Le masque décodé en flags lisibles, ex. `{ close_write = true }`. Peut en cumuler plusieurs.                      |
+| `is_dir` | boolean | `true` si l'entrée concernée est un répertoire (`IN_ISDIR`).                                                      |
+| `cookie` | integer | `0` la plupart du temps ; non nul pour apparier un `moved_from` et un `moved_to` d'un même renommage.             |
+
+**Événements disponibles**
+
+Noms passables à `add()` (et présents dans `ev.events` à la lecture) :
+
+| Nom             | Déclenché par                                             |
+| --------------- | --------------------------------------------------------- |
+| `access`        | Lecture du fichier.                                       |
+| `modify`        | Écriture dans le fichier.                                 |
+| `attrib`        | Changement de métadonnées (permissions, mtime, owner…).   |
+| `close_write`   | Fermeture d'un fichier qui était ouvert en écriture.      |
+| `close_nowrite` | Fermeture d'un fichier ouvert en lecture seule.           |
+| `close`         | Raccourci : `close_write` **ou** `close_nowrite`.         |
+| `open`          | Ouverture du fichier.                                     |
+| `moved_from`    | Une entrée a été déplacée *hors* du répertoire surveillé. |
+| `moved_to`      | Une entrée a été déplacée *vers* le répertoire surveillé. |
+| `move`          | Raccourci : `moved_from` **ou** `moved_to`.               |
+| `create`        | Création d'une entrée dans le répertoire surveillé.       |
+| `delete`        | Suppression d'une entrée du répertoire surveillé.         |
+| `delete_self`   | La cible surveillée elle-même a été supprimée.            |
+| `move_self`     | La cible surveillée elle-même a été déplacée.             |
+
+Deux flags supplémentaires apparaissent dans `ev.events` **sans être demandables** dans `add()` (le noyau les pose tout seul) :
+
+| Nom        | Signification                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------- |
+| `ignored`  | La surveillance a été retirée — par `remove()`, ou parce que la cible a été supprimée / son FS démonté. |
+| `unmount`  | Le système de fichiers portant la cible a été démonté.                                                  |
+| `overflow` | **La queue d'événements du noyau a débordé : des événements ont été perdus.** Voir ci-dessous.          |
+
+**Overflow : à ne jamais ignorer.** Si les événements arrivent plus vite que vous ne lisez (`read()`), le noyau finit par déborder sa file interne et émet **un** événement spécial `{ wd = -1, events = { overflow = true } }`. C'est le seul cas où inotify perd silencieusement des notifications. Quand vous le voyez, la seule réponse correcte est de **rescanner vous-même** le répertoire surveillé pour rattraper l'état réel — les événements perdus ne reviendront pas. C'est pourquoi LuaPilot le remonte explicitement plutôt que de l'avaler.
+
+**Contrat d'erreur** (cohérent avec `socket` / `http` / `toml`) :
+
+* **Mauvais usage** (mauvais *type* d'argument, `events` absent ou non-table) → lève via `luaL_error`, comme partout dans LuaPilot.
+* **Mauvaise valeur / erreur runtime** → `(nil, err)` : liste d'événements vide, nom d'événement inconnu, chemin inexistant, watch descriptor invalide, watcher déjà fermé, etc.
+* **Action réussie** (`remove`, `close`) → `(true, nil)`.
+
+**Interruption par signal.** Comme `socket:recv` et `luapilot.sleep` : si un signal géré par `luapilot.signal` (ex. `SIGTERM` envoyé par `systemctl stop`) arrive pendant un `w:read()` bloquant, l'appel renvoie immédiatement `(nil, "interrupted")` et votre callback de signal s'exécute avant le retour. C'est ce qui permet d'arrêter proprement un watcher de longue durée sans attendre l'expiration du timeout.
+
+**Hors v1** (additif plus tard sous SemVer) :
+
+* **Surveillance récursive** — inotify(7) lui-même n'est pas récursif : un watch couvre un seul répertoire, pas son sous-arbre. La récursion propre (tree-walk + ajout dynamique de watches à la création d'un sous-dossier + gestion fine de l'overflow) est un vrai chantier de design ; elle est constructible en Lua pur par-dessus l'API actuelle.
+* **Modifieurs `add()` supplémentaires** : `dont_follow` (ne pas déréférencer un symlink), `oneshot` (un seul événement puis retrait auto), `mask_add` (cumuler avec un masque existant). v1 expose le minimum utile (`onlydir`).
+* **fanotify** — surveillance à l'échelle d'un point de montage, nécessite `CAP_SYS_ADMIN` : autre API, autre cas d'usage.
+
+Voir les [exemples](https://github.com/Chipsterjulien/luapilot_standalone/tree/main/examples) pour aller plus loin…
+
 ### workers — jobs parallèles
 
 `luapilot.workers` exécute du code Lua en parallèle via des threads OS.

@@ -3689,6 +3689,261 @@ end
 
 -- =====================================================================
 print("")
+print("=== inotify ===")
+
+do
+    local I = luapilot.inotify
+
+    -- ----- base contract --------------------------------------------
+    ok("luapilot.inotify is a table", type(I) == "table")
+    ok("new is a function", type(I.new) == "function")
+
+    local w, nerr = I.new()
+    ok_val("new() -> watcher", w, nerr)
+    ok("  add is a method", w ~= nil and type(w.add) == "function")
+    ok("  read is a method", w ~= nil and type(w.read) == "function")
+    ok("  remove is a method", w ~= nil and type(w.remove) == "function")
+    ok("  close is a method", w ~= nil and type(w.close) == "function")
+
+    -- Watched directory, inside the sandbox.
+    local WDIR = sb("inotify_d")
+    ok_act("mkdir(watch dir)", luapilot.mkdir(WDIR))
+
+    -- ----- misuse: luaL_error ---------------------------------------
+    do
+        ok("add() without event list raises",
+            pcall(function() return w:add(WDIR) end) == false)
+        ok("add(dir, 'string') raises (events not a table)",
+            pcall(function() return w:add(WDIR, "create") end) == false)
+        ok("read({}) raises (timeout not a number, not coercible)",
+            pcall(function() return w:read({}) end) == false)
+    end
+
+    -- ----- bad values: (nil, err) -----------------------------------
+    do
+        local v, e = w:add(WDIR, {})
+        ok_fail("add(dir, {}) empty list -> (nil, err)", v, e)
+        ok("  message mentions 'empty'",
+            type(e) == "string" and e:find("empty", 1, true) ~= nil)
+
+        v, e = w:add(WDIR, { "bogus_event" })
+        ok_fail("add(dir, {bogus}) unknown event -> (nil, err)", v, e)
+        ok("  message mentions 'unknown'",
+            type(e) == "string" and e:find("unknown", 1, true) ~= nil)
+
+        v, e = w:add(sb("inotify_absent"), { "create" })
+        ok_fail("add(non-existent path) -> (nil, err)", v, e)
+
+        v, e = w:remove(999999)
+        ok_fail("remove(invalid wd) -> (nil, err)", v, e)
+
+        v, e = w:read(-1)
+        ok_fail("read(negative timeout) -> (nil, err)", v, e)
+    end
+
+    -- ----- add a valid watch ----------------------------------------
+    local wd, aerr = w:add(WDIR,
+        { "create", "close_write", "moved_from", "moved_to" })
+    ok_val("add(dir, events) -> integer wd", wd, aerr,
+        function(v) return math.type(v) == "integer" end)
+
+    -- Local helpers: drain all pending events (the kernel may batch
+    -- several, and one logical action may generate several), and look
+    -- one up by (name, flag).
+    local function drain(watcher, secs)
+        local all = {}
+        local timeout = secs
+        while true do
+            local evs = watcher:read(timeout)
+            if not evs then break end -- timeout/closed/err -> end of drain
+            for _, ev in ipairs(evs) do all[#all + 1] = ev end
+            timeout = 0.1             -- catch any stragglers
+        end
+        return all
+    end
+
+    local function find_event(list, name, flag)
+        for _, ev in ipairs(list) do
+            if ev.name == name and ev.events[flag] then return ev end
+        end
+        return nil
+    end
+
+    -- ----- file creation + write ------------------------------------
+    do
+        local f = assert(io.open(WDIR .. "/photo.jpg", "w"))
+        f:write("data")
+        f:close()
+
+        local evs = drain(w, 2)
+        ok("read() returns an array of tables", type(evs) == "table")
+
+        local cr = find_event(evs, "photo.jpg", "create")
+        ok("'create' event on photo.jpg", cr ~= nil)
+
+        local cw = find_event(evs, "photo.jpg", "close_write")
+        ok("'close_write' event on photo.jpg", cw ~= nil)
+        ok("  is_dir == false for a file",
+            cw ~= nil and cw.is_dir == false)
+        ok("  event wd == watch wd",
+            cw ~= nil and cw.wd == wd)
+        ok("  cookie == 0 when not a move",
+            cw ~= nil and cw.cookie == 0)
+    end
+
+    -- ----- is_dir on subdirectory creation --------------------------
+    do
+        luapilot.mkdir(WDIR .. "/subdir")
+        local evs = drain(w, 2)
+        local cr = find_event(evs, "subdir", "create")
+        ok("'create' detected on the subdirectory", cr ~= nil)
+        ok("  is_dir == true for a directory",
+            cr ~= nil and cr.is_dir == true)
+    end
+
+    -- ----- moved_from / moved_to paired by cookie -------------------
+    do
+        os.rename(WDIR .. "/photo.jpg", WDIR .. "/photo2.jpg")
+        local evs = drain(w, 2)
+        local mf = find_event(evs, "photo.jpg", "moved_from")
+        local mt = find_event(evs, "photo2.jpg", "moved_to")
+        ok("'moved_from' detected", mf ~= nil)
+        ok("'moved_to' detected", mt ~= nil)
+        ok("  cookie non-zero and identical between from and to",
+            mf ~= nil and mt ~= nil
+            and mf.cookie ~= 0 and mf.cookie == mt.cookie)
+    end
+
+    -- ----- timeout: non-blocking and finite -------------------------
+    do
+        drain(w, 0) -- flush any leftover event
+        local v, e = w:read(0)
+        ok_fail("read(0) with no activity -> (nil, err)", v, e)
+        ok("  reason == 'timeout'", e == "timeout")
+
+        v, e = w:read(0.2)
+        ok_fail("read(0.2) with no activity -> (nil, err)", v, e)
+        ok("  reason == 'timeout'", e == "timeout")
+    end
+
+    -- ----- remove() + 'ignored' event -------------------------------
+    do
+        local r, e = w:remove(wd)
+        ok_act("remove(wd) -> (true, nil)", r, e)
+
+        -- The kernel emits an 'ignored' event for that wd right after.
+        local evs = drain(w, 1)
+        local ig = nil
+        for _, ev in ipairs(evs) do
+            if ev.wd == wd and ev.events.ignored then ig = ev end
+        end
+        ok("'ignored' event emitted after remove", ig ~= nil)
+    end
+
+    -- ----- audit fixes ----------------------------------------------
+    -- These three tests cover bugs that were caught in a post-merge
+    -- audit. They MUST be in place before close() since they need
+    -- an active watcher.
+    do
+        -- Re-arm a watch since we removed wd just above.
+        local wd2, e_arm = w:add(WDIR, { "create", "close_write" })
+        ok_val("re-arm watch for audit tests", wd2, e_arm)
+
+        -- (1) read(0) must return events already pending in the
+        -- kernel queue, not (nil, "timeout"). Previously, the
+        -- short-circuit before poll() returned timeout without
+        -- ever calling poll(fd, 1, 0).
+        do
+            -- Drain any leftover events first so the queue is clean.
+            drain(w, 0.1)
+
+            local f = assert(io.open(WDIR .. "/audit_read0.txt", "w"))
+            f:write("x"); f:close()
+
+            -- Give the kernel a beat to deliver the event into the
+            -- inotify queue. 100ms is comfortable on any platform.
+            luapilot.sleep(100, "ms")
+
+            local evs, rerr = w:read(0)
+            ok("read(0) returns the already-pending events",
+                type(evs) == "table" and #evs > 0,
+                "evs=" .. tostring(evs) .. " err=" .. tostring(rerr))
+            ok("  events list contains a 'create' for the file",
+                find_event(evs or {}, "audit_read0.txt", "create") ~= nil)
+        end
+
+        -- (2) NaN and Inf must be rejected on timeout argument.
+        do
+            local v, e = w:read(0 / 0) -- NaN
+            ok_fail("read(NaN) -> (nil, err)", v, e)
+            ok("  message mentions 'finite'",
+                type(e) == "string" and e:find("finite", 1, true) ~= nil)
+
+            v, e = w:read(math.huge) -- +Inf
+            ok_fail("read(+Inf) -> (nil, err)", v, e)
+
+            v, e = w:read(-math.huge) -- -Inf (also covered by <0)
+            ok_fail("read(-Inf) -> (nil, err)", v, e)
+        end
+
+        -- (3) The events table must be a strict 1..n list. Extra
+        -- string keys, sparse numeric keys, and float keys are all
+        -- rejected to avoid silently ignored entries.
+        do
+            local v, e = w:add(WDIR, { "create", x = "extra" })
+            ok_fail("add(events with extra string key) -> (nil, err)", v, e)
+            ok("  message mentions 'extra string key'",
+                type(e) == "string"
+                and e:find("extra string key", 1, true) ~= nil)
+
+            v, e = w:add(WDIR, { "create", [10] = "modify" })
+            ok_fail("add(events with sparse [10]) -> (nil, err)", v, e)
+            ok("  message mentions 'extra integer key'",
+                type(e) == "string"
+                and e:find("extra integer key", 1, true) ~= nil)
+
+            v, e = w:add(WDIR, { [1] = "create", [1.5] = "modify" })
+            ok_fail("add(events with non-integer [1.5]) -> (nil, err)", v, e)
+            ok("  message mentions 'non-integer'",
+                type(e) == "string"
+                and e:find("non-integer", 1, true) ~= nil)
+
+            -- Non-string element at a valid 1..n index : was raising
+            -- via luaL_error, now consistently returns (nil, err)
+            -- like the other events-table errors.
+            v, e = w:add(WDIR, { "create", 42 })
+            ok_fail("add(events with non-string element) -> (nil, err)",
+                v, e)
+            ok("  message mentions 'must be a string'",
+                type(e) == "string"
+                and e:find("must be a string", 1, true) ~= nil)
+        end
+
+        -- Clean up: drain any events generated above, then remove wd2.
+        drain(w, 0.1)
+        w:remove(wd2)
+        drain(w, 0.1) -- swallow the 'ignored' for wd2
+    end
+
+    -- ----- close() idempotent + post-close errors -------------------
+    ok_act("close() -> (true, nil)", w:close())
+    ok_act("close() again (idempotent)", w:close())
+
+    do
+        local v, e = w:read(0)
+        ok_fail("read() after close -> (nil, err)", v, e)
+        ok("  message mentions 'closed'",
+            type(e) == "string" and e:find("closed", 1, true) ~= nil)
+
+        local v2, e2 = w:add(WDIR, { "create" })
+        ok_fail("add() after close -> (nil, err)", v2, e2)
+    end
+
+    luapilot.rmdirAll(WDIR)
+end
+
+-- =====================================================================
+print("")
 print("=== workers ===")
 
 do
