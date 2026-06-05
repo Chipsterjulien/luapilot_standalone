@@ -18,6 +18,7 @@
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -305,8 +306,10 @@ namespace
     // moderne (OpenSSL >= 1.1.0). On force TLS 1.2 minimum via
     // SSL_CTX_set_min_proto_version() pour respecter TLS-D.
     //
-    // Verify paths : SSL_CTX_set_default_verify_paths() utilise les CA
-    // du système (/etc/ssl/certs/ sur Linux), cohérent avec TLS-5.
+    // Verify paths : SSL_CTX_set_default_verify_paths() + probing
+    // runtime des emplacements connus de CA bundles. Le détail est
+    // documenté dans init_openssl_ctx() ci-dessous. Cohérent avec
+    // TLS-5 (CA système par défaut).
     //
     // Politique d'erreur : aucune exception ne traverse vers Lua
     // (invariant codebase). En cas d'échec d'init, on retourne nullptr
@@ -425,15 +428,93 @@ namespace
                 return;
             }
 
-            // Verify paths système : /etc/ssl/certs sur Linux,
-            // équivalent sur autres BSD. Cohérent avec http.
+            // ====== Verify paths : CA bundle system =================
+            // Le bundle CA n'a pas un emplacement standard unique sur
+            // Linux/BSD ; chaque distro choisit son chemin. Comme
+            // notre OpenSSL est vendored et statiquement linké, on ne
+            // peut pas se reposer sur la config système du paquet
+            // openssl de la distro.
+            //
+            // Stratégie en deux passes :
+            //   1) SSL_CTX_set_default_verify_paths() : utilise les
+            //      chemins compile-time d'OpenSSL (configurés via
+            //      --openssldir=/etc/ssl dans build_local.sh) ET les
+            //      variables d'env SSL_CERT_FILE / SSL_CERT_DIR si
+            //      définies. Couvre Arch/Debian/Ubuntu/Alpine.
+            //   2) Probing d'une liste de chemins connus pour les
+            //      autres distros (Fedora/RHEL, OpenSUSE, *BSD).
+            //      On charge via SSL_CTX_load_verify_locations() qui
+            //      est additif (peut être appelé plusieurs fois).
+            //
+            // Politique : aucune des deux passes n'est obligatoire.
+            // Si rien n'est chargé, on continue quand même — le user
+            // peut toujours passer ca_cert explicitement, ou faire
+            // verify=false. Un fail dur ici casserait des usages
+            // légitimes (TLS sans verify, ou serveur interne avec
+            // ca_cert fourni).
+            //
+            // Passe 1 : chemins compile-time + env vars
             if (SSL_CTX_set_default_verify_paths(ctx) != 1)
             {
-                g_tls_init_err = format_tls_error(
-                    "set_default_verify_paths failed");
-                SSL_CTX_free(ctx);
-                g_tls_init_success = false;
-                return;
+                // Pas fatal. On vide la pile d'erreur pour que les
+                // prochains appels OpenSSL ne ramassent pas cette
+                // erreur résiduelle.
+                ERR_clear_error();
+            }
+
+            // Passe 2 : probing des emplacements connus.
+            // Le premier qui marche s'arrête (les CA system sont
+            // typiquement le même contenu partout, pas besoin de
+            // charger plusieurs sources).
+            struct CABundleCandidate
+            {
+                const char *file;
+                const char *dir;
+            };
+            static const CABundleCandidate candidates[] = {
+                // Debian / Ubuntu / Arch / Alpine / Gentoo
+                {"/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/certs"},
+                // Fedora / RHEL / CentOS / Rocky / Alma
+                {"/etc/pki/tls/certs/ca-bundle.crt", "/etc/pki/tls/certs"},
+                // OpenSUSE
+                {"/etc/ssl/ca-bundle.pem", nullptr},
+                {"/var/lib/ca-certificates/ca-bundle.pem", nullptr},
+                // FreeBSD (security/ca_root_nss)
+                {"/usr/local/etc/ssl/cert.pem", "/usr/local/etc/ssl/certs"},
+                // NetBSD
+                {"/etc/openssl/certs/ca-certificates.crt",
+                 "/etc/openssl/certs"},
+            };
+
+            for (const auto &c : candidates)
+            {
+                const char *use_file = nullptr;
+                const char *use_dir = nullptr;
+                if (c.file && ::access(c.file, R_OK) == 0)
+                {
+                    use_file = c.file;
+                }
+                if (c.dir)
+                {
+                    struct stat st;
+                    if (::stat(c.dir, &st) == 0 && S_ISDIR(st.st_mode))
+                    {
+                        use_dir = c.dir;
+                    }
+                }
+                if (use_file == nullptr && use_dir == nullptr)
+                {
+                    continue;
+                }
+                if (SSL_CTX_load_verify_locations(ctx, use_file, use_dir)
+                    == 1)
+                {
+                    break; // CA chargé, stop le probing
+                }
+                // Échec sur ce chemin (rare : fichier illisible,
+                // format inconnu) : vider l'erreur et essayer le
+                // suivant.
+                ERR_clear_error();
             }
 
             // Vérification activée par défaut (TLS-C : verify=true).

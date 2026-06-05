@@ -1074,7 +1074,24 @@ plain:send("EHLO me.example.com\r\n")
 
 **Politique de vérification de certificat.** Strict par défaut (`verify=true`) : la chaîne est validée contre le trust store système, et le CN/SAN du certificat doit correspondre à `host` (ou `opts.hostname` si fourni). Pour désactiver entièrement la vérification, passer explicitement `verify=false` — il n'y a pas d'entre-deux (pas de mode "chain only, no hostname").
 
-**Trust store système.** `SSL_CTX_set_default_verify_paths()` d'OpenSSL est utilisé, ce qui sur Linux signifie `/etc/ssl/certs/` (géré par le paquet `ca-certificates`). Pas de liste CA bundlée dans le binaire LuaPilot — les mises à jour système s'appliquent automatiquement. Override avec `ca_cert` ou `ca_path` au besoin.
+**Trust store système.** LuaPilot embarque sa propre OpenSSL, donc il
+n'hérite pas automatiquement de la config `ca-certificates` de la
+distro. Pour que `verify=true` fonctionne en l'état, deux mécanismes
+complémentaires sont en place :
+
+  1. L'OpenSSL embarquée est compilée avec `--openssldir=/etc/ssl`,
+     ce qui couvre Arch, Debian, Ubuntu, Alpine, Gentoo, et la
+     plupart des distros qui suivent le chemin `/etc/ssl/certs/`.
+  2. À l'init TLS, LuaPilot sonde une liste d'emplacements de CA
+     bundles connus et charge le premier qui existe. Couvre Fedora,
+     RHEL, CentOS, Rocky, Alma, OpenSUSE, FreeBSD, NetBSD.
+
+Si aucun des deux ne trouve un CA store, l'init TLS réussit quand
+même mais `verify=true` échouera au handshake (le message d'erreur
+nommera le peer non signé). Override le trust store avec `ca_cert`
+ou `ca_path`, ou positionne les variables d'environnement
+`SSL_CERT_FILE` / `SSL_CERT_DIR` (lues par le mécanisme de verify
+paths par défaut d'OpenSSL).
 
 **Versions TLS.** TLS 1.2 minimum par défaut ; TLS 1.3 négocié automatiquement si les deux côtés le supportent. Les protocoles anciens (SSL 3, TLS 1.0, TLS 1.1) sont inconditionnellement rejetés — ils sont cassés, et aucun serveur moderne ne devrait s'y reposer.
 

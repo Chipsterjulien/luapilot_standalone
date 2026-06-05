@@ -1163,11 +1163,23 @@ provided). To disable verification entirely, pass `verify=false`
 explicitly — there is no middle ground (no "chain only, no hostname"
 mode).
 
-**System CA store.** OpenSSL's `SSL_CTX_set_default_verify_paths()` is
-used, which on Linux means `/etc/ssl/certs/` (managed by the
-`ca-certificates` package). No bundled CA list inside the LuaPilot
-binary — system updates apply automatically. Override with `ca_cert` or
-`ca_path` when needed.
+**System CA store.** LuaPilot bundles its own OpenSSL, so it doesn't
+automatically inherit the distro's `ca-certificates` configuration. To
+keep `verify=true` working out of the box, two complementary
+mechanisms are used:
+
+  1. The bundled OpenSSL is compiled with `--openssldir=/etc/ssl`,
+     which covers Arch, Debian, Ubuntu, Alpine, Gentoo, and most
+     `/etc/ssl/certs/`-based distros.
+  2. At TLS init, LuaPilot probes a list of known CA bundle locations
+     and loads the first one that exists. Covers Fedora, RHEL, CentOS,
+     Rocky, Alma, OpenSUSE, FreeBSD, NetBSD.
+
+If neither finds a CA store, TLS init still succeeds but `verify=true`
+will fail at handshake (the error message names the unsigned peer).
+Override the trust store with `ca_cert` or `ca_path`, or set the
+`SSL_CERT_FILE` / `SSL_CERT_DIR` environment variables (read by
+OpenSSL's default verify path mechanism).
 
 **TLS versions.** TLS 1.2 minimum by default; TLS 1.3 is negotiated
 automatically if both sides support it. Older protocols (SSL 3, TLS

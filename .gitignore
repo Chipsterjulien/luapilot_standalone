@@ -3,6 +3,7 @@
 build/
 downloads/
 dist/
+test/
 *.zip
 *.tar.gz
 *.o

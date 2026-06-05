@@ -537,7 +537,15 @@ if [ ! -f "${OPENSSL_PATH_LOCAL}" ]; then
 
     echo "Compilation de openssl ${OPENSSL_VERSION} (peut prendre du temps)..."
     cd "${OPENSSL_BUILD_DIR}/${OPENSSL_DIR}" || exit 1
-    ./Configure no-shared
+    # --openssldir=/etc/ssl : pointe OPENSSLDIR vers l'emplacement
+    # standard sur Arch, Debian, Ubuntu, Alpine, et de nombreuses
+    # autres distros. Sans ça, SSL_CTX_set_default_verify_paths()
+    # cherche les CA dans le chemin par défaut d'OpenSSL upstream
+    # (~/usr/local/ssl) qui n'existe nulle part en pratique →
+    # HTTPS échoue par défaut.
+    # Fedora/RHEL/OpenSUSE/*BSD utilisent d'autres chemins ;
+    # un probing runtime côté socket.cpp les couvre en complément.
+    ./Configure no-shared --openssldir=/etc/ssl
     make clean
     make -j"$(nproc)"
     if [ $? -ne 0 ]; then
