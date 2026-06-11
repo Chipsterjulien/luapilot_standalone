@@ -16,31 +16,34 @@ std::optional<std::string> get_segments(lua_State *L, std::vector<std::string> &
 {
     if (lua_istable(L, 1))
     {
-        if (lua_rawlen(L, 1) < 2)
+        // Itération ordonnée via luaL_len + lua_geti.
+        // lua_next ne garantit PAS l'ordre, même pour la partie array
+        // d'une table — pour un chemin de fichier, ça peut donner
+        // "sous_dossier/fichier.txt/dossier" au lieu de l'ordre
+        // attendu. luaL_len + lua_geti garantit i = 1, 2, ..., n.
+        lua_Integer n = luaL_len(L, 1);
+        if (n < 2)
         {
             return "Table must contain at least two strings";
         }
-
-        lua_pushnil(L);
-        while (lua_next(L, 1) != 0)
+        segments.reserve(static_cast<size_t>(n));
+        for (lua_Integer i = 1; i <= n; ++i)
         {
-            // Pile : ..., table, key, value
-            // Toute sortie anticipée doit pop key+value pour ne pas laisser
-            // de débris au-dessus des valeurs de retour du binding.
+            lua_geti(L, 1, i); // pousse t[i] au sommet
             if (!lua_isstring(L, -1))
             {
-                lua_pop(L, 2);
+                lua_pop(L, 1);
                 return "Table contains non-string elements";
             }
             size_t len;
             const char *segment = lua_tolstring(L, -1, &len);
             if (len == 0)
             {
-                lua_pop(L, 2);
+                lua_pop(L, 1);
                 return "Segments cannot be empty";
             }
             segments.emplace_back(segment, len);
-            lua_pop(L, 1); // pop value, keep key for lua_next
+            lua_pop(L, 1);
         }
     }
     else

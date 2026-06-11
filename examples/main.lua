@@ -3689,6 +3689,103 @@ end
 
 -- =====================================================================
 print("")
+print("=== user ===")
+
+do
+    local U = luapilot.user
+
+    ok("luapilot.user is a table", type(U) == "table")
+    ok("get is a function", type(U.get) == "function")
+    ok("exists is a function", type(U.exists) == "function")
+
+    -- Bad arg types : luaL_error (not nil+err).
+    ok("get() without arg raises",
+        pcall(function() return U.get() end) == false)
+    ok("get({}) raises (wrong type)",
+        pcall(function() return U.get({}) end) == false)
+    ok("get(true) raises (wrong type)",
+        pcall(function() return U.get(true) end) == false)
+    ok("get(1.5) raises (non-integer)",
+        pcall(function() return U.get(1.5) end) == false)
+    ok("get(-1) raises (negative uid)",
+        pcall(function() return U.get(-1) end) == false)
+
+    -- Hardening : a string with an embedded NUL would be truncated
+    -- by getpwnam_r at the first NUL ('root\0evil' seen as 'root').
+    -- That could bypass an upstream identity check. We refuse.
+    ok("get('root\\0evil') raises (NUL byte in name)",
+        pcall(function() return U.get("root\0evil") end) == false)
+
+    -- Hardening : an integer larger than uid_t max (2^32-1 on Linux)
+    -- would be silently truncated by the cast and could match an
+    -- unrelated UID by chance. We refuse explicitly.
+    -- 2^33 = 8589934592 — comfortably above uid_t max but well below
+    -- lua_Integer max (LUA_MAXINTEGER ~ 9.2e18).
+    ok("get(2^33) raises (uid out of range)",
+        pcall(function() return U.get(8589934592) end) == false)
+
+    -- exists() same rules on bad args.
+    ok("exists() without arg raises",
+        pcall(function() return U.exists() end) == false)
+    ok("exists(1.5) raises",
+        pcall(function() return U.exists(1.5) end) == false)
+
+    -- root almost certainly exists on any Linux system the tests run on.
+    -- We use it as the "guaranteed present" anchor.
+    do
+        local u, err = U.get("root")
+        ok("get('root') -> table", type(u) == "table" and err == nil)
+        if type(u) == "table" then
+            ok("  name == 'root'", u.name == "root")
+            ok("  uid is integer", type(u.uid) == "number"
+                and math.type(u.uid) == "integer")
+            ok("  uid == 0", u.uid == 0)
+            ok("  gid is integer", type(u.gid) == "number"
+                and math.type(u.gid) == "integer")
+            ok("  home is string", type(u.home) == "string")
+            ok("  shell is string", type(u.shell) == "string")
+            ok("  gecos is string (may be empty)",
+                type(u.gecos) == "string")
+        end
+    end
+
+    -- Lookup by UID = 0 must return the same user.
+    do
+        local u, err = U.get(0)
+        ok("get(0) -> table (root by uid)",
+            type(u) == "table" and err == nil)
+        if type(u) == "table" then
+            ok("  name == 'root' (uid 0)", u.name == "root")
+        end
+    end
+
+    -- Almost-certainly-absent user. We use a deliberately weird
+    -- string that is extremely unlikely to clash with a real account.
+    local missing = "luapilot_test_user_xyz_9j3hf83hf"
+    do
+        local u, err = U.get(missing)
+        ok("get(missing) -> (nil, 'user not found')",
+            u == nil and err == "user not found")
+    end
+
+    -- Same for an unlikely UID. UIDs in [0, 65535] are common but
+    -- 2_000_000_000 is extremely unlikely to be assigned.
+    do
+        local u, err = U.get(2000000000)
+        ok("get(very-high-uid) -> (nil, 'user not found')",
+            u == nil and err == "user not found")
+    end
+
+    -- exists() : pure boolean, no second return value to worry about.
+    ok("exists('root') == true", U.exists("root") == true)
+    ok("exists(0) == true (uid)", U.exists(0) == true)
+    ok("exists(missing) == false", U.exists(missing) == false)
+    ok("exists(2000000000) == false",
+        U.exists(2000000000) == false)
+end
+
+-- =====================================================================
+print("")
 print("=== inotify ===")
 
 do

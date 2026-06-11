@@ -46,6 +46,7 @@
 #include "lua_bindings/time_clock.hpp"
 #include "lua_bindings/toml.hpp"
 #include "lua_bindings/touch.hpp"
+#include "lua_bindings/user.hpp"
 #include "lua_bindings/workers.hpp"
 #include "lua_bindings/fileIterator.hpp"
 
@@ -268,6 +269,13 @@ void register_luapilot(lua_State *L)
     // Sessions à venir : params bind, query lazy iterator. Cf.
     // sqlite.hpp pour le design figé.
     register_sqlite(L);
+
+    // Sous-table luapilot.user (get/exists) pour les lookups
+    // utilisateur via NSS (getpwnam_r/getpwuid_r). Couvre LDAP,
+    // SSSD, NIS+, etc. — pas une lecture directe de /etc/passwd.
+    // Précondition de pile identique (table luapilot au sommet).
+    // Cf. user.hpp pour le design.
+    register_user(L);
 
     lua_setglobal(L, "luapilot");
 

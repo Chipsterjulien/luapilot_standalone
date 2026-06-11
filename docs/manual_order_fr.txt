@@ -1,0 +1,40 @@
+# Manuel LuaPilot — ordre des fichiers FR pour pandoc
+#
+# Les lignes commençant par `#` sont ignorées.
+# Les lignes vides sont ignorées.
+# Chaque ligne non commentée est un chemin relatif à la racine du repo.
+#
+# Édite ce fichier pour ajouter ou réordonner des chapitres. Le
+# Makefile de ce dossier le lit pour passer les fichiers à pandoc
+# dans le bon ordre.
+
+# --- Index + Pour démarrer --------------------------------------
+docs/fr/README.md
+docs/fr/getting-started.md
+docs/fr/security.md
+
+# --- Modules ----------------------------------------------------
+# Ordre alphabétique. Réordonne librement si tu préfères un
+# regroupement logique (réseau ensemble, formats de données
+# ensemble).
+
+docs/fr/modules/argparse.md
+docs/fr/modules/fs.md
+docs/fr/modules/http.md
+docs/fr/modules/inotify.md
+docs/fr/modules/json.md
+docs/fr/modules/logging.md
+docs/fr/modules/signal.md
+docs/fr/modules/socket.md
+docs/fr/modules/sqlite.md
+docs/fr/modules/strings.md
+docs/fr/modules/sys.md
+docs/fr/modules/tables.md
+docs/fr/modules/time.md
+docs/fr/modules/tls.md
+docs/fr/modules/toml.md
+docs/fr/modules/user.md
+docs/fr/modules/workers.md
+
+# --- Cookbook ---------------------------------------------------
+docs/fr/cookbook.md

@@ -23,21 +23,48 @@ int lua_mergeTables(lua_State* L) {
     lua_newtable(L);
     int resultTableIndex = lua_gettop(L);
 
-    // Function to copy elements from a source table to a destination table
+    // Function to copy elements from a source table to a destination table.
+    //
+    // Two-pass strategy :
+    //   1) Partie array : itération ordonnée 1..n via lua_rawgeti, pour
+    //      garantir que mergeTables({1,2}, {3,4}) donne {1,2,3,4} et
+    //      pas une permutation. lua_next sur la partie array d'une
+    //      table ne garantit PAS l'ordre.
+    //   2) Partie hash : lua_next pour les clés non-array (string ou
+    //      number hors de [1, n]). Les clés integer dans [1, n] sont
+    //      déjà traitées par la passe 1, on les saute.
     auto copyTable = [](lua_State *L, int srcIndex, int destIndex, int &nextIndex) {
-        lua_pushnil(L); // First key
-        while (lua_next(L, srcIndex) != 0) {
-            if (lua_type(L, -2) == LUA_TNUMBER) {
-                // Numeric key, add to the end of the list
-                lua_pushvalue(L, -1);                   // Copy value
-                lua_rawseti(L, destIndex, nextIndex++); // Add to the end of the destination table
-            } else {
-                // Non-numeric key, copy normally
-                lua_pushvalue(L, -2);       // Copy key
-                lua_pushvalue(L, -2);       // Copy value
-                lua_settable(L, destIndex); // Insert into the destination table
+        // --- Passe 1 : partie array, ordonnée ---
+        lua_Integer n = luaL_len(L, srcIndex);
+        for (lua_Integer i = 1; i <= n; ++i)
+        {
+            lua_rawgeti(L, srcIndex, i);             // pousse t[i]
+            lua_rawseti(L, destIndex, nextIndex++);  // dest[next] = t[i], pop
+        }
+
+        // --- Passe 2 : partie hash ---
+        lua_pushnil(L); // first key
+        while (lua_next(L, srcIndex) != 0)
+        {
+            // Pile : ..., key, value
+            // On saute les clés integer dans [1, n] (déjà copiées
+            // par la passe 1).
+            if (lua_type(L, -2) == LUA_TNUMBER && lua_isinteger(L, -2))
+            {
+                lua_Integer k = lua_tointeger(L, -2);
+                if (k >= 1 && k <= n)
+                {
+                    lua_pop(L, 1); // pop value, keep key for lua_next
+                    continue;
+                }
             }
-            lua_pop(L, 1); // Remove value, keep key for lua_next
+            // Clé non-array (string, float, integer hors range) :
+            // on copie key+value et on settable. lua_settable
+            // pop key+value, donc on dup les deux avant.
+            lua_pushvalue(L, -2);       // dup key
+            lua_pushvalue(L, -2);       // dup value
+            lua_settable(L, destIndex); // dest[key] = value, pop 2
+            lua_pop(L, 1);              // pop original value, keep key
         }
     };
 

@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <cerrno>
+#include <limits>
 
 namespace fs = std::filesystem;
 
@@ -69,6 +70,19 @@ int lua_setattr(lua_State *L)
     if (owner_raw < 0 || group_raw < 0)
     {
         return push_fail(L, "UID and GID must be non-negative");
+    }
+
+    // Borne haute : uid_t / gid_t sont typiquement uint32_t sous Linux,
+    // mais lua_Integer est int64_t. Sans ce check, une valeur > 2^32-1
+    // serait silencieusement tronquée par le static_cast. Pire scénario :
+    // 4294967296 → 0 (root). Faille d'élévation de privilèges si l'UID
+    // vient d'une source externe.
+    using uid_limits = std::numeric_limits<uid_t>;
+    using gid_limits = std::numeric_limits<gid_t>;
+    if (static_cast<unsigned long long>(owner_raw) > uid_limits::max() ||
+        static_cast<unsigned long long>(group_raw) > gid_limits::max())
+    {
+        return push_fail(L, "UID or GID out of range");
     }
 
     uid_t owner = static_cast<uid_t>(owner_raw);

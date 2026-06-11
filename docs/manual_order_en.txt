@@ -1,0 +1,38 @@
+# LuaPilot manual — EN file order for pandoc
+#
+# Lines starting with `#` are ignored.
+# Empty lines are ignored.
+# Each non-comment line is a path relative to the repo root.
+#
+# Edit this file to add/reorder chapters. The Makefile in this
+# directory reads it to feed pandoc in the right order.
+
+# --- Index + getting started ------------------------------------
+docs/en/README.md
+docs/en/getting-started.md
+docs/en/security.md
+
+# --- Modules ----------------------------------------------------
+# Alphabetical order. Reorder freely if you prefer a logical
+# grouping (e.g. networking together, data formats together).
+
+docs/en/modules/argparse.md
+docs/en/modules/fs.md
+docs/en/modules/http.md
+docs/en/modules/inotify.md
+docs/en/modules/json.md
+docs/en/modules/logging.md
+docs/en/modules/signal.md
+docs/en/modules/socket.md
+docs/en/modules/sqlite.md
+docs/en/modules/strings.md
+docs/en/modules/sys.md
+docs/en/modules/tables.md
+docs/en/modules/time.md
+docs/en/modules/tls.md
+docs/en/modules/toml.md
+docs/en/modules/user.md
+docs/en/modules/workers.md
+
+# --- Cookbook ---------------------------------------------------
+docs/en/cookbook.md

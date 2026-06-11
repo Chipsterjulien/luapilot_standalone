@@ -1,0 +1,197 @@
+> **English** | [Français](../../fr/modules/workers.md)
+
+# `luapilot.workers` — parallel jobs
+
+Run Lua code on real OS threads. Useful for I/O-bound work that
+benefits from concurrency (fetching many URLs, scanning many
+files, processing batches) and CPU-bound work on multi-core
+hardware.
+
+## Why
+
+Lua has coroutines, but those run cooperatively on a single OS
+thread — fine for state machines, not for using multiple cores.
+And many tasks are I/O-bound : 100 HTTP requests that each take
+500 ms still take 50 s sequentially, but ~500 ms in parallel.
+
+`luapilot.workers` spawns real OS threads each running their own
+isolated Lua state, communicating with the parent via passed-in
+arguments and return values. No shared state means no locks,
+no data races — just send work in, get results out.
+
+## API
+
+| Function | Returns |
+| --- | --- |
+| `luapilot.workers.spawn(code, args?)` | `job` (userdata) \| `(nil, err)` |
+| `luapilot.workers.cpu_count()` | `integer` — number of logical CPUs |
+| `job:join(timeout?)` | `(true, result)` \| `(false, err)` \| `(nil, "timeout")` |
+| `job:done()` | `boolean` — non-blocking check |
+| `job:cancel()` | `(true, nil)` — cooperative ; sets a flag |
+
+### `code` argument
+
+A Lua source string that runs in the worker. The full `luapilot`
+namespace is available, plus a `worker` global with :
+
+- `worker.args` — the second argument passed to `spawn`.
+- `worker.cancelled()` — returns `true` if the parent called
+  `job:cancel()`. The worker is expected to check this in long
+  loops.
+
+The worker's last expression value (or `return value`) is what
+`join()` returns as `result`.
+
+### `args` argument
+
+Any value that can be deep-copied between Lua states : `nil`,
+booleans, numbers, strings, tables of the same. **Not** : functions,
+userdata, threads, tables with cycles. Tables are deep-copied — no
+sharing.
+
+## Quick examples
+
+### Parallel HTTP fetches
+
+```lua
+local urls = {
+    "https://a.example/",
+    "https://b.example/",
+    "https://c.example/",
+    "https://d.example/",
+}
+
+local jobs = {}
+for i, url in ipairs(urls) do
+    jobs[i] = luapilot.workers.spawn([[
+        local url = worker.args.url
+        local r, err = luapilot.http.get(url, { timeout = 10 })
+        if not r then return { ok = false, err = err } end
+        return { ok = true, status = r.status, length = #r.body }
+    ]], { url = url })
+end
+
+for i, job in ipairs(jobs) do
+    local ok, result = job:join()
+    if ok then
+        print(i, result.status or result.err)
+    else
+        print(i, "worker crashed:", result)
+    end
+end
+```
+
+### CPU-bound work with cancellation
+
+```lua
+local n = luapilot.workers.cpu_count()
+print("running on", n, "cores")
+
+local jobs = {}
+for i = 1, n do
+    jobs[i] = luapilot.workers.spawn([[
+        local chunk = worker.args.chunk
+        local total = 0
+        for x = chunk.from, chunk.to do
+            if x % 1000 == 0 and worker.cancelled() then
+                return { cancelled = true, partial = total }
+            end
+            total = total + heavy_compute(x)
+        end
+        return { total = total }
+    ]], { chunk = { from = i * 1000, to = (i + 1) * 1000 - 1 } })
+end
+
+-- ... later, if needed:
+-- for _, j in ipairs(jobs) do j:cancel() end
+```
+
+### Worker pool pattern
+
+```lua
+local function map_parallel(items, code, max_concurrent)
+    max_concurrent = max_concurrent or luapilot.workers.cpu_count()
+    local results = {}
+    local i = 1
+    local active = {}
+
+    while i <= #items or next(active) do
+        -- launch as many as we can
+        while i <= #items and #active < max_concurrent do
+            active[#active + 1] = {
+                index = i,
+                job = luapilot.workers.spawn(code, { item = items[i] }),
+            }
+            i = i + 1
+        end
+        -- harvest any finished
+        for k = #active, 1, -1 do
+            local entry = active[k]
+            if entry.job:done() then
+                local ok, result = entry.job:join()
+                results[entry.index] = ok and result or { err = result }
+                table.remove(active, k)
+            end
+        end
+        if next(active) then luapilot.sleep(10, "ms") end
+    end
+    return results
+end
+```
+
+## Error contract
+
+- **`spawn`** : `(nil, err)` if the OS thread can't be created
+  (rare — usually resource limits).
+- **`join`** :
+  - `(true, result)` — worker completed normally ; `result` is
+    its return value (or `nil` if it didn't return).
+  - `(false, err)` — worker crashed with an uncaught error ;
+    `err` is the error message + traceback.
+  - `(nil, "timeout")` — `timeout` elapsed without the worker
+    finishing.
+- **`cancel`** never fails. The flag is set ; the worker may take
+  a while to notice (it must call `worker.cancelled()`).
+- **Wrong argument types** → raises via `luaL_error`.
+
+## Sharing data
+
+Workers don't share Lua state. Communication is :
+
+- **In** : via the `args` second argument to `spawn` (deep-copied
+  into the worker's state).
+- **Out** : via the worker's return value (deep-copied back).
+- **Side effects** : a worker can write to a file, append to a
+  log, query a database — but coordination through such side
+  effects is the script's responsibility.
+
+If two workers write to the same SQLite file, set `wal=true` on
+`open` so they don't lock each other out. SQLite handles the
+synchronisation correctly with WAL ; in `busy_timeout` you can
+configure how long to wait on a busy db.
+
+## Design decisions
+
+- **One Lua state per worker, no sharing**. The alternative —
+  shared state with locks — is a well-known source of subtle bugs
+  and we don't think Lua-level locks are worth the design effort
+  at this layer. Pure message-passing is simpler.
+- **No global thread pool**. Each `spawn` creates a fresh OS
+  thread, each `join` closes it. For tight loops, build a pool
+  in Lua (see example above). The simpler model wins on
+  legibility.
+- **Cooperative cancellation, not preemptive**. There's no way to
+  forcibly stop a Lua thread in the middle of an operation
+  without leaving the runtime in an undefined state.
+  `worker.cancelled()` returns `true` ; the worker is responsible
+  for checking it periodically.
+- **`luapilot.signal` is not available in workers**. Signals are
+  process-wide ; only the main thread can sensibly own them.
+
+## Not in v1
+
+- Channels (FIFO queues between workers). Add later if a use
+  case shows the pattern is common.
+- Shared memory (mmap). Same.
+- Async I/O futures (`spawn().then(...)` style). Out of scope ;
+  use a polling loop or `done()` checks.

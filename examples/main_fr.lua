@@ -3604,6 +3604,99 @@ end
 
 -- =====================================================================
 print("")
+print("=== user ===")
+
+do
+    local U = luapilot.user
+
+    ok("luapilot.user est une table", type(U) == "table")
+    ok("get est une fonction", type(U.get) == "function")
+    ok("exists est une fonction", type(U.exists) == "function")
+
+    -- Mauvais type d'argument : luaL_error (pas (nil, err)).
+    ok("get() sans arg leve",
+        pcall(function() return U.get() end) == false)
+    ok("get({}) leve (mauvais type)",
+        pcall(function() return U.get({}) end) == false)
+    ok("get(true) leve (mauvais type)",
+        pcall(function() return U.get(true) end) == false)
+    ok("get(1.5) leve (non-integer)",
+        pcall(function() return U.get(1.5) end) == false)
+    ok("get(-1) leve (uid negatif)",
+        pcall(function() return U.get(-1) end) == false)
+
+    -- Durcissement : une string avec NUL embarque serait tronquee
+    -- par getpwnam_r au premier NUL ('root\0evil' vu comme 'root'),
+    -- ce qui pourrait contourner une verification de l'appelant.
+    -- On refuse.
+    ok("get('root\\0evil') leve (NUL byte dans le nom)",
+        pcall(function() return U.get("root\0evil") end) == false)
+
+    -- Durcissement : un integer > uid_t max (2^32-1 sur Linux)
+    -- serait silencieusement tronque au cast et pourrait matcher
+    -- un UID non lie par hasard. On refuse explicitement.
+    -- 2^33 = 8589934592 — bien au-dessus de uid_t max mais loin
+    -- en-dessous de lua_Integer max (~9.2e18).
+    ok("get(2^33) leve (uid hors limite)",
+        pcall(function() return U.get(8589934592) end) == false)
+
+    ok("exists() sans arg leve",
+        pcall(function() return U.exists() end) == false)
+    ok("exists(1.5) leve",
+        pcall(function() return U.exists(1.5) end) == false)
+
+    -- root est presque toujours present sur un Linux : ancre fiable.
+    do
+        local u, err = U.get("root")
+        ok("get('root') -> table", type(u) == "table" and err == nil)
+        if type(u) == "table" then
+            ok("  name == 'root'", u.name == "root")
+            ok("  uid est integer", type(u.uid) == "number"
+                and math.type(u.uid) == "integer")
+            ok("  uid == 0", u.uid == 0)
+            ok("  gid est integer", type(u.gid) == "number"
+                and math.type(u.gid) == "integer")
+            ok("  home est string", type(u.home) == "string")
+            ok("  shell est string", type(u.shell) == "string")
+            ok("  gecos est string (peut etre vide)",
+                type(u.gecos) == "string")
+        end
+    end
+
+    -- Lookup par UID == 0 doit donner le meme utilisateur.
+    do
+        local u, err = U.get(0)
+        ok("get(0) -> table (root par uid)",
+            type(u) == "table" and err == nil)
+        if type(u) == "table" then
+            ok("  name == 'root' (uid 0)", u.name == "root")
+        end
+    end
+
+    -- Utilisateur quasi certainement absent.
+    local missing = "luapilot_test_user_xyz_9j3hf83hf"
+    do
+        local u, err = U.get(missing)
+        ok("get(missing) -> (nil, 'user not found')",
+            u == nil and err == "user not found")
+    end
+
+    do
+        local u, err = U.get(2000000000)
+        ok("get(uid tres haut) -> (nil, 'user not found')",
+            u == nil and err == "user not found")
+    end
+
+    -- exists() : booleen strict.
+    ok("exists('root') == true", U.exists("root") == true)
+    ok("exists(0) == true (uid)", U.exists(0) == true)
+    ok("exists(missing) == false", U.exists(missing) == false)
+    ok("exists(2000000000) == false",
+        U.exists(2000000000) == false)
+end
+
+-- =====================================================================
+print("")
 print("=== inotify ===")
 
 do
