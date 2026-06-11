@@ -26,6 +26,8 @@ additions.
 | `luapilot.which(cmd)` | `string` (absolute path) \| `(nil, "not found")` |
 | `luapilot.env(name)` | `string` \| `nil` — like `os.getenv`, but consistent |
 | `luapilot.setenv(name, value)` | `(true, nil)` \| `(nil, err)` |
+| `luapilot.getMemoryUsage()` | `integer` — Lua VM memory in bytes (after a full GC) |
+| `luapilot.getDetailedMemoryUsage()` | `(integer, integer)` — currently both equal the GC count in bytes ; kept as two returns for API stability |
 
 ## Quick example
 
@@ -44,6 +46,11 @@ end
 -- Read/write env
 print("HOME:", luapilot.env("HOME"))
 luapilot.setenv("MY_VAR", "value")
+
+-- Memory introspection (forces a full GC first)
+print("Lua VM memory:", luapilot.getMemoryUsage(), "bytes")
+local a, b = luapilot.getDetailedMemoryUsage()
+print("Detailed:", a, b)
 ```
 
 ## Error contract

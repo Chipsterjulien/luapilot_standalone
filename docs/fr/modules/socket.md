@@ -25,7 +25,7 @@ ligne.
 | Fonction | Renvoie |
 | --- | --- |
 | `luapilot.socket.connect(host, port, opts?)` | `socket` \| `(nil, err)` |
-| `luapilot.socket.bind(host, port, opts?)` | `server_socket` \| `(nil, err)` |
+| `luapilot.socket.listen(host, port, opts?)` | `server_socket` \| `(nil, err)` |
 
 `opts` :
 
@@ -78,7 +78,7 @@ s:close()
 
 ```lua
 local sig = luapilot.signal
-local srv = assert(luapilot.socket.bind("0.0.0.0", 4000))
+local srv = assert(luapilot.socket.listen("0.0.0.0", 4000))
 local running = true
 sig.handle("TERM", function() running = false end)
 sig.handle("INT", function() running = false end)

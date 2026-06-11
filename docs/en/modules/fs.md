@@ -5,7 +5,7 @@
 A flat set of file system operations exposed directly on `luapilot`
 (no sub-namespace, predates the convention). Covers the everyday
 needs that Lua's `os.*` and `io.*` don't : recursive listing, copy
-with attributes, hashing, attributes, links.
+with attributes, hashing, path manipulation, attributes, links.
 
 ## Why
 
@@ -29,9 +29,11 @@ needed. Functions never expand globs ; for glob support, use
 | `luapilot.isfile(path)` | `boolean` (true only for regular files) |
 | `luapilot.isdir(path)` | `boolean` |
 | `luapilot.fileSize(path)` | `integer` bytes \| `(nil, err)` |
-| `luapilot.attributes(path)` | `table` with `mtime`, `mode`, `size`, `uid`, `gid`, `inode`, etc. \| `(nil, err)` |
-| `luapilot.symlinkattr(path)` | same shape as `attributes`, but `lstat` (does not follow symlinks) \| `(nil, err)` |
-| `luapilot.mode(path)` | octal `integer` \| `(nil, err)` — shortcut for `attributes(path).mode` |
+| `luapilot.getAttributes(path)` | `table` with `mtime`, `mode`, `size`, `uid`, `gid`, `inode`, etc. \| `(nil, err)` |
+| `luapilot.setAttributes(path, uid, gid, mode?)` | `(true, nil)` \| `(nil, err)` — set owner/group, optionally mode |
+| `luapilot.symlinkattr(path)` | same shape as `getAttributes`, but `lstat` (does not follow symlinks) \| `(nil, err)` |
+| `luapilot.getMode(path)` | octal `integer` \| `(nil, err)` |
+| `luapilot.setMode(path, mode)` | `(true, nil)` \| `(nil, err)` — `mode` is an integer (use `0x1ed` for `0755`, or build it with `tonumber("755", 8)`) |
 
 ## API — Creating, removing, moving
 
@@ -45,17 +47,27 @@ needed. Functions never expand globs ; for glob support, use
 | `luapilot.rename(old, new)` | `(true, nil)` \| `(nil, err)` |
 | `luapilot.chdir(path)` | `(true, nil)` \| `(nil, err)` |
 | `luapilot.currentDir()` | `string` (absolute) |
-| `luapilot.joinPath(a, b, ...)` | `string` — like `path/a/b/c` |
+| `luapilot.joinPath(a, b, ...)` | `string` — like `path/a/b/c` ; also accepts a single table of segments |
 | `luapilot.link(target, link, opts?)` | `(true, nil)` \| `(nil, err)` — `opts.symbolic = true` for symlinks |
+
+## API — Path manipulation
+
+These operate on path *strings* — they don't touch the filesystem.
+
+| Function | Returns | Example |
+| --- | --- | --- |
+| `luapilot.getBasename(path)` | `string` \| `(nil, err)` — last component | `"/etc/hostname"` → `"hostname"` |
+| `luapilot.getPath(path)` | `string` \| `(nil, err)` — parent dir (dirname) | `"/etc/hostname"` → `"/etc"` |
+| `luapilot.getFilename(path)` | `string` \| `(nil, err)` — basename without extension | `"report.tar.gz"` → `"report.tar"` |
+| `luapilot.getExtension(path)` | `string` \| `(nil, err)` — final extension | `"report.tar.gz"` → `".gz"` |
 
 ## API — Listing and finding
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.listDir(path)` | `table` (array of entry names, no `.` / `..`) \| `(nil, err)` |
-| `luapilot.listFiles(path)` | `table` (only regular files) \| `(nil, err)` |
+| `luapilot.listFiles(path)` | `table` (regular files in `path`) \| `(nil, err)` |
 | `luapilot.find(path, opts)` | iterator function, see below |
-| `luapilot.fileIterator(path)` | iterator function over directory entries |
+| `luapilot.createFileIterator(path)` | iterator function over directory entries |
 
 `find` accepts `opts` :
 
@@ -80,20 +92,20 @@ needed. Functions never expand globs ; for glob support, use
 ## API — Hashes and checksums
 
 Hash digests of file contents. Result is **lowercase hex string**
-unless noted.
+unless noted. Note the `sum` suffix — these are the registered
+names in `luapilot.*`.
 
 | Function | Algorithm |
 | --- | --- |
-| `luapilot.md5(path)` | MD5 |
-| `luapilot.sha1(path)` | SHA-1 |
-| `luapilot.sha256(path)` | SHA-256 |
-| `luapilot.sha384(path)` | SHA-384 |
-| `luapilot.sha512(path)` | SHA-512 |
-| `luapilot.sha3_256(path)` | SHA3-256 |
-| `luapilot.sha3_384(path)` | SHA3-384 |
-| `luapilot.sha3_512(path)` | SHA3-512 |
-| `luapilot.blake2s(path)` | BLAKE2s-256 |
-| `luapilot.blake2b(path)` | BLAKE2b-512 |
+| `luapilot.md5sum(path)` | MD5 |
+| `luapilot.sha1sum(path)` | SHA-1 |
+| `luapilot.sha256sum(path)` | SHA-256 |
+| `luapilot.sha384sum(path)` | SHA-384 |
+| `luapilot.sha512sum(path)` | SHA-512 |
+| `luapilot.sha3_256sum(path)` | SHA3-256 |
+| `luapilot.sha3_384sum(path)` | SHA3-384 |
+| `luapilot.sha3_512sum(path)` | SHA3-512 |
+| `luapilot.blake2b512sum(path)` | BLAKE2b-512 |
 
 Each returns `string` (hex) or `(nil, err)`. MD5 and SHA-1 are
 exposed for compatibility (Git, legacy systems) — don't use them
@@ -107,26 +119,42 @@ if luapilot.isdir("/etc") and luapilot.fileExists("/etc/hostname") then
     print("size:", luapilot.fileSize("/etc/hostname"))
 end
 
+-- Path manipulation (pure string ops)
+local base = luapilot.getBasename("/var/log/syslog.1")  -- "syslog.1"
+local dir  = luapilot.getPath("/var/log/syslog.1")      -- "/var/log"
+local ext  = luapilot.getExtension("/var/log/syslog.1") -- ".1"
+
 -- Recursive listing
-for entry in luapilot.find("/var/log", { pattern = "*.log", type = "f", recursive = true }) do
+for entry in luapilot.find("/var/log",
+        { pattern = "*.log", type = "f", recursive = true }) do
     print(entry)
 end
 
 -- Copy with attributes
-luapilot.copyTree("./src", "/tmp/backup", { preserve = true, overwrite = true })
+luapilot.copyTree("./src", "/tmp/backup",
+                  { preserve = true, overwrite = true })
 
 -- Hash a release tarball
-local sha, err = luapilot.sha256("/tmp/luapilot-1.7.0.tar.gz")
+local sha, err = luapilot.sha256sum("/tmp/luapilot-1.7.0.tar.gz")
 if sha then print("SHA256:", sha) end
+
+-- Set ownership and permissions
+local mode_755 = tonumber("755", 8)  -- octal -> integer
+assert(luapilot.setMode("/srv/myapp/run.sh", mode_755))
+-- root only:
+-- assert(luapilot.setAttributes("/srv/myapp", 1000, 1000))
 ```
 
 ## Error contract
 
 - All functions follow the `(nil, err)` convention on runtime
   failure (no such file, permission denied, etc.).
-- Wrong argument **types** raise via `luaL_error` (passing a
-  number where a path is expected after coercion has weird
-  semantics).
+- Wrong argument **types** raise via `luaL_error`.
+- **`setAttributes(path, uid, gid)`** rejects negative UIDs/GIDs
+  and values above `uid_t`/`gid_t` max (typically `2^32 - 1`).
+  Without that upper-bound check, a value above the limit would
+  truncate silently — worst case to UID 0 (root). Same logic as
+  the [`user`](user.md) module.
 - Path safety : `copy`, `copyTree`, `moveTree` use
   `lexically_relative()` and component-wise `is_within()` guards
   to prevent symlink-based escapes out of the destination tree.
@@ -134,13 +162,22 @@ if sha then print("SHA256:", sha) end
 
 ## Design decisions
 
-- **Flat namespace** : `fileExists` instead of `fs.exists`. Pure
-  historical reason — these functions predate the per-module
-  convention. Stable now ; renaming would break every script.
-- **Hashes operate on file paths**, not raw bytes. The common
-  case is "hash this file", so the API takes a path. For raw
-  bytes, the openssl-based implementation is internal — pull
-  request welcome if a use case emerges.
+- **Flat namespace** : `fileExists` instead of `fs.exists`,
+  `getAttributes` instead of `fs.attr.get`. Pure historical
+  reason — these functions predate the per-module convention.
+  Stable now ; renaming would break every script.
+- **`get*` / `set*` for path attributes** (`getMode`/`setMode`,
+  `getAttributes`/`setAttributes`) but plain verbs for FS
+  actions (`remove`, `touch`, `mkdir`). The "get/set" pairs
+  exist because both directions are needed ; the others are
+  single-direction operations.
+- **Path manipulation is separate from FS access**.
+  `getBasename`, `getPath`, etc. operate on strings only — they
+  don't stat the path. Use `fileExists` if you need to know
+  whether the path actually exists.
+- **Hashes have a `sum` suffix** to match the standard Unix
+  tools (`md5sum`, `sha256sum`, etc.). Discoverable for anyone
+  familiar with the command line.
 - **`copy` is single-file, `copyTree` is recursive**. Lua doesn't
   have function overloading by type, so splitting them avoids the
   ambiguity "did `copy('dir', 'dir')` mean recursive or not ?".
@@ -151,3 +188,4 @@ if sha then print("SHA256:", sha) end
   `find` with `pattern = "*.lua"` for the common case.
 - Async I/O. Use [`workers`](workers.md) for parallel file
   processing instead.
+- BLAKE2s (only BLAKE2b-512 is exposed via OpenSSL EVP).

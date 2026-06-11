@@ -26,6 +26,8 @@ adoptée pour les ajouts récents.
 | `luapilot.which(cmd)` | `string` (chemin absolu) \| `(nil, "not found")` |
 | `luapilot.env(name)` | `string` \| `nil` — comme `os.getenv`, en cohérent |
 | `luapilot.setenv(name, value)` | `(true, nil)` \| `(nil, err)` |
+| `luapilot.getMemoryUsage()` | `integer` — mémoire de la VM Lua en octets (après un GC complet) |
+| `luapilot.getDetailedMemoryUsage()` | `(integer, integer)` — actuellement les deux valeurs sont égales au compteur GC en octets ; gardé en deux retours pour la stabilité d'API |
 
 ## Exemple rapide
 
@@ -44,6 +46,11 @@ end
 -- Lire/écrire env
 print("HOME :", luapilot.env("HOME"))
 luapilot.setenv("MY_VAR", "value")
+
+-- Introspection mémoire (force un GC complet d'abord)
+print("Mémoire VM Lua :", luapilot.getMemoryUsage(), "octets")
+local a, b = luapilot.getDetailedMemoryUsage()
+print("Détaillé :", a, b)
 ```
 
 ## Contrat d'erreur

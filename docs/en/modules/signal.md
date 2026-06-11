@@ -24,7 +24,7 @@ leaving open files, half-written databases, and orphaned children.
 | --- | --- |
 | `luapilot.signal.handle(name, fn)` | `(true, nil)` \| `(nil, err)` — install Lua callback |
 | `luapilot.signal.ignore(name)` | `(true, nil)` \| `(nil, err)` — set to `SIG_IGN` |
-| `luapilot.signal.restore_default(name)` | `(true, nil)` \| `(nil, err)` — back to OS default |
+| `luapilot.signal.default(name)` | `(true, nil)` \| `(nil, err)` — back to OS default |
 | `luapilot.signal.kill(pid, name)` | `(true, nil)` \| `(nil, err)` — send signal to PID |
 | `luapilot.signal.list()` | `table` of all supported signal names |
 | `luapilot.signal.is_pending()` | `boolean` — any handled signal queued ? |

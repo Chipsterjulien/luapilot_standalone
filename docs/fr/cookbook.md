@@ -48,8 +48,7 @@ utilisateur non-root.
 ```lua
 local function ensure_user(name)
     if luapilot.user.exists(name) then return true end
-    local ok, err = luapilot.exec({
-        "useradd",
+    local ok, err = luapilot.exec("useradd", {
         "--system",
         "--home-dir", "/var/lib/" .. name,
         "--create-home",

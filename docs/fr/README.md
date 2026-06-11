@@ -22,6 +22,7 @@ Chaque module vit dans son propre fichier sous [`modules/`](modules/) :
 | Module | Rôle |
 | --- | --- |
 | [`argparse`](modules/argparse.md) | Parseur d'arguments de ligne de commande. |
+| [`exec`](modules/exec.md) | Exécuter des programmes externes et capturer la sortie. |
 | [`fs`](modules/fs.md) | Système de fichiers : listing, copie, hash, attrs. |
 | [`http`](modules/http.md) | Client HTTP (basé sur cpp-httplib). |
 | [`inotify`](modules/inotify.md) | Surveillance d'événements fichier (`inotify(7)`). |
@@ -57,7 +58,7 @@ Le manuel peut être exporté en un seul PDF :
 
 ```sh
 cd docs
-make manual-fr.pdf   # utilise pandoc + LaTeX
+./build_doc.sh         # utilise pandoc + LaTeX
 ```
 
 Voir [`docs/manual_order_fr.txt`](../manual_order_fr.txt) pour

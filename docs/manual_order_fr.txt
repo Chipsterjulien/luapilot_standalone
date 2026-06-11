@@ -19,6 +19,7 @@ docs/fr/security.md
 # ensemble).
 
 docs/fr/modules/argparse.md
+docs/fr/modules/exec.md
 docs/fr/modules/fs.md
 docs/fr/modules/http.md
 docs/fr/modules/inotify.md

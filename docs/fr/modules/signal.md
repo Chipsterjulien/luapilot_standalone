@@ -25,7 +25,7 @@ et des enfants orphelins.
 | --- | --- |
 | `luapilot.signal.handle(name, fn)` | `(true, nil)` \| `(nil, err)` — installe le callback Lua |
 | `luapilot.signal.ignore(name)` | `(true, nil)` \| `(nil, err)` — met à `SIG_IGN` |
-| `luapilot.signal.restore_default(name)` | `(true, nil)` \| `(nil, err)` — retour au défaut OS |
+| `luapilot.signal.default(name)` | `(true, nil)` \| `(nil, err)` — retour au défaut OS |
 | `luapilot.signal.kill(pid, name)` | `(true, nil)` \| `(nil, err)` — envoie le signal au PID |
 | `luapilot.signal.list()` | `table` de tous les noms de signaux supportés |
 | `luapilot.signal.is_pending()` | `boolean` — y a-t-il un signal géré en file ? |
