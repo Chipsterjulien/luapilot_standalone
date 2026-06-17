@@ -95,21 +95,40 @@ Hash digests of file contents. Result is **lowercase hex string**
 unless noted. Note the `sum` suffix — these are the registered
 names in `luapilot.*`.
 
-| Function | Algorithm |
-| --- | --- |
-| `luapilot.md5sum(path)` | MD5 |
-| `luapilot.sha1sum(path)` | SHA-1 |
-| `luapilot.sha256sum(path)` | SHA-256 |
-| `luapilot.sha384sum(path)` | SHA-384 |
-| `luapilot.sha512sum(path)` | SHA-512 |
-| `luapilot.sha3_256sum(path)` | SHA3-256 |
-| `luapilot.sha3_384sum(path)` | SHA3-384 |
-| `luapilot.sha3_512sum(path)` | SHA3-512 |
-| `luapilot.blake2b512sum(path)` | BLAKE2b-512 |
+| Function | Algorithm | Notes |
+| --- | --- | --- |
+| `luapilot.crc32sum(path)` | CRC-32 (IEEE 802.3) | **Not cryptographic**. For integrity / accidental-error detection only. |
+| `luapilot.md5sum(path)` | MD5 | Legacy. Don't use for security. |
+| `luapilot.sha1sum(path)` | SHA-1 | Legacy. Don't use for security. |
+| `luapilot.sha256sum(path)` | SHA-256 | |
+| `luapilot.sha384sum(path)` | SHA-384 | |
+| `luapilot.sha512sum(path)` | SHA-512 | |
+| `luapilot.sha3_256sum(path)` | SHA3-256 | |
+| `luapilot.sha3_384sum(path)` | SHA3-384 | |
+| `luapilot.sha3_512sum(path)` | SHA3-512 | |
+| `luapilot.blake2b512sum(path)` | BLAKE2b-512 | |
 
-Each returns `string` (hex) or `(nil, err)`. MD5 and SHA-1 are
-exposed for compatibility (Git, legacy systems) — don't use them
-for new cryptographic uses.
+Each returns `string` (hex) or `(nil, err)`. The file is streamed,
+not loaded entirely into RAM. Non-regular files (directories,
+sockets, …) are rejected with `(nil, "<algo>: not a regular file")`.
+
+MD5 and SHA-1 are exposed for compatibility (Git, legacy systems)
+— don't use them for new cryptographic uses. **CRC-32 is even
+further from cryptographic**: an attacker can produce collisions
+trivially. Use it for integrity / change detection, never for
+authentication.
+
+## API — In-memory checksums
+
+Compute a hash of bytes already in memory, without round-tripping
+through a temporary file. Binary-safe (embedded NULs are allowed).
+
+| Function | Returns |
+| --- | --- |
+| `luapilot.crc32(data)` | `string` — 8-char lowercase hex |
+
+Cannot fail at runtime (pure computation). Wrong argument types
+raise via `luaL_error`. As with `crc32sum`, **not cryptographic**.
 
 ## Quick examples
 
@@ -137,6 +156,14 @@ luapilot.copyTree("./src", "/tmp/backup",
 -- Hash a release tarball
 local sha, err = luapilot.sha256sum("/tmp/luapilot-1.7.0.tar.gz")
 if sha then print("SHA256:", sha) end
+
+-- Quick integrity check (NOT cryptographic, but fast)
+local crc = luapilot.crc32sum("/tmp/luapilot-1.7.0.tar.gz")
+print("CRC32:", crc)                 -- e.g. "a1b2c3d4"
+
+-- In-memory CRC32 of arbitrary bytes (binary-safe, NULs OK)
+print(luapilot.crc32("abc"))         -- "352441c2"
+print(luapilot.crc32(""))            -- "00000000"
 
 -- Set ownership and permissions
 local mode_755 = tonumber("755", 8)  -- octal -> integer

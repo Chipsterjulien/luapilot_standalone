@@ -81,6 +81,34 @@ chmod +x main.lua
 LuaPilot uses the script's own directory as the folder, so
 `require("helpers")` finds `helpers.lua` next to `main.lua`.
 
+## Command-line invocation
+
+In addition to the three launch modes above, LuaPilot accepts a
+few standard flags :
+
+| Flag | Effect |
+| --- | --- |
+| `-h`, `--help` | Print the help text and exit `0`. |
+| `-V`, `--version` | Print `luapilot <version>` and exit `0`. |
+| `-c <dir> <out>`, `--create-exe <dir> <out>` | Create a self-contained executable named `<out>` by embedding `<dir>` (which must contain `main.lua`). |
+
+Any other argument starting with `-` is treated as an **unknown
+option** : LuaPilot prints `Unknown option: ...` + a hint to use
+`--help`, and exits `1` instead of trying to interpret it as a
+directory name. Folders whose name legitimately starts with `-`
+can still be passed via `./-dirname` (POSIX convention).
+
+```sh
+luapilot --version    # luapilot 1.7.1
+luapilot --help       # full usage
+luapilot --bogus      # Unknown option: --bogus
+                      # Try 'luapilot --help' for more information.
+```
+
+The same version is also exposed to scripts as `luapilot.VERSION`
+(plus `luapilot.VERSION_MAJOR` / `VERSION_MINOR` / `VERSION_PATCH`
+as integers) — see [`sys`](modules/sys.md).
+
 ## First script
 
 Once the binary is built, try this :

@@ -29,6 +29,36 @@ adoptée pour les ajouts récents.
 | `luapilot.getMemoryUsage()` | `integer` — mémoire de la VM Lua en octets (après un GC complet) |
 | `luapilot.getDetailedMemoryUsage()` | `(integer, integer)` — actuellement les deux valeurs sont égales au compteur GC en octets ; gardé en deux retours pour la stabilité d'API |
 
+## Constantes runtime
+
+La même table `luapilot` expose aussi des constantes qui décrivent
+le binaire LuaPilot qui exécute le script. Utile pour le logging,
+pour conditionner une feature à une version minimum, ou pour
+sanity-checker le runtime.
+
+| Constante | Type | Exemple |
+| --- | --- | --- |
+| `luapilot.VERSION` | `string` | `"1.7.1"` |
+| `luapilot.VERSION_MAJOR` | `integer` | `1` |
+| `luapilot.VERSION_MINOR` | `integer` | `7` |
+| `luapilot.VERSION_PATCH` | `integer` | `1` |
+
+La version string est ce que `luapilot --version` affiche. Les
+composantes integer sont là pour faire des comparaisons
+programmatiques sans parser la string.
+
+```lua
+-- Logger le runtime
+print("tourne sous LuaPilot " .. luapilot.VERSION)
+
+-- Conditionner une feature à une version minimum
+local need_minor = 7
+if luapilot.VERSION_MAJOR < 1
+   or (luapilot.VERSION_MAJOR == 1 and luapilot.VERSION_MINOR < need_minor) then
+    error("ce script nécessite LuaPilot >= 1." .. need_minor)
+end
+```
+
 ## Exemple rapide
 
 ```lua

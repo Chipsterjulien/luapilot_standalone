@@ -4,6 +4,7 @@
 #include "lua_bindings/chdir.hpp"
 #include "lua_bindings/copy.hpp"
 #include "lua_bindings/copyTree.hpp"
+#include "lua_bindings/crc32.hpp"
 #include "lua_bindings/currentDir.hpp"
 #include "lua_bindings/deepCopyTable.hpp"
 #include "lua_bindings/exec.hpp"
@@ -58,6 +59,8 @@
 #include "project_core/help.hpp"
 #include "project_core/zip_utils.hpp"
 
+#include "version.hpp"
+
 #include <iostream>
 #include <lua.hpp>
 #include <filesystem>
@@ -86,6 +89,12 @@ void register_luapilot(lua_State *L)
 
     lua_pushcfunction(L, lua_copyTree);
     lua_setfield(L, -2, "copyTree");
+
+    lua_pushcfunction(L, lua_crc32);
+    lua_setfield(L, -2, "crc32");
+
+    lua_pushcfunction(L, lua_crc32sum);
+    lua_setfield(L, -2, "crc32sum");
 
     lua_pushcfunction(L, lua_currentDir);
     lua_setfield(L, -2, "currentDir");
@@ -277,6 +286,18 @@ void register_luapilot(lua_State *L)
     // Cf. user.hpp pour le design.
     register_user(L);
 
+    // luapilot.VERSION = "1.7.1"
+    lua_pushstring(L, LUAPILOT_VERSION_STRING);
+    lua_setfield(L, -2, "VERSION");
+
+    // luapilot.VERSION_MAJOR / MINOR / PATCH (integers, pour comparaison programmatique)
+    lua_pushinteger(L, LUAPILOT_VERSION_MAJOR);
+    lua_setfield(L, -2, "VERSION_MAJOR");
+    lua_pushinteger(L, LUAPILOT_VERSION_MINOR);
+    lua_setfield(L, -2, "VERSION_MINOR");
+    lua_pushinteger(L, LUAPILOT_VERSION_PATCH);
+    lua_setfield(L, -2, "VERSION_PATCH");
+
     lua_setglobal(L, "luapilot");
 
     // Enregistre la metatable "FileIterator" dans le registry Lua.
@@ -338,6 +359,18 @@ static void push_lua_arg(lua_State *L, int argc, char *argv[], int script_index)
 
 int main(int argc, char *argv[])
 {
+    // --version / -V : court-circuit total, doit être instantané et
+    // ne peut pas échouer pour cause d'environnement.
+    if (argc >= 2)
+    {
+        const std::string arg1 = argv[1];
+        if (arg1 == "--version" || arg1 == "-V")
+        {
+            std::cout << "luapilot " << LUAPILOT_VERSION_STRING << '\n';
+            return 0;
+        }
+    }
+
     // === ÉTAPE 0 : capturer le thread principal pour signal.cpp =====
     // Doit être fait avant tout spawn de worker. Permet à
     // luapilot.signal.handle/ignore/default de refuser les appels
@@ -447,6 +480,18 @@ int main(int argc, char *argv[])
         std::string dir = argv[2];
         std::string output = argv[3];
         return createExecutableWithDir(dir, output) ? 0 : 1;
+    }
+
+    // Tout autre argument qui commence par "-" est un flag inconnu :
+    // on refuse explicitement plutôt que de l'interpréter comme un
+    // nom de dossier (ce qui produirait un message d'erreur très
+    // confus). Un vrai dossier dont le nom commence par "-" reste
+    // accessible via "./-dirname" — convention POSIX habituelle.
+    if (!option.empty() && option[0] == '-')
+    {
+        std::cerr << "Unknown option: " << option << "\n"
+                  << "Try 'luapilot --help' for more information." << std::endl;
+        return 1;
     }
 
     // Mode "exécution depuis un dossier"

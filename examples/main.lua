@@ -145,6 +145,7 @@ print("=== hashes ===")
 
 do
     local hashers = {
+        "crc32sum",
         "md5sum", "sha1sum", "sha256sum", "sha512sum",
         "sha384sum",
         "sha3_256sum", "sha3_384sum", "sha3_512sum",
@@ -158,6 +159,46 @@ do
         v, e = luapilot[fn]("/n/existe/pas")
         ok_fail(fn .. "(bad) -> (nil, err)", v, e)
     end
+end
+
+-- =====================================================================
+print("")
+print("=== crc32 ===")
+
+do
+    -- Known test vectors: CRC32 of "abc" (ASCII) is 0x352441c2.
+    local v = luapilot.crc32("abc")
+    ok_val("crc32('abc') == 352441c2", v, nil,
+        function(x) return x == "352441c2" end)
+
+    -- Empty input -> 00000000.
+    v = luapilot.crc32("")
+    ok_val("crc32('') == 00000000", v, nil,
+        function(x) return x == "00000000" end)
+
+    -- Binary-safe: must accept embedded NUL bytes and produce a
+    -- different CRC than the empty string.
+    v = luapilot.crc32("\0\0\0")
+    ok_val("crc32('\\0\\0\\0') is binary-safe (not 00000000)", v, nil,
+        function(x) return type(x) == "string" and #x == 8
+                       and x ~= "00000000" end)
+
+    -- crc32sum on a real file must match crc32(data) of its content.
+    local f = io.open(sb("probe.txt"), "rb")
+    local content = f:read("a")
+    f:close()
+    local from_file = luapilot.crc32sum(sb("probe.txt"))
+    local from_mem  = luapilot.crc32(content)
+    ok_val("crc32sum(file) == crc32(content)", from_file, nil,
+        function(x) return x == from_mem end)
+
+    -- crc32sum on a directory must fail with the expected message.
+    local res, err = luapilot.crc32sum(sb(""))
+    ok_fail("crc32sum(dir) -> (nil, err)", res, err)
+    ok_val("crc32sum(dir) err mentions 'not a regular file'",
+        err, nil,
+        function(x) return type(x) == "string"
+                       and x:find("not a regular file", 1, true) ~= nil end)
 end
 
 -- =====================================================================

@@ -83,6 +83,35 @@ LuaPilot utilise le dossier du script comme dossier de travail,
 donc `require("helpers")` trouvera `helpers.lua` à côté de
 `main.lua`.
 
+## Invocation en ligne de commande
+
+En plus des trois modes de lancement ci-dessus, LuaPilot accepte
+quelques flags standards :
+
+| Flag | Effet |
+| --- | --- |
+| `-h`, `--help` | Affiche l'aide et sort avec code `0`. |
+| `-V`, `--version` | Affiche `luapilot <version>` et sort avec code `0`. |
+| `-c <dir> <out>`, `--create-exe <dir> <out>` | Crée un exécutable autonome nommé `<out>` en embarquant `<dir>` (qui doit contenir `main.lua`). |
+
+Tout autre argument commençant par `-` est traité comme une
+**option inconnue** : LuaPilot affiche `Unknown option: ...` + un
+indice pour utiliser `--help`, et sort en code `1` plutôt que
+d'essayer de l'interpréter comme un nom de dossier. Les dossiers
+dont le nom commence légitimement par `-` peuvent toujours être
+passés via `./-dirname` (convention POSIX).
+
+```sh
+luapilot --version    # luapilot 1.7.1
+luapilot --help       # usage complet
+luapilot --bogus      # Unknown option: --bogus
+                      # Try 'luapilot --help' for more information.
+```
+
+La même version est aussi exposée aux scripts via
+`luapilot.VERSION` (plus `luapilot.VERSION_MAJOR` / `VERSION_MINOR`
+/ `VERSION_PATCH` en integer) — voir [`sys`](modules/sys.md).
+
 ## Premier script
 
 Une fois le binaire compilé, essaie ceci :

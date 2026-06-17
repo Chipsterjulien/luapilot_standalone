@@ -98,21 +98,43 @@ Empreintes du contenu des fichiers. Résultat en **string hex
 minuscule** sauf mention contraire. Note le suffixe `sum` — ce
 sont les noms enregistrés dans `luapilot.*`.
 
-| Fonction | Algorithme |
-| --- | --- |
-| `luapilot.md5sum(path)` | MD5 |
-| `luapilot.sha1sum(path)` | SHA-1 |
-| `luapilot.sha256sum(path)` | SHA-256 |
-| `luapilot.sha384sum(path)` | SHA-384 |
-| `luapilot.sha512sum(path)` | SHA-512 |
-| `luapilot.sha3_256sum(path)` | SHA3-256 |
-| `luapilot.sha3_384sum(path)` | SHA3-384 |
-| `luapilot.sha3_512sum(path)` | SHA3-512 |
-| `luapilot.blake2b512sum(path)` | BLAKE2b-512 |
+| Fonction | Algorithme | Notes |
+| --- | --- | --- |
+| `luapilot.crc32sum(path)` | CRC-32 (IEEE 802.3) | **Non cryptographique**. Pour intégrité / détection d'erreur accidentelle uniquement. |
+| `luapilot.md5sum(path)` | MD5 | Legacy. Ne pas utiliser pour la sécurité. |
+| `luapilot.sha1sum(path)` | SHA-1 | Legacy. Ne pas utiliser pour la sécurité. |
+| `luapilot.sha256sum(path)` | SHA-256 | |
+| `luapilot.sha384sum(path)` | SHA-384 | |
+| `luapilot.sha512sum(path)` | SHA-512 | |
+| `luapilot.sha3_256sum(path)` | SHA3-256 | |
+| `luapilot.sha3_384sum(path)` | SHA3-384 | |
+| `luapilot.sha3_512sum(path)` | SHA3-512 | |
+| `luapilot.blake2b512sum(path)` | BLAKE2b-512 | |
 
-Chaque renvoie `string` (hex) ou `(nil, err)`. MD5 et SHA-1 sont
-exposés pour la compatibilité (Git, systèmes legacy) — ne pas les
-utiliser pour de nouveaux usages cryptographiques.
+Chaque renvoie `string` (hex) ou `(nil, err)`. Le fichier est
+streamé, pas chargé entièrement en RAM. Les fichiers non-réguliers
+(dossiers, sockets, …) sont refusés avec `(nil, "<algo>: not a
+regular file")`.
+
+MD5 et SHA-1 sont exposés pour la compatibilité (Git, systèmes
+legacy) — ne pas les utiliser pour de nouveaux usages
+cryptographiques. **CRC-32 est encore plus loin du cryptographique**
+: un attaquant peut produire des collisions trivialement. À utiliser
+pour de l'intégrité / détection de changement, jamais pour de
+l'authentification.
+
+## API — Checksums en mémoire
+
+Calcule un hash d'octets déjà en mémoire, sans aller-retour par un
+fichier temporaire. Binary-safe (les NUL intégrés sont autorisés).
+
+| Fonction | Renvoie |
+| --- | --- |
+| `luapilot.crc32(data)` | `string` — 8 caractères hex minuscules |
+
+Ne peut pas échouer à l'exécution (calcul pur). Les mauvais types
+d'argument lèvent via `luaL_error`. Comme `crc32sum`, **non
+cryptographique**.
 
 ## Exemples rapides
 
@@ -140,6 +162,14 @@ luapilot.copyTree("./src", "/tmp/backup",
 -- Hash d'une tarball de release
 local sha, err = luapilot.sha256sum("/tmp/luapilot-1.7.0.tar.gz")
 if sha then print("SHA256 :", sha) end
+
+-- Check d'intégrité rapide (NON cryptographique, mais rapide)
+local crc = luapilot.crc32sum("/tmp/luapilot-1.7.0.tar.gz")
+print("CRC32 :", crc)                -- ex. "a1b2c3d4"
+
+-- CRC32 en mémoire sur des octets arbitraires (binary-safe, NUL OK)
+print(luapilot.crc32("abc"))         -- "352441c2"
+print(luapilot.crc32(""))            -- "00000000"
 
 -- Owner et permissions
 local mode_755 = tonumber("755", 8)  -- octal -> integer

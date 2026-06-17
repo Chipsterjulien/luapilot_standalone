@@ -1,5 +1,17 @@
 cmake_minimum_required(VERSION 3.16)
-project(luapilot LANGUAGES C CXX)
+project(luapilot VERSION 1.7.1 LANGUAGES CXX C)
+
+# Génère src/generated/version.hpp depuis src/version.hpp.in,
+# en injectant les composants de version définis dans project().
+# Ainsi CMakeLists.txt reste la seule source de vérité pour la version.
+configure_file(
+    ${CMAKE_SOURCE_DIR}/src/version.hpp.in
+    ${CMAKE_BINARY_DIR}/generated/version.hpp
+    @ONLY
+)
+
+# Permet aux fichiers source de #include "version.hpp".
+include_directories(${CMAKE_BINARY_DIR}/generated)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
