@@ -45,6 +45,7 @@
 #include "lua_bindings/sys.hpp"
 #include "lua_bindings/symlinkattr.hpp"
 #include "lua_bindings/time_clock.hpp"
+#include "lua_bindings/time_format.hpp"
 #include "lua_bindings/toml.hpp"
 #include "lua_bindings/touch.hpp"
 #include "lua_bindings/user.hpp"
@@ -297,6 +298,34 @@ void register_luapilot(lua_State *L)
     lua_setfield(L, -2, "VERSION_MINOR");
     lua_pushinteger(L, LUAPILOT_VERSION_PATCH);
     lua_setfield(L, -2, "VERSION_PATCH");
+
+    // ---------------------------------------------------------------
+    // Sub-table luapilot.time (v1.8.0): date/duration utilities, with
+    // aliases for monotonic/now/sleep so the new code can stay inside
+    // luapilot.time.* without losing access to the existing flat names.
+    // The flat luapilot.monotonic / .now / .sleep stay around for
+    // backward compatibility with v1.7.x scripts.
+    // ---------------------------------------------------------------
+    lua_newtable(L);
+
+    lua_pushcfunction(L, lua_time_iso);
+    lua_setfield(L, -2, "iso");
+    lua_pushcfunction(L, lua_time_parse_iso);
+    lua_setfield(L, -2, "parse_iso");
+    lua_pushcfunction(L, lua_time_parse_duration);
+    lua_setfield(L, -2, "parse_duration");
+    lua_pushcfunction(L, lua_time_format_duration);
+    lua_setfield(L, -2, "format_duration");
+
+    // Aliases for ergonomy: same C functions used at luapilot.X.
+    lua_pushcfunction(L, lua_now);
+    lua_setfield(L, -2, "now");
+    lua_pushcfunction(L, lua_monotonic);
+    lua_setfield(L, -2, "monotonic");
+    lua_pushcfunction(L, lua_sleep);
+    lua_setfield(L, -2, "sleep");
+
+    lua_setfield(L, -2, "time"); // luapilot.time = <new table>
 
     lua_setglobal(L, "luapilot");
 

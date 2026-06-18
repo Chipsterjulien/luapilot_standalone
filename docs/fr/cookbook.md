@@ -151,6 +151,42 @@ db:exec("INSERT OR REPLACE INTO config VALUES (?, ?)",
 db:close()
 ```
 
+## Cache avec TTL lisible, échéances en timestamps ISO
+
+Parser un TTL depuis une config (`"15m"`, `"2h30m"`, `"1d"`),
+calculer une échéance, et la logger dans un format UTC uniforme
+sur lequel `grep` à travers les fichiers de log marche vraiment.
+
+```lua
+-- Config depuis TOML, CLI, env, peu importe.
+local raw_ttl = "15m"
+
+local ttl, err = luapilot.time.parse_duration(raw_ttl)
+if not ttl then error("TTL invalide '" .. raw_ttl .. "' : " .. err) end
+
+local deadline = luapilot.now() + ttl
+print(string.format("[%s] entrée cache créée, expire à %s (TTL %s)",
+    luapilot.time.iso(),
+    luapilot.time.iso(deadline),
+    luapilot.time.format_duration(ttl)))
+
+-- ...plus tard, ailleurs dans le script :
+if luapilot.now() >= deadline then
+    print("[" .. luapilot.time.iso() .. "] cache miss : entrée expirée")
+end
+```
+
+Propriétés utiles de ce pattern :
+
+- `luapilot.time.iso()` est toujours UTC, toujours 20 caractères,
+  toujours la même forme. `grep` et `sort` marchent directement
+  sur les timestamps.
+- `parse_duration("15m")` renvoie un entier, donc `now() + ttl`
+  est exact (pas de drift float sur les longues durées).
+- `format_duration(ttl)` est aller-retour : `parse_duration(
+  format_duration(n)) == n` pour tout `n >= 0`. Sûr à utiliser
+  comme représentation canonique dans les logs ou les bases.
+
 ## Pretty-print d'une valeur Lua
 
 Le module `inspect` (embarqué) donne une sortie lisible pour les

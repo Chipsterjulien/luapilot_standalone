@@ -28,6 +28,50 @@ with `luapilot.sleep()` honouring signal interruption.
 `unit` for `sleep` is one of `"s"` (default), `"ms"`, `"us"`,
 `"ns"`. Floats are accepted.
 
+## API — date and duration utilities (v1.8.0+)
+
+Added under the `luapilot.time` sub-table. The three flat
+functions above are also aliased there (`luapilot.time.now`,
+`luapilot.time.monotonic`, `luapilot.time.sleep`) for ergonomy.
+
+| Function | Returns |
+| --- | --- |
+| `luapilot.time.iso(ts?)` | `string` — `"YYYY-MM-DDTHH:MM:SSZ"` (UTC). Without arg, formats the current time. |
+| `luapilot.time.parse_iso(s)` | `(integer, nil)` \| `(nil, "parse_iso: ...")` — Unix timestamp in seconds. |
+| `luapilot.time.parse_duration(s)` | `(integer, nil)` \| `(nil, "parse_duration: ...")` — number of seconds. |
+| `luapilot.time.format_duration(n)` | `string` — `"1d2h3m4s"` style, compact, with zero components omitted. |
+
+**ISO 8601 format accepted by `parse_iso`** — pragmatic, but with
+one strict rule : **a timezone suffix is required**.
+
+- Date and time separator : `T` or space.
+- Timezone : `Z` (UTC), `+HH:MM`, or `-HH:MM`. **No** `+0200`,
+  `+02`, or trailing absence — these are all rejected. Hours
+  `00..23`, minutes `00..59`.
+- Fractional seconds (`.123`) are accepted but ignored.
+- A string without timezone is rejected explicitly rather than
+  interpreted as UTC, because most real-world timestamps without
+  a `Z` are local, not UTC, and silent misinterpretation is a
+  common bug source.
+
+**Duration format accepted by `parse_duration`** :
+
+- Units : `s`, `m` (minute), `h`, `d`. No `w`, `mo`, `y`, `ms`,
+  `us`, `ns` in v1.
+- Compose unit chunks without whitespace : `"1h30m"`, `"2d12h"`,
+  `"45m30s"`, `"1d1h1m1s"`.
+- Units must appear in **strictly decreasing order** (`d > h > m
+  > s`). `"30m1h"` is rejected.
+- No duplicate unit : `"1h1h"` is rejected.
+- No sign, no spaces. Empty string is rejected. A bare number
+  without unit (`"5"`) is rejected.
+- `"0s"` is the only canonical representation of zero (matches
+  `format_duration(0)`).
+
+**Round-trip invariant** : for every integer `n >= 0`,
+`parse_duration(format_duration(n)) == n`. This is checked in
+the test suite over a representative sample.
+
 ## Quick example
 
 ```lua
@@ -46,6 +90,19 @@ local ok, err = luapilot.sleep(100, "ms")
 if not ok and err == "interrupted" then
     print("woken by a signal")
 end
+
+-- ISO 8601 timestamp for logs (always UTC)
+print("event at " .. luapilot.time.iso())          -- "2026-06-17T14:32:01Z"
+print(luapilot.time.iso(0))                        -- "1970-01-01T00:00:00Z"
+
+-- Parse a log line back to a Unix timestamp
+local ts = assert(luapilot.time.parse_iso("2026-06-17T10:00:00+02:00"))
+-- ts is 1750147200 (which is 08:00:00 UTC)
+
+-- Human-readable durations
+local cache_ttl = luapilot.time.parse_duration("2h30m")  -- 9000
+print("cache valid for " .. luapilot.time.format_duration(cache_ttl))
+-- "cache valid for 2h30m"
 ```
 
 ## Error contract

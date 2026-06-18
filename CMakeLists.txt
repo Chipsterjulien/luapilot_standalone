@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(luapilot VERSION 1.7.1 LANGUAGES CXX C)
+project(luapilot VERSION 1.8.0 LANGUAGES CXX C)
 
 # Génère src/generated/version.hpp depuis src/version.hpp.in,
 # en injectant les composants de version définis dans project().

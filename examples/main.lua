@@ -180,8 +180,10 @@ do
     -- different CRC than the empty string.
     v = luapilot.crc32("\0\0\0")
     ok_val("crc32('\\0\\0\\0') is binary-safe (not 00000000)", v, nil,
-        function(x) return type(x) == "string" and #x == 8
-                       and x ~= "00000000" end)
+        function(x)
+            return type(x) == "string" and #x == 8
+                and x ~= "00000000"
+        end)
 
     -- crc32sum on a real file must match crc32(data) of its content.
     local f = io.open(sb("probe.txt"), "rb")
@@ -197,8 +199,10 @@ do
     ok_fail("crc32sum(dir) -> (nil, err)", res, err)
     ok_val("crc32sum(dir) err mentions 'not a regular file'",
         err, nil,
-        function(x) return type(x) == "string"
-                       and x:find("not a regular file", 1, true) ~= nil end)
+        function(x)
+            return type(x) == "string"
+                and x:find("not a regular file", 1, true) ~= nil
+        end)
 end
 
 -- =====================================================================
@@ -1121,6 +1125,192 @@ do
         pcall(function() luapilot.monotonic("abc") end) == false)
     ok("now({}) -> luaL_error",
         pcall(function() luapilot.now({}) end) == false)
+end
+
+-- =====================================================================
+print("")
+print("=== time_format ===")
+
+do
+    -- ---- iso(ts?) -------------------------------------------------------
+    ok("iso(0) == '1970-01-01T00:00:00Z'",
+        luapilot.time.iso(0) == "1970-01-01T00:00:00Z")
+
+    ok("iso(0.0) accepted, same result as iso(0)",
+        luapilot.time.iso(0.0) == "1970-01-01T00:00:00Z")
+
+    ok("iso(0.5) truncated, same result as iso(0)",
+        luapilot.time.iso(0.5) == "1970-01-01T00:00:00Z",
+        "got " .. tostring(luapilot.time.iso(0.5)))
+
+    -- A concrete known timestamp: 2026-01-01T00:00:00Z = 1767225600
+    ok("iso(1767225600) round-trip",
+        luapilot.time.iso(1767225600) == "2026-01-01T00:00:00Z")
+
+    -- Negative Unix timestamps (before epoch) round-trip too.
+    -- One second before epoch should be 1969-12-31T23:59:59Z, and
+    -- one day before should be 1969-12-31T00:00:00Z.
+    ok("iso(-1) == '1969-12-31T23:59:59Z'",
+        luapilot.time.iso(-1) == "1969-12-31T23:59:59Z",
+        "got " .. tostring(luapilot.time.iso(-1)))
+    ok("iso(-86400) == '1969-12-31T00:00:00Z'",
+        luapilot.time.iso(-86400) == "1969-12-31T00:00:00Z",
+        "got " .. tostring(luapilot.time.iso(-86400)))
+
+    -- iso() without arg returns the current time as a 20-char ISO string.
+    do
+        local s = luapilot.time.iso()
+        ok("iso() returns 20-char ISO string",
+            type(s) == "string" and #s == 20 and s:sub(-1) == "Z",
+            "got " .. tostring(s))
+    end
+
+    -- ---- parse_iso ------------------------------------------------------
+    ok("parse_iso('1970-01-01T00:00:00Z') == 0",
+        luapilot.time.parse_iso("1970-01-01T00:00:00Z") == 0)
+
+    ok("parse_iso('2026-01-01T00:00:00Z') == 1767225600",
+        luapilot.time.parse_iso("2026-01-01T00:00:00Z") == 1767225600)
+
+    -- Offsets: +02:00 means the local clock is 2h ahead of UTC,
+    -- so 10:00+02:00 == 08:00Z.
+    do
+        local a = luapilot.time.parse_iso("2026-06-17T10:00:00+02:00")
+        local b = luapilot.time.parse_iso("2026-06-17T08:00:00Z")
+        ok("parse_iso('+02:00') == parse_iso('Z') for same wall instant",
+            a == b, "a=" .. tostring(a) .. " b=" .. tostring(b))
+    end
+
+    -- -05:30 means clock is 5h30 behind UTC.
+    do
+        local a = luapilot.time.parse_iso("2026-06-17T08:30:00-05:30")
+        local b = luapilot.time.parse_iso("2026-06-17T14:00:00Z")
+        ok("parse_iso half-hour offset", a == b,
+            "a=" .. tostring(a) .. " b=" .. tostring(b))
+    end
+
+    -- Space separator instead of T.
+    ok("parse_iso accepts space separator",
+        luapilot.time.parse_iso("1970-01-01 00:00:00Z") == 0)
+
+    -- Optional fractional seconds: ignored.
+    ok("parse_iso ignores fractional seconds",
+        luapilot.time.parse_iso("1970-01-01T00:00:00.123Z") == 0)
+
+    -- Rejections: no timezone.
+    do
+        local v, e = luapilot.time.parse_iso("1970-01-01T00:00:00")
+        ok_fail("parse_iso without timezone -> (nil, err)", v, e)
+        ok("  err mentions 'timezone'",
+            type(e) == "string" and e:find("timezone", 1, true) ~= nil,
+            "err=" .. tostring(e))
+    end
+
+    -- Invalid date.
+    do
+        local v, e = luapilot.time.parse_iso("2026-02-30T00:00:00Z")
+        ok_fail("parse_iso invalid date -> (nil, err)", v, e)
+    end
+
+    -- Invalid time.
+    do
+        local v, e = luapilot.time.parse_iso("2026-01-01T25:00:00Z")
+        ok_fail("parse_iso invalid time -> (nil, err)", v, e)
+    end
+
+    -- Offset out of range.
+    do
+        local v, e = luapilot.time.parse_iso("2026-01-01T00:00:00+25:00")
+        ok_fail("parse_iso offset out of range -> (nil, err)", v, e)
+    end
+
+    -- Strict offset format: no "+02" or "+0200".
+    do
+        local v, e = luapilot.time.parse_iso("2026-01-01T00:00:00+02")
+        ok_fail("parse_iso '+02' rejected -> (nil, err)", v, e)
+        v, e = luapilot.time.parse_iso("2026-01-01T00:00:00+0200")
+        ok_fail("parse_iso '+0200' rejected -> (nil, err)", v, e)
+    end
+
+    -- ---- parse_duration -------------------------------------------------
+    ok("parse_duration('0s') == 0", luapilot.time.parse_duration("0s") == 0)
+    ok("parse_duration('1s') == 1", luapilot.time.parse_duration("1s") == 1)
+    ok("parse_duration('5m') == 300", luapilot.time.parse_duration("5m") == 300)
+    ok("parse_duration('2h') == 7200", luapilot.time.parse_duration("2h") == 7200)
+    ok("parse_duration('1d') == 86400",
+        luapilot.time.parse_duration("1d") == 86400)
+    ok("parse_duration('1h30m') == 5400",
+        luapilot.time.parse_duration("1h30m") == 5400)
+    ok("parse_duration('1d1h1m1s') == 90061",
+        luapilot.time.parse_duration("1d1h1m1s") == 90061)
+
+    -- Rejections.
+    do
+        local v, e = luapilot.time.parse_duration("")
+        ok_fail("parse_duration('') -> (nil, err)", v, e)
+        v, e = luapilot.time.parse_duration("5")
+        ok_fail("parse_duration('5') (missing unit) -> (nil, err)", v, e)
+        v, e = luapilot.time.parse_duration("30m1h")
+        ok_fail("parse_duration units out of order -> (nil, err)", v, e)
+        v, e = luapilot.time.parse_duration("1h1h")
+        ok_fail("parse_duration duplicate unit -> (nil, err)", v, e)
+        v, e = luapilot.time.parse_duration("1y")
+        ok_fail("parse_duration unknown unit -> (nil, err)", v, e)
+    end
+
+    -- ---- format_duration -----------------------------------------------
+    ok("format_duration(0) == '0s'",
+        luapilot.time.format_duration(0) == "0s")
+    ok("format_duration(1) == '1s'",
+        luapilot.time.format_duration(1) == "1s")
+    ok("format_duration(60) == '1m'",
+        luapilot.time.format_duration(60) == "1m")
+    ok("format_duration(3600) == '1h'",
+        luapilot.time.format_duration(3600) == "1h")
+    ok("format_duration(86400) == '1d'",
+        luapilot.time.format_duration(86400) == "1d")
+    ok("format_duration(90061) == '1d1h1m1s'",
+        luapilot.time.format_duration(90061) == "1d1h1m1s")
+
+    -- 3.0 accepted (integer value as float).
+    ok("format_duration(3.0) == '3s'",
+        luapilot.time.format_duration(3.0) == "3s")
+
+    -- 3.7 raises (not an integer).
+    ok("format_duration(3.7) -> luaL_error",
+        pcall(luapilot.time.format_duration, 3.7) == false)
+
+    -- Negative -> raises.
+    ok("format_duration(-5) -> luaL_error",
+        pcall(luapilot.time.format_duration, -5) == false)
+
+    -- ---- Round-trip invariant: parse(format(n)) == n -------------------
+    do
+        local samples = { 0, 1, 59, 60, 3599, 3600, 86399, 86400,
+            90061, 1234567 }
+        for _, n in ipairs(samples) do
+            local back = luapilot.time.parse_duration(
+                luapilot.time.format_duration(n))
+            ok("round-trip n=" .. n,
+                back == n,
+                "got " .. tostring(back))
+        end
+    end
+
+    -- ---- Aliases: luapilot.time.now / monotonic / sleep -----------------
+    ok("luapilot.time.now is a function",
+        type(luapilot.time.now) == "function")
+    ok("luapilot.time.monotonic is a function",
+        type(luapilot.time.monotonic) == "function")
+    ok("luapilot.time.sleep is a function",
+        type(luapilot.time.sleep) == "function")
+
+    -- Sanity: now() returns a finite number.
+    do
+        local t = luapilot.time.now()
+        ok("luapilot.time.now() returns a number > 0",
+            type(t) == "number" and t > 0)
+    end
 end
 
 -- =====================================================================

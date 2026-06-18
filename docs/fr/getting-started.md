@@ -138,6 +138,10 @@ Lance-le avec `./test/luapilot .` (ou un autre mode au choix).
 - Le module [`user`](modules/user.md) est un petit exemple complet
   du pattern de documentation utilisé partout — lis-le comme la
   référence canonique.
+- Pour les utilitaires de dates et durées (timestamps ISO 8601,
+  durées lisibles comme `"5m"` ou `"2h30m"`), voir
+  [`time`](modules/time.md) — la sous-table `luapilot.time.*`
+  couvre le parsing et le formatage.
 - Vois [`security.md`](security.md) avant d'exposer des scripts
   LuaPilot à quoi que ce soit qui pourrait recevoir de l'input non
   fiable.

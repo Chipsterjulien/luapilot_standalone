@@ -148,6 +148,41 @@ db:exec("INSERT OR REPLACE INTO config VALUES (?, ?)",
 db:close()
 ```
 
+## Cache with a human-readable TTL, expiry as ISO timestamps
+
+Parse a TTL from config (`"15m"`, `"2h30m"`, `"1d"`), compute a
+deadline, and log it in a uniform UTC format that grep'ing across
+log files actually works on.
+
+```lua
+-- Config from TOML, CLI, env, anywhere.
+local raw_ttl = "15m"
+
+local ttl, err = luapilot.time.parse_duration(raw_ttl)
+if not ttl then error("bad TTL '" .. raw_ttl .. "': " .. err) end
+
+local deadline = luapilot.now() + ttl
+print(string.format("[%s] cache entry created, expires at %s (TTL %s)",
+    luapilot.time.iso(),
+    luapilot.time.iso(deadline),
+    luapilot.time.format_duration(ttl)))
+
+-- ...later, somewhere else in the script:
+if luapilot.now() >= deadline then
+    print("[" .. luapilot.time.iso() .. "] cache miss: entry expired")
+end
+```
+
+Useful properties of this pattern :
+
+- `luapilot.time.iso()` is always UTC, always 20 characters, always
+  the same shape. `grep` and `sort` work on the timestamps directly.
+- `parse_duration("15m")` returns an integer, so `now() + ttl` is
+  exact (no float drift over long durations).
+- `format_duration(ttl)` round-trips : `parse_duration(
+  format_duration(n)) == n` for every `n >= 0`. Safe to use as a
+  canonical representation in logs or databases.
+
 ## Pretty-print a Lua value
 
 The bundled `inspect` module gives readable output for nested
