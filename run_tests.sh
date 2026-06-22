@@ -105,6 +105,48 @@ else
         fi
     fi
 
+    # === Test 3 : runtime ne capture pas les flags génériques =======
+    # Le bug fixé en v1.8.1 : --version/-V étaient interceptés par le
+    # runtime LuaPilot AVANT que le main.lua du binaire empaqueté ne
+    # soit lancé. Résultat : `mon_app --version` affichait "luapilot
+    # X.Y.Z" au lieu de la version de mon_app.
+    #
+    # Test : pour les 4 flags génériques (--version, -V, --help, -h),
+    # le binaire empaqueté doit transmettre l'arg au script, pas le
+    # court-circuiter au runtime. Détection indirecte : si le runtime
+    # interceptait, la 1re ligne serait soit "luapilot X.Y.Z" (cas
+    # --version/-V) soit "Usage: luapilot ..." (cas --help/-h). Sinon
+    # c'est du Lua qui s'exécute -- peu importe le résultat des tests
+    # internes, ce qui compte c'est que le script ait été lancé.
+    echo ""
+    echo "### Test 3 : flags non interceptés par le runtime ###"
+    modes_total=$((modes_total + 1))
+    runtime_intercept=0
+
+    if [ ! -f "${EMBEDDED_BIN}" ]; then
+        echo "  -> ÉCHEC (binaire embarqué introuvable)"
+        runtime_intercept=1
+    else
+        for flag in "--version" "-V" "--help" "-h"; do
+            first_line=$(cd "${ISOLATED_DIR}" && \
+                ./luapilot_embedded "${flag}" 2>&1 | head -1)
+            if echo "${first_line}" | \
+                    grep -qE '^luapilot [0-9]+\.[0-9]+\.[0-9]+$|^Usage: luapilot '; then
+                echo "  -> ${flag} : ÉCHEC (runtime a intercepté: '${first_line}')"
+                runtime_intercept=1
+            else
+                echo "  -> ${flag} : OK (transmis au script)"
+            fi
+        done
+    fi
+
+    if [ ${runtime_intercept} -eq 0 ]; then
+        echo "  -> Test 3 : OK"
+        modes_ok=$((modes_ok + 1))
+    else
+        echo "  -> Test 3 : ÉCHEC"
+    fi
+
     rm -rf "${ISOLATED_DIR}"
 fi
 echo ""

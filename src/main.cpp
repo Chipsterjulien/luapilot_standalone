@@ -388,18 +388,6 @@ static void push_lua_arg(lua_State *L, int argc, char *argv[], int script_index)
 
 int main(int argc, char *argv[])
 {
-    // --version / -V : court-circuit total, doit être instantané et
-    // ne peut pas échouer pour cause d'environnement.
-    if (argc >= 2)
-    {
-        const std::string arg1 = argv[1];
-        if (arg1 == "--version" || arg1 == "-V")
-        {
-            std::cout << "luapilot " << LUAPILOT_VERSION_STRING << '\n';
-            return 0;
-        }
-    }
-
     // === ÉTAPE 0 : capturer le thread principal pour signal.cpp =====
     // Doit être fait avant tout spawn de worker. Permet à
     // luapilot.signal.handle/ignore/default de refuser les appels
@@ -487,6 +475,18 @@ int main(int argc, char *argv[])
     }
 
     std::string option = argv[1];
+
+    // --version / -V : intercepté UNIQUEMENT en mode outil (binaire
+    // luapilot nu). Pour un binaire packagé via --create-exe, ce flag
+    // appartient à l'application embarquée et l'étape 1 (ci-dessus)
+    // l'aurait déjà transmise au script. À ce point on sait qu'on
+    // n'est pas packagé, donc on peut interpréter --version comme
+    // une demande de version du runtime LuaPilot.
+    if (option == "--version" || option == "-V")
+    {
+        std::cout << "luapilot " << LUAPILOT_VERSION_STRING << '\n';
+        return 0;
+    }
 
     // --help / -h n'est reconnu QU'EN PREMIER argument. Plus loin
     // (`luapilot mon_projet --help`) le flag appartient au projet, qui
