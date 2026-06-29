@@ -1,12 +1,13 @@
 <p align="center">
-  <img src="docs/assets/babet-closed.png" alt="Babet — pomme de pin" width="200">
+  <img src="docs/assets/babet-closed.png" alt="Babet — pine cone" width="200">
 </p>
 
 # Babet
 
-> *Babet*, n.m. — terme régional (Savoie, Dauphiné, Suisse romande)
-> désignant une pomme de pin. Petit, léger, plein de graines, et
-> capable d'allumer un feu — comme ce binaire.
+> *Babet*, n.m. — regional word from south-eastern France
+> (Lyonnais, Forez, Dauphiné, Savoie, and adjacent Swiss
+> Romandy) for a pine cone. Small, light, packed with seeds,
+> and good for starting a fire — like this binary.
 
 A standalone Lua 5.5 binary for Linux scripting and automation, written
 in C++23. Embeds OpenSSL, SQLite, miniz, nlohmann/json, cpp-httplib,

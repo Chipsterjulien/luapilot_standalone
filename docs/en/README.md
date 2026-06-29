@@ -6,9 +6,10 @@
 
 # Babet — User Manual
 
-> *Babet*, n.m. — regional French word (Savoie, Dauphiné, Swiss
-> Romandy) for a pine cone. Small, light, packed with seeds, and
-> good for starting a fire — like this binary.
+> *Babet*, n.m. — regional word from south-eastern France
+> (Lyonnais, Forez, Dauphiné, Savoie, and adjacent Swiss
+> Romandy) for a pine cone. Small, light, packed with seeds,
+> and good for starting a fire — like this binary.
 
 Babet is a standalone Lua 5.5 binary for Linux scripting and
 automation. This is the reference manual, organised one file per

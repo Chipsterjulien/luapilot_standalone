@@ -6,9 +6,11 @@
 
 # Babet — Manuel utilisateur
 
-> *Babet*, n.m. — terme régional (Savoie, Dauphiné, Suisse romande)
-> désignant une pomme de pin. Petit, léger, plein de graines, et
-> capable d'allumer un feu — comme ce binaire.
+> *Babet*, n.m. — mot régional du sud-est de la France
+> (Lyonnais, Forez, Dauphiné, Savoie, ainsi que la Suisse
+> romande voisine) désignant une pomme de pin. Petit, léger,
+> plein de graines, et capable d'allumer un feu — comme ce
+> binaire.
 
 Babet est un binaire Lua 5.5 standalone pour le scripting et
 l'automatisation sous Linux. Ceci est le manuel de référence,
