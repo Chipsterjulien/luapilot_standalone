@@ -7,7 +7,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_NAME="luapilot"
+PROJECT_NAME="babet"
 INSTALL_PATH="/usr/local/bin/${PROJECT_NAME}"
 
 # Compile via le script normal (pas besoin de root pour ça)
@@ -41,4 +41,4 @@ else
 fi
 
 echo "Installé avec succès dans ${INSTALL_PATH}."
-echo "Test : luapilot --help"
+echo "Test : babet --help"

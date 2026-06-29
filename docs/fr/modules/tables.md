@@ -1,6 +1,6 @@
 > [English](../../en/modules/tables.md) | **Français**
 
-# `luapilot` tables — helpers de manipulation de tables
+# `babet` tables — helpers de manipulation de tables
 
 Deux helpers qui comblent des manques évidents de la bibliothèque
 standard Lua : une vraie deep copy, et un merge multi-sources.
@@ -13,7 +13,7 @@ overrides, snapshotter une table avant mutation, copier une
 arborescence d'options. Les écrire à chaque script est répétitif et
 source d'erreurs (oublier la metatable, les cycles, etc.).
 
-Ces deux fonctions vivent directement sur la table `luapilot` (pas
+Ces deux fonctions vivent directement sur la table `babet` (pas
 de sous-namespace) parce qu'elles précèdent la convention par module
 adoptée pour les ajouts récents.
 
@@ -21,8 +21,8 @@ adoptée pour les ajouts récents.
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.mergeTables(t1, t2, ...)` | nouvelle `table` — clés string mergées (le dernier écrit gagne), clés numériques append en ordre |
-| `luapilot.deepCopyTable(t)` | nouvelle `table`, copiée récursivement |
+| `babet.mergeTables(t1, t2, ...)` | nouvelle `table` — clés string mergées (le dernier écrit gagne), clés numériques append en ordre |
+| `babet.deepCopyTable(t)` | nouvelle `table`, copiée récursivement |
 
 `mergeTables` est variadique — passe autant de tables que tu veux.
 Les entrées ne sont pas mutées. Le merge a deux règles :
@@ -45,7 +45,7 @@ dupliquées — elles sont référencées telles quelles.
 -- Clés string : le dernier écrit gagne
 local defaults = { port = 8080, host = "localhost", debug = false }
 local user_cfg = { port = 9000, debug = true }
-local cfg = luapilot.mergeTables(defaults, user_cfg)
+local cfg = babet.mergeTables(defaults, user_cfg)
 -- cfg.port  == 9000      (user_cfg a override)
 -- cfg.host  == "localhost"
 -- cfg.debug == true
@@ -53,11 +53,11 @@ local cfg = luapilot.mergeTables(defaults, user_cfg)
 -- Clés numériques : append en ordre
 local a = { 1, 2 }
 local b = { 3, 4 }
-local merged = luapilot.mergeTables(a, b)
+local merged = babet.mergeTables(a, b)
 -- merged == { 1, 2, 3, 4 }   (PAS { 3, 4 })
 
 -- Deep copy : snapshot avant mutation
-local snapshot = luapilot.deepCopyTable(cfg)
+local snapshot = babet.deepCopyTable(cfg)
 cfg.port = 9999             -- N'AFFECTE PAS snapshot
 print(snapshot.port)        -- toujours 9000
 ```
@@ -80,7 +80,7 @@ print(snapshot.port)        -- toujours 9000
   peut surprendre l'appelant (la copie déclenche encore des
   callbacks `__index` qui mutent l'original). Si tu dois copier
   avec metatable, fais-le explicitement avec
-  `setmetatable(luapilot.deepCopyTable(t), getmetatable(t))`.
+  `setmetatable(babet.deepCopyTable(t), getmetatable(t))`.
 - **`mergeTables` est shallow**. Si deux tables sources partagent
   une sous-table à la même clé string, le résultat référence la
   dernière telle quelle — il ne récurse pas dedans. Combine avec

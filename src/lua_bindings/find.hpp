@@ -6,7 +6,7 @@
 /**
  * @brief Lua binding for the find function.
  *
- * Expected Lua signature: results, err = luapilot.find(rootPath, options)
+ * Expected Lua signature: results, err = babet.find(rootPath, options)
  *   - rootPath: string
  *   - options:  table { mindepth, maxdepth, type, name, iname, path }
  */

@@ -36,7 +36,7 @@ namespace
         if (lua_gettop(L) != 0)
         {
             luaL_error(L,
-                       "luapilot.%s: no arguments expected", fname);
+                       "babet.%s: no arguments expected", fname);
         }
     }
 
@@ -54,9 +54,9 @@ int lua_monotonic(lua_State *L)
     {
         // En pratique impossible sur Linux moderne. On respecte la
         // convention (nil, err) pour cohérence avec le reste de
-        // l'API LuaPilot.
+        // l'API Babet.
         return push_fail(L,
-                         std::string("luapilot.monotonic: clock_gettime failed: ") + std::strerror(errno));
+                         std::string("babet.monotonic: clock_gettime failed: ") + std::strerror(errno));
     }
 
     lua_pushnumber(L, timespec_to_seconds(ts));
@@ -71,7 +71,7 @@ int lua_now(lua_State *L)
     if (clock_gettime(CLOCK_REALTIME, &ts) != 0)
     {
         return push_fail(L,
-                         std::string("luapilot.now: clock_gettime failed: ") + std::strerror(errno));
+                         std::string("babet.now: clock_gettime failed: ") + std::strerror(errno));
     }
 
     lua_pushnumber(L, timespec_to_seconds(ts));

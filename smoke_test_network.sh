@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# smoke_test_network.sh — Tests d'intégration réseau pour LuaPilot.
+# smoke_test_network.sh — Tests d'intégration réseau pour Babet.
 #
 # À lancer MANUELLEMENT avant chaque release tag, jamais par
 # run_tests.sh : ce dernier doit rester hermétique/offline pour
@@ -21,16 +21,16 @@
 
 set -e
 
-BIN="${1:-./test/luapilot}"
+BIN="${1:-./test/babet}"
 if [ ! -x "$BIN" ]; then
-    echo "Usage: $0 [chemin/vers/luapilot]"
+    echo "Usage: $0 [chemin/vers/babet]"
     echo "Binaire introuvable ou non exécutable : $BIN"
     exit 1
 fi
 
 # Working dir temporaire avec cleanup automatique sur exit (même
-# en cas d'erreur), pour ne pas laisser traîner /tmp/luapilot-*/.
-TMPDIR=$(mktemp -d -t luapilot-smoke-XXXXXX)
+# en cas d'erreur), pour ne pas laisser traîner /tmp/babet-*/.
+TMPDIR=$(mktemp -d -t babet-smoke-XXXXXX)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 PASS=0
@@ -81,7 +81,7 @@ echo
 # bundle n'est pas trouvé.
 # -------------------------------------------------------------------
 run_test "HTTPS google.com verify=true OK sans ca_cert" \
-'local r, e = luapilot.http.request{ url = "https://www.google.com/" }
+'local r, e = babet.http.request{ url = "https://www.google.com/" }
 if r then print("STATUS=" .. r.status) else print("ERR=" .. tostring(e)) end' \
 'STATUS=(2|3)[0-9][0-9]'
 
@@ -93,7 +93,7 @@ if r then print("STATUS=" .. r.status) else print("ERR=" .. tostring(e)) end' \
 # contre un vrai service.
 # -------------------------------------------------------------------
 run_test "HTTPS AUR API OK sans ca_cert (cas yaourt)" \
-'local r, e = luapilot.http.request{
+'local r, e = babet.http.request{
     url = "https://aur.archlinux.org/rpc/v5/info?arg[]=google-chrome"
 }
 if r then print("STATUS=" .. r.status) else print("ERR=" .. tostring(e)) end' \
@@ -106,7 +106,7 @@ if r then print("STATUS=" .. r.status) else print("ERR=" .. tostring(e)) end' \
 # importe le wording exact du message d'erreur OpenSSL.
 # -------------------------------------------------------------------
 run_test "HTTPS expired cert rejeté par verify=true" \
-'local r, e = luapilot.http.request{ url = "https://expired.badssl.com/" }
+'local r, e = babet.http.request{ url = "https://expired.badssl.com/" }
 if r then print("UNEXPECTED_OK=" .. r.status)
 else print("ERR=" .. tostring(e)) end' \
 '^ERR='
@@ -123,7 +123,7 @@ else print("ERR=" .. tostring(e)) end' \
 # de non-régression nette.
 # -------------------------------------------------------------------
 run_test "HTTPS expired cert accepté avec verify=false" \
-'local r, e = luapilot.http.request{
+'local r, e = babet.http.request{
     url = "https://expired.badssl.com/", verify = false
 }
 if r then print("STATUS=" .. r.status) else print("ERR=" .. tostring(e)) end' \

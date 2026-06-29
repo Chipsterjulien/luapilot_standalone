@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Chemin du binaire à supprimer
-binary_path="/usr/bin/luapilot"
+binary_path="/usr/bin/babet"
 
 # Vérifier si le binaire existe et le supprimer
 if [ -e "$binary_path" ]; then

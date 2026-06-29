@@ -652,7 +652,7 @@ int lua_http_post(lua_State *L)
 
 void register_http(lua_State *L)
 {
-    // Précondition : table luapilot au sommet (-1), comme register_json.
+    // Précondition : table babet au sommet (-1), comme register_json.
     lua_newtable(L);
 
     lua_pushcfunction(L, lua_http_request);

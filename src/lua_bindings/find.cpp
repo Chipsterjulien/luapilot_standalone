@@ -34,7 +34,7 @@ namespace
     };
 
     // CORRECTIF (post-revue Gemini) : depuis l'arrivée des workers
-    // (Chantier 8), plusieurs threads peuvent appeler luapilot.find
+    // (Chantier 8), plusieurs threads peuvent appeler babet.find
     // simultanément. Un cache global non protégé corromprait la map
     // sur un try_emplace concurrent. La solution thread_local donne
     // à chaque worker son propre cache, sans surcoût de mutex.

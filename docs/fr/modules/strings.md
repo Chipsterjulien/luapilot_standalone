@@ -1,10 +1,10 @@
 > [English](../../en/modules/strings.md) | **Français**
 
-# `luapilot` strings — manipulation de chaînes
+# `babet` strings — manipulation de chaînes
 
 Une seule fonction : découper une chaîne par séparateur en table.
 Précède la convention par sous-namespace, vit directement sur
-`luapilot`.
+`babet`.
 
 ## Pourquoi
 
@@ -18,7 +18,7 @@ escaping.
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.split(s, sep)` | `table` (array) des sous-chaînes |
+| `babet.split(s, sep)` | `table` (array) des sous-chaînes |
 
 - `s` : la chaîne à découper.
 - `sep` : la chaîne séparateur (littéral, pas de pattern).
@@ -30,10 +30,10 @@ vide.
 ## Exemple rapide
 
 ```lua
-local parts = luapilot.split("a,b,c,d", ",")
+local parts = babet.split("a,b,c,d", ",")
 -- parts == { "a", "b", "c", "d" }
 
-local one = luapilot.split("hello", ",")
+local one = babet.split("hello", ",")
 -- one == { "hello" }
 ```
 

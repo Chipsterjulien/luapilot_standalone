@@ -19,10 +19,10 @@
 
 #include <nlohmann/json.hpp>
 
-// Forward déclaration de register_luapilot, défini dans main.cpp.
+// Forward déclaration de register_babet, défini dans main.cpp.
 // Pas d'extern "C" : fonction C++ standard, le linker la résout par
 // mangling C++ comme partout dans le codebase.
-void register_luapilot(lua_State *L);
+void register_babet(lua_State *L);
 
 namespace
 {
@@ -361,7 +361,7 @@ namespace
     // Sérialisation Lua -> JSON
     // ==================================================================
     //
-    // Conventions (alignées avec luapilot.json mais implémentation
+    // Conventions (alignées avec babet.json mais implémentation
     // indépendante — décision Option 2) :
     //   nil           -> null
     //   boolean       -> true/false
@@ -370,7 +370,7 @@ namespace
     //   string        -> string JSON (UTF-8 requis, sinon refus)
     //   table séq 1..n -> array
     //   table clés str -> object
-    //   table mixte / à trous -> refus dur (cohérent avec luapilot.json)
+    //   table mixte / à trous -> refus dur (cohérent avec babet.json)
     //   function / userdata / thread -> refus dur
     //   cycle -> refus IMMÉDIAT via set des pointeurs de tables visitées
     //
@@ -741,7 +741,7 @@ namespace
     // ==================================================================
     //
     // Tourne dans une pthread. Crée son propre lua_State neuf, ouvre la
-    // stdlib + luapilot.* via register_luapilot, désérialise args dans
+    // stdlib + babet.* via register_babet, désérialise args dans
     // le global "worker.args" puis "worker.args" via le namespace
     // "worker", charge code, exécute en pcall, sérialise le résultat.
     //
@@ -869,7 +869,7 @@ namespace
         Worker *w = static_cast<Worker *>(arg);
 
         // ==========================================================
-        // Bloquer les signaux gérables par luapilot.signal dans ce
+        // Bloquer les signaux gérables par babet.signal dans ce
         // worker. Sans cela, le kernel pourrait délivrer un SIGTERM
         // (ou autre) à ce thread plutôt qu'au thread principal, et le
         // callback Lua serait invoqué dans un mauvais lua_State —
@@ -905,13 +905,13 @@ namespace
         }
         luaL_openlibs(L);
 
-        // Charger luapilot.* + modules bundlés (inspect, argparse, logging).
+        // Charger babet.* + modules bundlés (inspect, argparse, logging).
         // L'ORDRE COMPTE : register_bundled_modules pose package.preload
         // pour les modules bundlés, et doit être appelé AVANT toute
-        // exécution de require() — donc avant register_luapilot ne
+        // exécution de require() — donc avant register_babet ne
         // l'utilise et avant le code utilisateur.
         register_bundled_modules(L);
-        register_luapilot(L);
+        register_babet(L);
 
         // CORRECTIF (post-revue ChatGPT) : appliquer la même config de
         // require() que le parent, pour que require("mymod") trouve les

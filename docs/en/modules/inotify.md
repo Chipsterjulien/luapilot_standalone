@@ -1,6 +1,6 @@
 > **English** | [Français](../../fr/modules/inotify.md)
 
-# `luapilot.inotify` — filesystem event watching
+# `babet.inotify` — filesystem event watching
 
 Wraps Linux `inotify(7)` for instant filesystem event delivery —
 no polling. Used for hot-reloading configuration, watching drop
@@ -21,7 +21,7 @@ worse than dropping events silently is not telling you about it).
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.inotify.new()` | `watcher` (userdata) \| `(nil, err)` |
+| `babet.inotify.new()` | `watcher` (userdata) \| `(nil, err)` |
 | `w:add(path, events, opts?)` | `integer` wd (watch descriptor) \| `(nil, err)` |
 | `w:remove(wd)` | `(true, nil)` \| `(nil, err)` |
 | `w:read(timeout?)` | `table` of events \| `(nil, "timeout")` \| `(nil, "interrupted")` \| `(nil, err)` |
@@ -70,10 +70,10 @@ events were lost. Re-scan the watched paths to recover state.
 ## Quick example
 
 ```lua
-local w = assert(luapilot.inotify.new())
+local w = assert(babet.inotify.new())
 assert(w:add("/srv/incoming", { "close_write", "moved_to" }))
 
-luapilot.signal.handle("TERM", function() w:close(); os.exit(0) end)
+babet.signal.handle("TERM", function() w:close(); os.exit(0) end)
 
 while true do
     local events, err = w:read()      -- blocks until something happens

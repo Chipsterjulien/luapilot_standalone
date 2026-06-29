@@ -222,7 +222,7 @@ int lua_toml_decode(lua_State *L)
 
 void register_toml(lua_State *L)
 {
-    // Précondition : table luapilot au sommet (-1), comme
+    // Précondition : table babet au sommet (-1), comme
     // register_json / register_http.
     lua_newtable(L);
 

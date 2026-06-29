@@ -256,7 +256,7 @@ std::string moveTree(const fs::path &source, const fs::path &destination)
 /**
  * @brief Lua binding for moveTree function.
  *
- * Lua usage: ok, err = luapilot.moveTree(source, destination)
+ * Lua usage: ok, err = babet.moveTree(source, destination)
  *
  * @param L Lua state.
  * @return int Number of return values on the Lua stack (2: ok/nil, err/nil).

@@ -1,6 +1,6 @@
 > [English](../../en/modules/sqlite.md) | **Français**
 
-# `luapilot.sqlite` — base de données SQL embarquée
+# `babet.sqlite` — base de données SQL embarquée
 
 Wrappe SQLite 3.53.1 (embarquée), le moteur de base de données le
 plus déployé au monde. Persistance zero-config pour tout script
@@ -25,7 +25,7 @@ retour d'erreurs Lua-friendly.
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.sqlite.open(path, opts?)` | `db` (userdata) \| `(nil, err)` |
+| `babet.sqlite.open(path, opts?)` | `db` (userdata) \| `(nil, err)` |
 | `db:close()` | `(true, nil)` — idempotent |
 
 `opts` :
@@ -85,7 +85,7 @@ transitoire.
 ## Exemples rapides
 
 ```lua
-local db = assert(luapilot.sqlite.open("state.db", { wal = true }))
+local db = assert(babet.sqlite.open("state.db", { wal = true }))
 
 -- Schéma
 db:exec([[

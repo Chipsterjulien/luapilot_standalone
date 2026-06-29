@@ -69,10 +69,10 @@
 namespace fs = std::filesystem;
 
 /**
- * @brief Register LuaPilot functions to Lua state.
+ * @brief Register Babet functions to Lua state.
  * @param L Lua state.
  */
-void register_luapilot(lua_State *L)
+void register_babet(lua_State *L)
 {
     lua_newtable(L);
 
@@ -230,80 +230,80 @@ void register_luapilot(lua_State *L)
     lua_pushcfunction(L, lua_createFileIterator);
     lua_setfield(L, -2, "createFileIterator");
 
-    // Sous-table luapilot.json (encode/decode + sentinels null,
-    // empty_array). register_json attend la table luapilot au sommet de
+    // Sous-table babet.json (encode/decode + sentinels null,
+    // empty_array). register_json attend la table babet au sommet de
     // la pile, ce qui est le cas ici.
     register_json(L);
 
-    // Sous-table luapilot.http (request/get/post). Même précondition de
-    // pile que register_json (table luapilot au sommet).
+    // Sous-table babet.http (request/get/post). Même précondition de
+    // pile que register_json (table babet au sommet).
     register_http(L);
 
-    // Sous-table luapilot.toml (decode). Même précondition de pile
-    // que register_json / register_http (table luapilot au sommet).
+    // Sous-table babet.toml (decode). Même précondition de pile
+    // que register_json / register_http (table babet au sommet).
     register_toml(L);
 
-    // Sous-table luapilot.socket (connect/listen + métatable
+    // Sous-table babet.socket (connect/listen + métatable
     // LuapilotSocket dans le registry). Même précondition de pile
-    // (table luapilot au sommet) ; register_socket pose en passant
+    // (table babet au sommet) ; register_socket pose en passant
     // la métatable dans le registry, mais laisse la pile inchangée.
     register_socket(L);
 
-    // Sous-table luapilot.inotify (new + métatable LuapilotInotify
+    // Sous-table babet.inotify (new + métatable LuapilotInotify
     // dans le registry). Surveillance de système de fichiers via
-    // inotify(7). Même précondition de pile (table luapilot au
+    // inotify(7). Même précondition de pile (table babet au
     // sommet) ; register_inotify pose la métatable dans le registry
     // et laisse la pile inchangée. Cf. inotify.hpp pour le design.
     register_inotify(L);
 
-    // Sous-table luapilot.workers (spawn + métatable LuapilotWorker
-    // dans le registry). Même précondition de pile (table luapilot
+    // Sous-table babet.workers (spawn + métatable LuapilotWorker
+    // dans le registry). Même précondition de pile (table babet
     // au sommet) ; register_workers pose la métatable dans le
     // registry et laisse la pile inchangée. Chantier 8.
     register_workers(L);
 
-    // Fonctions utilitaires plates sous luapilot.* (which, env, setenv,
+    // Fonctions utilitaires plates sous babet.* (which, env, setenv,
     // hostname, uname, pid). register_sys NE crée PAS de sous-table :
-    // pose les fonctions directement sur luapilot. Même précondition
-    // de pile (table luapilot au sommet).
+    // pose les fonctions directement sur babet. Même précondition
+    // de pile (table babet au sommet).
     register_sys(L);
 
-    // Sous-table luapilot.signal (handle/ignore/default). Pour la
+    // Sous-table babet.signal (handle/ignore/default). Pour la
     // gestion propre de SIGTERM/SIGINT/SIGHUP/SIGUSR1/SIGUSR2/SIGPIPE
-    // depuis Lua. Même précondition de pile (table luapilot au
+    // depuis Lua. Même précondition de pile (table babet au
     // sommet). Cf. signal.hpp pour le design.
     register_signal(L);
 
-    // Sous-table luapilot.sqlite (open + méthodes du userdata db).
+    // Sous-table babet.sqlite (open + méthodes du userdata db).
     // V1 : API haut niveau, open/close/exec sans params (session 1).
     // Sessions à venir : params bind, query lazy iterator. Cf.
     // sqlite.hpp pour le design figé.
     register_sqlite(L);
 
-    // Sous-table luapilot.user (get/exists) pour les lookups
+    // Sous-table babet.user (get/exists) pour les lookups
     // utilisateur via NSS (getpwnam_r/getpwuid_r). Couvre LDAP,
     // SSSD, NIS+, etc. — pas une lecture directe de /etc/passwd.
-    // Précondition de pile identique (table luapilot au sommet).
+    // Précondition de pile identique (table babet au sommet).
     // Cf. user.hpp pour le design.
     register_user(L);
 
-    // luapilot.VERSION = "1.7.1"
-    lua_pushstring(L, LUAPILOT_VERSION_STRING);
+    // babet.VERSION = "1.7.1"
+    lua_pushstring(L, BABET_VERSION_STRING);
     lua_setfield(L, -2, "VERSION");
 
-    // luapilot.VERSION_MAJOR / MINOR / PATCH (integers, pour comparaison programmatique)
-    lua_pushinteger(L, LUAPILOT_VERSION_MAJOR);
+    // babet.VERSION_MAJOR / MINOR / PATCH (integers, pour comparaison programmatique)
+    lua_pushinteger(L, BABET_VERSION_MAJOR);
     lua_setfield(L, -2, "VERSION_MAJOR");
-    lua_pushinteger(L, LUAPILOT_VERSION_MINOR);
+    lua_pushinteger(L, BABET_VERSION_MINOR);
     lua_setfield(L, -2, "VERSION_MINOR");
-    lua_pushinteger(L, LUAPILOT_VERSION_PATCH);
+    lua_pushinteger(L, BABET_VERSION_PATCH);
     lua_setfield(L, -2, "VERSION_PATCH");
 
     // ---------------------------------------------------------------
-    // Sub-table luapilot.time (v1.8.0): date/duration utilities, with
+    // Sub-table babet.time (v1.8.0): date/duration utilities, with
     // aliases for monotonic/now/sleep so the new code can stay inside
-    // luapilot.time.* without losing access to the existing flat names.
-    // The flat luapilot.monotonic / .now / .sleep stay around for
+    // babet.time.* without losing access to the existing flat names.
+    // The flat babet.monotonic / .now / .sleep stay around for
     // backward compatibility with v1.7.x scripts.
     // ---------------------------------------------------------------
     lua_newtable(L);
@@ -317,7 +317,7 @@ void register_luapilot(lua_State *L)
     lua_pushcfunction(L, lua_time_format_duration);
     lua_setfield(L, -2, "format_duration");
 
-    // Aliases for ergonomy: same C functions used at luapilot.X.
+    // Aliases for ergonomy: same C functions used at babet.X.
     lua_pushcfunction(L, lua_now);
     lua_setfield(L, -2, "now");
     lua_pushcfunction(L, lua_monotonic);
@@ -325,9 +325,9 @@ void register_luapilot(lua_State *L)
     lua_pushcfunction(L, lua_sleep);
     lua_setfield(L, -2, "sleep");
 
-    lua_setfield(L, -2, "time"); // luapilot.time = <new table>
+    lua_setfield(L, -2, "time"); // babet.time = <new table>
 
-    lua_setglobal(L, "luapilot");
+    lua_setglobal(L, "babet");
 
     // Enregistre la metatable "FileIterator" dans le registry Lua.
     file_iterator_create_meta(L);
@@ -368,8 +368,8 @@ static void prepend_project_to_package_path(lua_State *L, const fs::path &projec
  * Modes:
  *   - packaged executable (script_index = 0):
  *       arg[0] = binary, arg[1..n] = its arguments
- *   - folder runner `./luapilot <dir> ...` (script_index = 1):
- *       arg[-1] = luapilot binary, arg[0] = <dir>,
+ *   - folder runner `./babet <dir> ...` (script_index = 1):
+ *       arg[-1] = babet binary, arg[0] = <dir>,
  *       arg[1..n] = user arguments
  *
  * lua_rawseti is used deliberately (raw set, no metamethods) since we
@@ -390,14 +390,14 @@ int main(int argc, char *argv[])
 {
     // === ÉTAPE 0 : capturer le thread principal pour signal.cpp =====
     // Doit être fait avant tout spawn de worker. Permet à
-    // luapilot.signal.handle/ignore/default de refuser les appels
+    // babet.signal.handle/ignore/default de refuser les appels
     // depuis un autre thread (les handlers POSIX sont process-wide ;
     // installer depuis un worker mène à un bug latent silencieux).
     register_main_thread();
 
     // === ÉTAPE 1 : IDENTITÉ (avant toute lecture de argv) ===========
     // Un binaire « packagé » = un binaire qui contient un main.lua
-    // embarqué. Dans ce cas il EST l'application finale : LuaPilot ne
+    // embarqué. Dans ce cas il EST l'application finale : Babet ne
     // doit intercepter AUCUN flag (--help, --create-exe, ...), tous
     // appartiennent à l'application embarquée, quel que soit argc.
     //
@@ -425,7 +425,7 @@ int main(int argc, char *argv[])
 
         // optional vide = pas de zip / pas de main.lua embarqué : ce
         // n'est PAS une erreur, juste « je ne suis pas packagé » -> on
-        // bascule en mode outil LuaPilot (étape 2).
+        // bascule en mode outil Babet (étape 2).
         auto fileData = readEmbeddedFile(exePath, "main.lua");
         if (fileData)
         {
@@ -437,7 +437,7 @@ int main(int argc, char *argv[])
             }
             luaL_openlibs(L);
             register_bundled_modules(L);
-            register_luapilot(L);
+            register_babet(L);
             register_embedded_searcher(L, exePath.c_str());
 
             // Workers (Chantier 8) : indiquer le mode d'exécution
@@ -462,7 +462,7 @@ int main(int argc, char *argv[])
         // Pas packagé : on continue en mode outil ci-dessous.
     }
 
-    // === ÉTAPE 2 : MODE OUTIL LUAPILOT (pas de main.lua embarqué) ====
+    // === ÉTAPE 2 : MODE OUTIL BABET (pas de main.lua embarqué) ====
 
     // Outil lancé sans argument : on affiche l'aide. (Anciennement ce
     // cas tombait dans la détection d'embarqué et émettait un message
@@ -477,20 +477,20 @@ int main(int argc, char *argv[])
     std::string option = argv[1];
 
     // --version / -V : intercepté UNIQUEMENT en mode outil (binaire
-    // luapilot nu). Pour un binaire packagé via --create-exe, ce flag
+    // babet nu). Pour un binaire packagé via --create-exe, ce flag
     // appartient à l'application embarquée et l'étape 1 (ci-dessus)
     // l'aurait déjà transmise au script. À ce point on sait qu'on
     // n'est pas packagé, donc on peut interpréter --version comme
-    // une demande de version du runtime LuaPilot.
+    // une demande de version du runtime Babet.
     if (option == "--version" || option == "-V")
     {
-        std::cout << "luapilot " << LUAPILOT_VERSION_STRING << '\n';
+        std::cout << "babet " << BABET_VERSION_STRING << '\n';
         return 0;
     }
 
     // --help / -h n'est reconnu QU'EN PREMIER argument. Plus loin
-    // (`luapilot mon_projet --help`) le flag appartient au projet, qui
-    // le lira via la table `arg` : sinon LuaPilot intercepterait un
+    // (`babet mon_projet --help`) le flag appartient au projet, qui
+    // le lira via la table `arg` : sinon Babet intercepterait un
     // argument destiné au script. (Sans contrainte sur argc : c'est la
     // POSITION qui compte, pas le nombre d'arguments.)
     if (option == "--help" || option == "-h")
@@ -519,7 +519,7 @@ int main(int argc, char *argv[])
     if (!option.empty() && option[0] == '-')
     {
         std::cerr << "Unknown option: " << option << "\n"
-                  << "Try 'luapilot --help' for more information." << std::endl;
+                  << "Try 'babet --help' for more information." << std::endl;
         return 1;
     }
 
@@ -542,7 +542,7 @@ int main(int argc, char *argv[])
     }
     luaL_openlibs(L);
     register_bundled_modules(L);
-    register_luapilot(L);
+    register_babet(L);
     prepend_project_to_package_path(L, projectDir);
 
     // Workers (Chantier 8) : indiquer le mode d'exécution pour que
@@ -551,7 +551,7 @@ int main(int argc, char *argv[])
     set_workers_init_context(projectDir.string(), "", false);
 
     // Runner de dossier : le "script" est le dossier lancé.
-    // arg[-1] = binaire luapilot, arg[0] = <dir>, arg[1..n] = args.
+    // arg[-1] = binaire babet, arg[0] = <dir>, arg[1..n] = args.
     push_lua_arg(L, argc, argv, 1);
 
     bool ok = loadLuaFile(L, mainLuaPath);

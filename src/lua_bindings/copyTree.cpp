@@ -294,7 +294,7 @@ std::optional<std::string> copy_directory(const fs::path &source, const fs::path
  * @brief Lua binding for the copy_directory function.
  *
  * Lua usage:
- *   ok, err = luapilot.copyTree(source, destination [, continue_on_error])
+ *   ok, err = babet.copyTree(source, destination [, continue_on_error])
  *
  * @param L The Lua state.
  * @return int Number of return values on the Lua stack (2: ok/nil, err/nil).

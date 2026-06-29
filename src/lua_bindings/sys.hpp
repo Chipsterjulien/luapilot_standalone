@@ -4,14 +4,14 @@
 #include <lua.hpp>
 
 /**
- * @brief Bindings utilitaires système plats sous luapilot.*
+ * @brief Bindings utilitaires système plats sous babet.*
  *
  * Décisions actées :
- *   - Nommage plat (luapilot.which, luapilot.hostname, ...) — cohérent
+ *   - Nommage plat (babet.which, babet.hostname, ...) — cohérent
  *     avec exec, sleep, currentDir.
  *   - Un seul .cpp regroupe le tout (register_sys n'attache PAS de
  *     sous-table : les fonctions sont posées directement sur
- *     luapilot).
+ *     babet).
  *   - Contrat d'erreur miroir maison :
  *       * succès : valeur retournée directement (string pour
  *         hostname/which, table pour uname, integer pour pid)
@@ -34,15 +34,15 @@ int lua_sys_uname(lua_State *L);
 int lua_sys_pid(lua_State *L);
 
 /**
- * @brief Attache les fonctions utilitaires plates à la table luapilot.
+ * @brief Attache les fonctions utilitaires plates à la table babet.
  *
- * Précondition : la table luapilot est au sommet de la pile (-1),
+ * Précondition : la table babet est au sommet de la pile (-1),
  * exactement comme register_http / register_json. La pile est
  * inchangée après l'appel (les fonctions sont attachées sur la table
  * du sommet, qui reste au sommet).
  *
  * À la différence de register_http qui crée une sous-table 'http',
- * register_sys POSE les fonctions DIRECTEMENT sur luapilot (nommage
+ * register_sys POSE les fonctions DIRECTEMENT sur babet (nommage
  * plat décidé).
  */
 void register_sys(lua_State *L);

@@ -2,9 +2,9 @@
 // time_clock.hpp — bindings Lua pour les horloges monotone et temps réel
 // =====================================================================
 //
-// Expose deux fonctions à la racine de la table `luapilot` :
+// Expose deux fonctions à la racine de la table `babet` :
 //
-//   luapilot.monotonic() -> number
+//   babet.monotonic() -> number
 //     Renvoie un nombre de secondes (avec partie fractionnaire) depuis
 //     un point arbitraire (typiquement le boot). Idéal pour mesurer
 //     des durées : NE SAUTE JAMAIS en arrière, contrairement à
@@ -13,7 +13,7 @@
 //
 //     Backend : clock_gettime(CLOCK_MONOTONIC).
 //
-//   luapilot.now() -> number
+//   babet.now() -> number
 //     Renvoie le timestamp Unix (secondes depuis 1970-01-01 UTC) avec
 //     partie fractionnaire (précision µs). Pour timestamps de logs,
 //     fichiers, comparaisons absolues entre machines synchronisées.

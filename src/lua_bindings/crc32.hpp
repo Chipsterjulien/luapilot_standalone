@@ -28,7 +28,7 @@ std::optional<std::string> crc32sum(const std::string &path,
                                     std::string &err_out);
 
 /**
- * @brief Lua binding: luapilot.crc32(data) -> string
+ * @brief Lua binding: babet.crc32(data) -> string
  *        Returns the CRC32 hex of an in-memory binary-safe string.
  *        Cannot fail at runtime; raises via luaL_error only on
  *        argument-type bugs.
@@ -36,7 +36,7 @@ std::optional<std::string> crc32sum(const std::string &path,
 int lua_crc32(lua_State *L);
 
 /**
- * @brief Lua binding: luapilot.crc32sum(path) -> (string, nil) | (nil, err)
+ * @brief Lua binding: babet.crc32sum(path) -> (string, nil) | (nil, err)
  *        Returns the CRC32 hex of a file's content, streaming.
  *        Matches the contract of md5sum / sha256sum etc.
  */

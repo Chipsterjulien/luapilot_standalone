@@ -4,12 +4,12 @@
 #include <lua.hpp>
 
 /**
- * @brief Lua binding: str, err = luapilot.json.encode(value [, opts])
+ * @brief Lua binding: str, err = babet.json.encode(value [, opts])
  *
  * Mapping Lua -> JSON :
  *   - nil (niveau racine seulement) -> null
- *   - luapilot.json.null            -> null
- *   - luapilot.json.empty_array     -> []
+ *   - babet.json.null            -> null
+ *   - babet.json.empty_array     -> []
  *   - boolean                       -> true/false
  *   - integer (math.type "integer") -> entier JSON (pas de ".0")
  *   - float   (math.type "float")   -> flottant JSON
@@ -31,10 +31,10 @@
 int lua_json_encode(lua_State *L);
 
 /**
- * @brief Lua binding: value, err = luapilot.json.decode(str)
+ * @brief Lua binding: value, err = babet.json.decode(str)
  *
  * Mapping JSON -> Lua :
- *   - null    -> luapilot.json.null (sentinel, PAS nil : sinon collision
+ *   - null    -> babet.json.null (sentinel, PAS nil : sinon collision
  *                avec (val, err) et perte de clé dans les tables)
  *   - true/false -> boolean
  *   - integer -> integer (sous-type préservé)
@@ -52,7 +52,7 @@ int lua_json_encode(lua_State *L);
 int lua_json_decode(lua_State *L);
 
 /**
- * @brief Lua binding: t = luapilot.json.as_array(t)
+ * @brief Lua binding: t = babet.json.as_array(t)
  *
  * Marque la table `t` pour qu'elle soit sérialisée comme un tableau
  * JSON par encode(), même vide. Résout le cas du tableau construit
@@ -60,7 +60,7 @@ int lua_json_decode(lua_State *L);
  *
  *   local tags = {}
  *   for ... do table.insert(tags, x) end
- *   encode({ tags = luapilot.json.as_array(tags) })
+ *   encode({ tags = babet.json.as_array(tags) })
  *   -- 0 itération -> {"tags":[]} et non {"tags":{}}
  *
  * Renvoie la table elle-même (chaînable, idempotent).
@@ -85,17 +85,17 @@ int lua_json_decode(lua_State *L);
 int lua_json_as_array(lua_State *L);
 
 /**
- * @brief Construit la sous-table `json` et l'attache à la table luapilot.
+ * @brief Construit la sous-table `json` et l'attache à la table babet.
  *
- * Précondition : la table luapilot doit être au sommet de la pile (-1).
- * Après l'appel, la pile est inchangée (la table luapilot est toujours
- * au sommet) et luapilot.json contient : encode, decode, as_array,
+ * Précondition : la table babet doit être au sommet de la pile (-1).
+ * Après l'appel, la pile est inchangée (la table babet est toujours
+ * au sommet) et babet.json contient : encode, decode, as_array,
  * null, empty_array.
  *
  * Les deux sentinels (null, empty_array) sont aussi stockés dans le
  * registry Lua pour que encode/decode puissent les identifier par
  * identité (lua_rawequal), indépendamment de toute modification que le
- * script ferait sur luapilot.json.
+ * script ferait sur babet.json.
  *
  * @param L L'état Lua.
  */

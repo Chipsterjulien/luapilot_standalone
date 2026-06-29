@@ -4,7 +4,7 @@
 #include <lua.hpp>
 
 /**
- * @brief Binding TCP sockets : luapilot.socket.{connect,listen}
+ * @brief Binding TCP sockets : babet.socket.{connect,listen}
  *
  * Décisions actées (toutes observables) :
  *
@@ -12,7 +12,7 @@
  *   SOCK-B  TCP seul (v1). UDP reporté.
  *   SOCK-C  Pas de TLS (v1). Reporté ; OpenSSL déjà lié, ajoutable.
  *   SOCK-D  POSIX direct, zéro dépendance externe.
- *   SOCK-1  Sous-table `luapilot.socket` (singulier).
+ *   SOCK-1  Sous-table `babet.socket` (singulier).
  *   SOCK-2  Client + serveur en v1, API haute : connect() / listen()
  *           font tout d'un coup (pas de bind() exposé).
  *   SOCK-3  Userdata avec métatable + __gc -> jamais de fuite de FD
@@ -48,9 +48,9 @@ int lua_socket_connect(lua_State *L);
 int lua_socket_listen(lua_State *L);
 
 /**
- * @brief Construit la sous-table `socket` et l'attache à luapilot.
+ * @brief Construit la sous-table `socket` et l'attache à babet.
  *
- * Précondition : la table luapilot est au sommet de la pile (-1),
+ * Précondition : la table babet est au sommet de la pile (-1),
  * comme register_json / register_http / register_toml. La pile est
  * inchangée après l'appel.
  *

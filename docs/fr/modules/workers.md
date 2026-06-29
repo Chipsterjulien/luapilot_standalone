@@ -1,6 +1,6 @@
 > [English](../../en/modules/workers.md) | **Français**
 
-# `luapilot.workers` — jobs parallèles
+# `babet.workers` — jobs parallèles
 
 Exécute du code Lua sur de vrais threads OS. Utile pour le travail
 I/O-bound qui bénéficie de la concurrence (fetcher beaucoup
@@ -15,7 +15,7 @@ utiliser plusieurs cœurs. Et beaucoup de tâches sont I/O-bound :
 100 requêtes HTTP qui prennent 500 ms chacune mettent quand même
 50 s séquentiellement, mais ~500 ms en parallèle.
 
-`luapilot.workers` spawn de vrais threads OS, chacun faisant
+`babet.workers` spawn de vrais threads OS, chacun faisant
 tourner son propre état Lua isolé, communiquant avec le parent
 via les arguments passés et les valeurs de retour. Pas d'état
 partagé signifie pas de locks, pas de data races — juste envoyer
@@ -25,8 +25,8 @@ du travail, récupérer des résultats.
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.workers.spawn(code, args?)` | `job` (userdata) \| `(nil, err)` |
-| `luapilot.workers.cpu_count()` | `integer` — nombre de CPUs logiques |
+| `babet.workers.spawn(code, args?)` | `job` (userdata) \| `(nil, err)` |
+| `babet.workers.cpu_count()` | `integer` — nombre de CPUs logiques |
 | `job:join(timeout?)` | `(true, result)` \| `(false, err)` \| `(nil, "timeout")` |
 | `job:done()` | `boolean` — check non-bloquant |
 | `job:cancel()` | `(true, nil)` — coopératif ; positionne un flag |
@@ -34,7 +34,7 @@ du travail, récupérer des résultats.
 ### Argument `code`
 
 Une string source Lua qui tourne dans le worker. Le namespace
-complet `luapilot` est disponible, plus une globale `worker` avec :
+complet `babet` est disponible, plus une globale `worker` avec :
 
 - `worker.args` — le deuxième argument passé à `spawn`.
 - `worker.cancelled()` — renvoie `true` si le parent a appelé
@@ -65,9 +65,9 @@ local urls = {
 
 local jobs = {}
 for i, url in ipairs(urls) do
-    jobs[i] = luapilot.workers.spawn([[
+    jobs[i] = babet.workers.spawn([[
         local url = worker.args.url
-        local r, err = luapilot.http.get(url, { timeout = 10 })
+        local r, err = babet.http.get(url, { timeout = 10 })
         if not r then return { ok = false, err = err } end
         return { ok = true, status = r.status, length = #r.body }
     ]], { url = url })
@@ -86,12 +86,12 @@ end
 ### Travail CPU-bound avec cancellation
 
 ```lua
-local n = luapilot.workers.cpu_count()
+local n = babet.workers.cpu_count()
 print("on tourne sur", n, "cœurs")
 
 local jobs = {}
 for i = 1, n do
-    jobs[i] = luapilot.workers.spawn([[
+    jobs[i] = babet.workers.spawn([[
         local chunk = worker.args.chunk
         local total = 0
         for x = chunk.from, chunk.to do
@@ -112,7 +112,7 @@ end
 
 ```lua
 local function map_parallel(items, code, max_concurrent)
-    max_concurrent = max_concurrent or luapilot.workers.cpu_count()
+    max_concurrent = max_concurrent or babet.workers.cpu_count()
     local results = {}
     local i = 1
     local active = {}
@@ -122,7 +122,7 @@ local function map_parallel(items, code, max_concurrent)
         while i <= #items and #active < max_concurrent do
             active[#active + 1] = {
                 index = i,
-                job = luapilot.workers.spawn(code, { item = items[i] }),
+                job = babet.workers.spawn(code, { item = items[i] }),
             }
             i = i + 1
         end
@@ -135,7 +135,7 @@ local function map_parallel(items, code, max_concurrent)
                 table.remove(active, k)
             end
         end
-        if next(active) then luapilot.sleep(10, "ms") end
+        if next(active) then babet.sleep(10, "ms") end
     end
     return results
 end
@@ -192,7 +192,7 @@ une db occupée.
   sans laisser le runtime dans un état indéfini.
   `worker.cancelled()` renvoie `true` ; le worker est responsable
   de le vérifier périodiquement.
-- **`luapilot.signal` n'est pas disponible dans les workers**.
+- **`babet.signal` n'est pas disponible dans les workers**.
   Les signaux sont process-wide ; seul le thread principal peut
   les gérer sensément.
 

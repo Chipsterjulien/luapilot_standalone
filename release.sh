@@ -1,6 +1,6 @@
 #!/bin/bash
 # =====================================================================
-# release.sh — automatise la fabrication d'une release LuaPilot
+# release.sh — automatise la fabrication d'une release Babet
 # =====================================================================
 #
 # Ce que le script fait :
@@ -8,8 +8,8 @@
 #   2. copie du binaire dans dist/
 #   3. strip du binaire
 #   4. sha256 du binaire strippé
-#   5. tarball luapilot-<version>-linux-<arch>.tar.gz
-#      (contient : luapilot, README.md, README_fr.md, LICENSE, notes.md)
+#   5. tarball babet-<version>-linux-<arch>.tar.gz
+#      (contient : babet, README.md, README_fr.md, LICENSE, notes.md)
 #   6. sha256 du tarball
 #
 # Sortie : tout dans le répertoire dist/ à la racine du projet.
@@ -62,7 +62,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-PROJECT_NAME="luapilot"
+PROJECT_NAME="babet"
 BUILT_BINARY="${SCRIPT_DIR}/build/project_build/${PROJECT_NAME}"
 DIST_DIR="${SCRIPT_DIR}/dist"
 
@@ -90,7 +90,7 @@ if [[ -z "${VERSION}" ]]; then
 fi
 
 echo "=========================================="
-echo "  LuaPilot release builder"
+echo "  Babet release builder"
 echo "  Version : ${VERSION}"
 echo "  Arch    : ${ARCH_TAG}"
 echo "=========================================="
@@ -132,7 +132,7 @@ mkdir -p "${DIST_DIR}"
 # Nom versionné du binaire pour la distribution hors tarball.
 # Important : on inclut arch ET version pour qu'on puisse stocker
 # côte à côte sur GitHub Releases plusieurs binaires (x86_64,
-# aarch64, armv6l du RPi0...). Si on gardait juste "luapilot",
+# aarch64, armv6l du RPi0...). Si on gardait juste "babet",
 # le second upload écraserait le premier.
 BINARY_NAME_VERSIONED="${PROJECT_NAME}-${VERSION}-${ARCH_TAG}"
 
@@ -169,11 +169,11 @@ INCLUDE_FILES=("${PROJECT_NAME}")
 [[ -f "${SCRIPT_DIR}/notes.md" ]]     && INCLUDE_FILES+=("notes.md")
 
 # Stage : on copie les fichiers à inclure dans un sous-dossier nommé
-# explicitement, pour que le tarball s'extraie en luapilot-X.Y.Z-arch/
+# explicitement, pour que le tarball s'extraie en babet-X.Y.Z-arch/
 #
 # IMPORTANT : DANS le tarball, le binaire reprend le nom court
-# "luapilot" (sans arch ni version). C'est plus ergonomique pour les
-# scripts une fois l'archive extraite : on a "luapilot-X.Y.Z-arch/luapilot"
+# "babet" (sans arch ni version). C'est plus ergonomique pour les
+# scripts une fois l'archive extraite : on a "babet-X.Y.Z-arch/babet"
 # qu'on peut appeler directement ou symlinker. L'arch+version reste
 # visible au niveau du dossier d'extraction, ce qui suffit pour
 # identifier de quelle release il vient.
@@ -191,8 +191,8 @@ for f in "${INCLUDE_FILES[@]:1}"; do
 done
 
 # Création du tarball depuis le parent du stage (pour que les chemins
-# dans l'archive soient bien luapilot-X.Y.Z-arch/... et pas
-# .stage/luapilot-X.Y.Z-arch/...)
+# dans l'archive soient bien babet-X.Y.Z-arch/... et pas
+# .stage/babet-X.Y.Z-arch/...)
 (cd "${STAGE_PARENT}" && tar -czf "${TARBALL_FILE}" "${TARBALL_BASENAME}")
 
 # Nettoyage du stage.

@@ -1,6 +1,6 @@
 > **English** | [Français](../../fr/modules/signal.md)
 
-# `luapilot.signal` — POSIX signals
+# `babet.signal` — POSIX signals
 
 Register Lua callbacks for POSIX signals (`SIGTERM`, `SIGINT`,
 `SIGHUP`, …) so long-running scripts can shut down gracefully or
@@ -8,7 +8,7 @@ reload configuration on demand.
 
 ## Why
 
-Long-running LuaPilot scripts (bots, daemons, watchers) need to
+Long-running Babet scripts (bots, daemons, watchers) need to
 handle signals properly :
 
 - `SIGTERM` from `systemctl stop` should trigger a clean shutdown.
@@ -22,12 +22,12 @@ leaving open files, half-written databases, and orphaned children.
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.signal.handle(name, fn)` | `(true, nil)` \| `(nil, err)` — install Lua callback |
-| `luapilot.signal.ignore(name)` | `(true, nil)` \| `(nil, err)` — set to `SIG_IGN` |
-| `luapilot.signal.default(name)` | `(true, nil)` \| `(nil, err)` — back to OS default |
-| `luapilot.signal.kill(pid, name)` | `(true, nil)` \| `(nil, err)` — send signal to PID |
-| `luapilot.signal.list()` | `table` of all supported signal names |
-| `luapilot.signal.is_pending()` | `boolean` — any handled signal queued ? |
+| `babet.signal.handle(name, fn)` | `(true, nil)` \| `(nil, err)` — install Lua callback |
+| `babet.signal.ignore(name)` | `(true, nil)` \| `(nil, err)` — set to `SIG_IGN` |
+| `babet.signal.default(name)` | `(true, nil)` \| `(nil, err)` — back to OS default |
+| `babet.signal.kill(pid, name)` | `(true, nil)` \| `(nil, err)` — send signal to PID |
+| `babet.signal.list()` | `table` of all supported signal names |
+| `babet.signal.is_pending()` | `boolean` — any handled signal queued ? |
 
 Signal names accepted (string, case-sensitive) :
 
@@ -39,7 +39,7 @@ caught — POSIX forbids it.
 ## Quick example
 
 ```lua
-local sig = luapilot.signal
+local sig = babet.signal
 local running = true
 
 sig.handle("TERM", function()
@@ -81,7 +81,7 @@ When a signal arrives :
 2. If the script is in a blocking call (`recv`, `sleep`,
    `inotify.read`, `accept`, …), the call returns
    `(nil, "interrupted")`.
-3. Before returning, LuaPilot dispatches all pending callbacks
+3. Before returning, Babet dispatches all pending callbacks
    in registration order, in the main Lua thread.
 4. The script continues normally — the callback can have
    modified globals (`running = false` is the typical pattern).

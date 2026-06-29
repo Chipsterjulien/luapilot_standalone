@@ -1,6 +1,6 @@
 > **English** | [Français](../../fr/modules/json.md)
 
-# `luapilot.json` — JSON encode/decode
+# `babet.json` — JSON encode/decode
 
 Backed by [nlohmann/json](https://github.com/nlohmann/json), the
 most widely-used C++ JSON library. Handles the usual round-trip
@@ -12,17 +12,17 @@ disambiguate from "empty object".
 The Lua/JSON impedance mismatch always trips someone up : Lua has
 no distinction between an empty list and an empty table. Most
 ad-hoc Lua JSON libraries pick one and get it wrong half the time.
-`luapilot.json` is explicit : `{}` decodes to `{}` and re-encodes
+`babet.json` is explicit : `{}` decodes to `{}` and re-encodes
 to `{}` (object), but if you want `[]` you use the
-`luapilot.json.empty_array` sentinel.
+`babet.json.empty_array` sentinel.
 
 ## API
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.json.encode(value, opts?)` | `string` (JSON text) \| `(nil, err)` |
-| `luapilot.json.decode(text)` | `value` \| `(nil, err)` |
-| `luapilot.json.empty_array` | sentinel value that encodes to `[]` |
+| `babet.json.encode(value, opts?)` | `string` (JSON text) \| `(nil, err)` |
+| `babet.json.decode(text)` | `value` \| `(nil, err)` |
+| `babet.json.empty_array` | sentinel value that encodes to `[]` |
 
 Encoding options (`opts` table) :
 
@@ -32,7 +32,7 @@ Encoding options (`opts` table) :
 ## Quick example
 
 ```lua
-local J = luapilot.json
+local J = babet.json
 
 -- Decode
 local data, err = J.decode([[

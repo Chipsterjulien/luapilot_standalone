@@ -5,7 +5,7 @@
 # Code de sortie : 0 si les deux modes passent, 1 sinon.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_NAME="luapilot"
+PROJECT_NAME="babet"
 TEST_DIR="${SCRIPT_DIR}/test"
 EXAMPLES_DIR="${SCRIPT_DIR}/examples"
 
@@ -53,7 +53,7 @@ ISOLATED_DIR=$(mktemp -d)
 if [ -z "${ISOLATED_DIR}" ] || [ ! -d "${ISOLATED_DIR}" ]; then
     echo "  -> mode embarqué : ÉCHEC (impossible de créer un dossier temporaire)"
 else
-    EMBEDDED_BIN="${ISOLATED_DIR}/luapilot_embedded"
+    EMBEDDED_BIN="${ISOLATED_DIR}/babet_embedded"
 
     # On construit l'exe embarqué à partir de examples/ (contenu Lua pur,
     # sans binaire dedans). Le résultat est placé SEUL dans un dossier isolé :
@@ -64,7 +64,7 @@ else
     elif [ ! -f "${EMBEDDED_BIN}" ]; then
         echo "  -> mode embarqué : ÉCHEC (exécutable embarqué non produit)"
     else
-        emb_output=$(cd "${ISOLATED_DIR}" && ./luapilot_embedded __ARG__a __ARG__b 2>&1)
+        emb_output=$(cd "${ISOLATED_DIR}" && ./babet_embedded __ARG__a __ARG__b 2>&1)
         emb_rc=$?
 
         if [ ${emb_rc} -eq 0 ]; then
@@ -79,13 +79,13 @@ else
         fi
 
         # Test 2bis : invocation via PATH, comme un binaire installé.
-        # Reproduit "luapilot installé dans /usr/local/bin/ et invoqué depuis
+        # Reproduit "babet installé dans /usr/local/bin/ et invoqué depuis
         # ailleurs" — exactement le cas où argv[0] vaut juste le basename.
-        # On lance par le nom seul (pas ./luapilot_embedded) avec ISOLATED_DIR
+        # On lance par le nom seul (pas ./babet_embedded) avec ISOLATED_DIR
         # dans le PATH. Le cwd doit être writable pour que le harnais puisse
         # créer son sandbox, donc on utilise un autre tmpdir.
         PATH_TEST_CWD=$(mktemp -d)
-        emb_path_output=$(cd "${PATH_TEST_CWD}" && PATH="${ISOLATED_DIR}:$PATH" luapilot_embedded __ARG__a __ARG__b 2>&1)
+        emb_path_output=$(cd "${PATH_TEST_CWD}" && PATH="${ISOLATED_DIR}:$PATH" babet_embedded __ARG__a __ARG__b 2>&1)
         emb_path_rc=$?
         rm -rf "${PATH_TEST_CWD}"
 
@@ -107,15 +107,15 @@ else
 
     # === Test 3 : runtime ne capture pas les flags génériques =======
     # Le bug fixé en v1.8.1 : --version/-V étaient interceptés par le
-    # runtime LuaPilot AVANT que le main.lua du binaire empaqueté ne
-    # soit lancé. Résultat : `mon_app --version` affichait "luapilot
+    # runtime Babet AVANT que le main.lua du binaire empaqueté ne
+    # soit lancé. Résultat : `mon_app --version` affichait "babet
     # X.Y.Z" au lieu de la version de mon_app.
     #
     # Test : pour les 4 flags génériques (--version, -V, --help, -h),
     # le binaire empaqueté doit transmettre l'arg au script, pas le
     # court-circuiter au runtime. Détection indirecte : si le runtime
-    # interceptait, la 1re ligne serait soit "luapilot X.Y.Z" (cas
-    # --version/-V) soit "Usage: luapilot ..." (cas --help/-h). Sinon
+    # interceptait, la 1re ligne serait soit "babet X.Y.Z" (cas
+    # --version/-V) soit "Usage: babet ..." (cas --help/-h). Sinon
     # c'est du Lua qui s'exécute -- peu importe le résultat des tests
     # internes, ce qui compte c'est que le script ait été lancé.
     echo ""
@@ -129,9 +129,9 @@ else
     else
         for flag in "--version" "-V" "--help" "-h"; do
             first_line=$(cd "${ISOLATED_DIR}" && \
-                ./luapilot_embedded "${flag}" 2>&1 | head -1)
+                ./babet_embedded "${flag}" 2>&1 | head -1)
             if echo "${first_line}" | \
-                    grep -qE '^luapilot [0-9]+\.[0-9]+\.[0-9]+$|^Usage: luapilot '; then
+                    grep -qE '^babet [0-9]+\.[0-9]+\.[0-9]+$|^Usage: babet '; then
                 echo "  -> ${flag} : ÉCHEC (runtime a intercepté: '${first_line}')"
                 runtime_intercept=1
             else

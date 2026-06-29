@@ -1,6 +1,6 @@
 > [English](../../en/modules/http.md) | **Français**
 
-# `luapilot.http` — client HTTP
+# `babet.http` — client HTTP
 
 Un client HTTP/HTTPS simple basé sur
 [cpp-httplib](https://github.com/yhirose/cpp-httplib), réutilisant
@@ -10,7 +10,7 @@ l'OpenSSL embarqué. Synchrone, bloquant, avec timeouts.
 
 Presque chaque script non trivial doit parler à une API HTTP. Sans
 client intégré, on en vient à utiliser `curl` via `exec`, avec
-tout l'overhead de quoting et de spawn de process. `luapilot.http`
+tout l'overhead de quoting et de spawn de process. `babet.http`
 rend une requête accessible en une ligne, avec la vérification TLS
 par défaut.
 
@@ -18,11 +18,11 @@ par défaut.
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.http.request(opts)` | `response` (table) \| `(nil, err)` |
-| `luapilot.http.get(url, opts?)` | raccourci pour `request{ method="GET", url=url, ... }` |
-| `luapilot.http.post(url, opts?)` | raccourci pour `request{ method="POST", url=url, ... }` |
-| `luapilot.http.put(url, opts?)` | raccourci pour `request{ method="PUT", url=url, ... }` |
-| `luapilot.http.delete(url, opts?)` | raccourci pour `request{ method="DELETE", url=url, ... }` |
+| `babet.http.request(opts)` | `response` (table) \| `(nil, err)` |
+| `babet.http.get(url, opts?)` | raccourci pour `request{ method="GET", url=url, ... }` |
+| `babet.http.post(url, opts?)` | raccourci pour `request{ method="POST", url=url, ... }` |
+| `babet.http.put(url, opts?)` | raccourci pour `request{ method="PUT", url=url, ... }` |
+| `babet.http.delete(url, opts?)` | raccourci pour `request{ method="DELETE", url=url, ... }` |
 
 ### Table `opts`
 
@@ -58,28 +58,28 @@ par défaut.
 
 ```lua
 -- GET simple
-local r, err = luapilot.http.get("https://api.example.com/health")
+local r, err = babet.http.get("https://api.example.com/health")
 if r then
     print(r.status, r.body)
 end
 
 -- POST JSON avec header d'auth
-local r, err = luapilot.http.post("https://api.example.com/v1/things", {
+local r, err = babet.http.post("https://api.example.com/v1/things", {
     headers = {
         ["Content-Type"] = "application/json",
         ["Authorization"] = "Bearer " .. token,
     },
-    body = luapilot.json.encode({ name = "widget", count = 7 }),
+    body = babet.json.encode({ name = "widget", count = 7 }),
     timeout = 10,
 })
 
 -- Cert auto-signé (dev / CA privée)
-local r = luapilot.http.get("https://internal.svc/", {
+local r = babet.http.get("https://internal.svc/", {
     ca_cert = "/etc/myapp/internal-ca.crt",
 })
 
 -- Désactiver la vérification (TESTS UNIQUEMENT)
-local r = luapilot.http.get("https://expired.badssl.com/",
+local r = babet.http.get("https://expired.badssl.com/",
                             { verify = false })
 ```
 
@@ -94,13 +94,13 @@ local r = luapilot.http.get("https://expired.badssl.com/",
 
 ## TLS / trust store
 
-LuaPilot embarque sa propre OpenSSL statique, donc il n'hérite pas
+Babet embarque sa propre OpenSSL statique, donc il n'hérite pas
 automatiquement de la config `ca-certificates` de la distro. Deux
 mécanismes garantissent que `verify=true` fonctionne d'emblée :
 
 1. L'OpenSSL embarquée est compilée avec `--openssldir=/etc/ssl`,
    couvrant Arch, Debian, Ubuntu, Alpine, Gentoo.
-2. À l'init TLS, LuaPilot sonde les chemins de CA bundles connus
+2. À l'init TLS, Babet sonde les chemins de CA bundles connus
    pour Fedora/RHEL, OpenSUSE, FreeBSD, NetBSD.
 
 Tu peux override par appel avec `ca_cert` / `ca_path`, ou

@@ -1,6 +1,6 @@
 > [English](../../en/modules/sys.md) | **Français**
 
-# `luapilot` sys — utilitaires système
+# `babet` sys — utilitaires système
 
 Helpers d'introspection processus et hôte : PID, hostname, infos
 kernel, lookup d'exécutable, variables d'environnement.
@@ -12,7 +12,7 @@ le hostname, les infos kernel, ou un `which` portable. Ce sont des
 besoins de scripting universels qui ne méritent pas un détour par
 `popen`.
 
-Ces fonctions vivent directement sur `luapilot` (plat, pas de
+Ces fonctions vivent directement sur `babet` (plat, pas de
 sous-table) parce qu'elles précèdent la convention par module
 adoptée pour les ajouts récents.
 
@@ -20,66 +20,66 @@ adoptée pour les ajouts récents.
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.pid()` | `integer` — PID du processus courant |
-| `luapilot.hostname()` | `string` \| `(nil, err)` — hostname système |
-| `luapilot.uname()` | `table` avec `sysname`, `nodename`, `release`, `version`, `machine` |
-| `luapilot.which(cmd)` | `string` (chemin absolu) \| `(nil, "not found")` |
-| `luapilot.env(name)` | `string` \| `nil` — comme `os.getenv`, en cohérent |
-| `luapilot.setenv(name, value)` | `(true, nil)` \| `(nil, err)` |
-| `luapilot.getMemoryUsage()` | `integer` — mémoire de la VM Lua en octets (après un GC complet) |
-| `luapilot.getDetailedMemoryUsage()` | `(integer, integer)` — actuellement les deux valeurs sont égales au compteur GC en octets ; gardé en deux retours pour la stabilité d'API |
+| `babet.pid()` | `integer` — PID du processus courant |
+| `babet.hostname()` | `string` \| `(nil, err)` — hostname système |
+| `babet.uname()` | `table` avec `sysname`, `nodename`, `release`, `version`, `machine` |
+| `babet.which(cmd)` | `string` (chemin absolu) \| `(nil, "not found")` |
+| `babet.env(name)` | `string` \| `nil` — comme `os.getenv`, en cohérent |
+| `babet.setenv(name, value)` | `(true, nil)` \| `(nil, err)` |
+| `babet.getMemoryUsage()` | `integer` — mémoire de la VM Lua en octets (après un GC complet) |
+| `babet.getDetailedMemoryUsage()` | `(integer, integer)` — actuellement les deux valeurs sont égales au compteur GC en octets ; gardé en deux retours pour la stabilité d'API |
 
 ## Constantes runtime
 
-La même table `luapilot` expose aussi des constantes qui décrivent
-le binaire LuaPilot qui exécute le script. Utile pour le logging,
+La même table `babet` expose aussi des constantes qui décrivent
+le binaire Babet qui exécute le script. Utile pour le logging,
 pour conditionner une feature à une version minimum, ou pour
 sanity-checker le runtime.
 
 | Constante | Type | Exemple |
 | --- | --- | --- |
-| `luapilot.VERSION` | `string` | `"1.7.1"` |
-| `luapilot.VERSION_MAJOR` | `integer` | `1` |
-| `luapilot.VERSION_MINOR` | `integer` | `7` |
-| `luapilot.VERSION_PATCH` | `integer` | `1` |
+| `babet.VERSION` | `string` | `"1.7.1"` |
+| `babet.VERSION_MAJOR` | `integer` | `1` |
+| `babet.VERSION_MINOR` | `integer` | `7` |
+| `babet.VERSION_PATCH` | `integer` | `1` |
 
-La version string est ce que `luapilot --version` affiche. Les
+La version string est ce que `babet --version` affiche. Les
 composantes integer sont là pour faire des comparaisons
 programmatiques sans parser la string.
 
 ```lua
 -- Logger le runtime
-print("tourne sous LuaPilot " .. luapilot.VERSION)
+print("tourne sous Babet " .. babet.VERSION)
 
 -- Conditionner une feature à une version minimum
 local need_minor = 7
-if luapilot.VERSION_MAJOR < 1
-   or (luapilot.VERSION_MAJOR == 1 and luapilot.VERSION_MINOR < need_minor) then
-    error("ce script nécessite LuaPilot >= 1." .. need_minor)
+if babet.VERSION_MAJOR < 1
+   or (babet.VERSION_MAJOR == 1 and babet.VERSION_MINOR < need_minor) then
+    error("ce script nécessite Babet >= 1." .. need_minor)
 end
 ```
 
 ## Exemple rapide
 
 ```lua
-print("Sur :", luapilot.hostname(), "PID :", luapilot.pid())
+print("Sur :", babet.hostname(), "PID :", babet.pid())
 
-local u = luapilot.uname()
+local u = babet.uname()
 print("Kernel :", u.sysname, u.release, u.machine)
 
 -- Trouver un binaire
-local sh, err = luapilot.which("bash")
+local sh, err = babet.which("bash")
 if sh then
-    luapilot.exec({ sh, "-c", "echo hello" })
+    babet.exec({ sh, "-c", "echo hello" })
 end
 
 -- Lire/écrire env
-print("HOME :", luapilot.env("HOME"))
-luapilot.setenv("MY_VAR", "value")
+print("HOME :", babet.env("HOME"))
+babet.setenv("MY_VAR", "value")
 
 -- Introspection mémoire (force un GC complet d'abord)
-print("Mémoire VM Lua :", luapilot.getMemoryUsage(), "octets")
-local a, b = luapilot.getDetailedMemoryUsage()
+print("Mémoire VM Lua :", babet.getMemoryUsage(), "octets")
+local a, b = babet.getDetailedMemoryUsage()
 print("Détaillé :", a, b)
 ```
 

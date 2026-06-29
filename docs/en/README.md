@@ -1,8 +1,16 @@
 > **English** | [Français](../fr/README.md)
 
-# LuaPilot — User Manual
+<p align="center">
+  <img src="../assets/babet-closed.png" alt="Babet" width="160">
+</p>
 
-LuaPilot is a standalone Lua 5.5 binary for Linux scripting and
+# Babet — User Manual
+
+> *Babet*, n.m. — regional French word (Savoie, Dauphiné, Swiss
+> Romandy) for a pine cone. Small, light, packed with seeds, and
+> good for starting a fire — like this binary.
+
+Babet is a standalone Lua 5.5 binary for Linux scripting and
 automation. This is the reference manual, organised one file per
 module so each section stays focused and easy to maintain.
 

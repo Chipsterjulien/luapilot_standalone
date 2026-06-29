@@ -56,7 +56,7 @@ std::optional<std::string> rmdir_all(std::string_view path) {
 /**
  * @brief Lua binding for removing a file or an empty directory.
  *
- * Lua usage: ok, err = luapilot.rmdir(path)
+ * Lua usage: ok, err = babet.rmdir(path)
  *
  * @param L The Lua state.
  * @return Number of return values on the Lua stack (2: ok/nil, err/nil).
@@ -77,7 +77,7 @@ int lua_rmdir(lua_State *L) {
 /**
  * @brief Lua binding for removing a directory and all its contents.
  *
- * Lua usage: ok, err = luapilot.rmdirAll(path)
+ * Lua usage: ok, err = babet.rmdirAll(path)
  *
  * @param L The Lua state.
  * @return Number of return values on the Lua stack (2: ok/nil, err/nil).

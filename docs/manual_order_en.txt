@@ -1,4 +1,4 @@
-# LuaPilot manual — EN file order for pandoc
+# Babet manual — EN file order for pandoc
 #
 # Lines starting with `#` are ignored.
 # Empty lines are ignored.

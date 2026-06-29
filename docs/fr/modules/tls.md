@@ -1,6 +1,6 @@
 > [English](../../en/modules/tls.md) | **Français**
 
-# `luapilot.socket` TLS — `connect_tls` et `starttls`
+# `babet.socket` TLS — `connect_tls` et `starttls`
 
 La moitié TLS de [`socket`](socket.md) : TCP chiffré pour IRC
 over TLS, IMAPS, protocoles sécurisés personnalisés. Deux points
@@ -22,7 +22,7 @@ qui gère la vérification de certs correctement par défaut.
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.socket.connect_tls(host, port, opts?)` | `tls_socket` \| `(nil, err)` |
+| `babet.socket.connect_tls(host, port, opts?)` | `tls_socket` \| `(nil, err)` |
 | `s:starttls(opts?)` | `(true, nil)` \| `(nil, err)` — upgrade un socket en clair existant |
 
 `opts` (fusionnés avec les opts socket habituels) :
@@ -44,12 +44,12 @@ Un `tls_socket` a les mêmes méthodes qu'un socket en clair
 ### Connexion à IRC over TLS
 
 ```lua
-local s = assert(luapilot.socket.connect_tls("irc.libera.chat", 6697, {
+local s = assert(babet.socket.connect_tls("irc.libera.chat", 6697, {
     timeout = 30,
 }))
 
-s:send("NICK luapilot-bot\r\n")
-s:send("USER luapilot 0 * :luapilot bot\r\n")
+s:send("NICK babet-bot\r\n")
+s:send("USER babet 0 * :babet bot\r\n")
 
 while true do
     local line, err = s:recv_line()
@@ -64,7 +64,7 @@ end
 ### Upgrade STARTTLS (soumission SMTP)
 
 ```lua
-local s = assert(luapilot.socket.connect("mail.example.com", 587))
+local s = assert(babet.socket.connect("mail.example.com", 587))
 print(s:recv_line())                              -- bannière 220
 s:send("EHLO myhost\r\n")
 repeat
@@ -81,7 +81,7 @@ assert(s:starttls({ server_name = "mail.example.com" }))
 ### Serveur auto-signé (dev / CA privée)
 
 ```lua
-local s = assert(luapilot.socket.connect_tls("internal.svc", 5555, {
+local s = assert(babet.socket.connect_tls("internal.svc", 5555, {
     ca_cert = "/etc/myapp/internal-ca.crt",
 }))
 ```
@@ -89,7 +89,7 @@ local s = assert(luapilot.socket.connect_tls("internal.svc", 5555, {
 ### Skip de la vérification (TESTS UNIQUEMENT)
 
 ```lua
-local s = assert(luapilot.socket.connect_tls("self-signed.local", 8443, {
+local s = assert(babet.socket.connect_tls("self-signed.local", 8443, {
     verify = false,
 }))
 ```
@@ -107,7 +107,7 @@ local s = assert(luapilot.socket.connect_tls("self-signed.local", 8443, {
 
 ## Trust store
 
-LuaPilot embarque sa propre OpenSSL statiquement liée. D'emblée,
+Babet embarque sa propre OpenSSL statiquement liée. D'emblée,
 `verify=true` fonctionne sur :
 
 - **Arch, Debian, Ubuntu, Alpine, Gentoo** : via `--openssldir=/etc/ssl`

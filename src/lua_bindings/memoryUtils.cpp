@@ -19,7 +19,7 @@
  *
  * @param L The Lua state.
  * @return int Number of return values (1: memory usage in bytes).
- * @note Lua usage: bytes = luapilot.getMemoryUsage()
+ * @note Lua usage: bytes = babet.getMemoryUsage()
  */
 int lua_getMemoryUsage(lua_State *L)
 {
@@ -44,7 +44,7 @@ int lua_getMemoryUsage(lua_State *L)
  *
  * @param L The Lua state.
  * @return int Number of return values (2: bytes, bytes).
- * @note Lua usage: bytes, total = luapilot.getDetailedMemoryUsage()
+ * @note Lua usage: bytes, total = babet.getDetailedMemoryUsage()
  */
 int lua_getDetailedMemoryUsage(lua_State *L)
 {

@@ -1,6 +1,6 @@
 > **English** | [Français](../../fr/modules/socket.md)
 
-# `luapilot.socket` — TCP client and server
+# `babet.socket` — TCP client and server
 
 Low-level TCP sockets with timeouts, signal awareness, and a
 small set of higher-level helpers (`recv_line`, `recv_all`).
@@ -13,7 +13,7 @@ For everyday HTTP needs there's [`http`](http.md). But many
 scripts need to speak a custom line-oriented protocol (IRC,
 Redis, plain telnet-style daemons), where a real TCP socket with
 timeouts is the right tool. Lua has no built-in TCP, and `LuaSocket`
-is a separate dep ; `luapilot.socket` makes the common patterns
+is a separate dep ; `babet.socket` makes the common patterns
 one-liners.
 
 ## API
@@ -22,8 +22,8 @@ one-liners.
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.socket.connect(host, port, opts?)` | `socket` \| `(nil, err)` |
-| `luapilot.socket.listen(host, port, opts?)` | `server_socket` \| `(nil, err)` |
+| `babet.socket.connect(host, port, opts?)` | `socket` \| `(nil, err)` |
+| `babet.socket.listen(host, port, opts?)` | `server_socket` \| `(nil, err)` |
 
 `opts` :
 
@@ -61,7 +61,7 @@ hard 8 MiB cap to prevent DoS via an endless single line.
 ### TCP echo client
 
 ```lua
-local s = assert(luapilot.socket.connect("localhost", 4000, {
+local s = assert(babet.socket.connect("localhost", 4000, {
     timeout = 5,
     nodelay = true,
 }))
@@ -75,8 +75,8 @@ s:close()
 ### Simple line-protocol server with graceful shutdown
 
 ```lua
-local sig = luapilot.signal
-local srv = assert(luapilot.socket.listen("0.0.0.0", 4000))
+local sig = babet.signal
+local srv = assert(babet.socket.listen("0.0.0.0", 4000))
 local running = true
 sig.handle("TERM", function() running = false end)
 sig.handle("INT", function() running = false end)
@@ -135,7 +135,7 @@ srv:close()
 
 ## Not in v1
 
-- UDP sockets. Easy to add additively (`luapilot.socket.udp.*`).
+- UDP sockets. Easy to add additively (`babet.socket.udp.*`).
 - Unix-domain sockets. Same reasoning.
 - Native multiplexing (`select`/`poll`/`epoll` exposed to Lua).
   Use workers or short-timeout polling instead.

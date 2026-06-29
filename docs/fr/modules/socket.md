@@ -1,6 +1,6 @@
 > [English](../../en/modules/socket.md) | **Français**
 
-# `luapilot.socket` — sockets TCP client et serveur
+# `babet.socket` — sockets TCP client et serveur
 
 Sockets TCP bas niveau avec timeouts, conscience des signaux, et
 un petit set de helpers haut niveau (`recv_line`, `recv_all`).
@@ -15,7 +15,7 @@ beaucoup de scripts doivent parler un protocole line-oriented
 personnalisé (IRC, Redis, daemons de style telnet), où un vrai
 socket TCP avec timeouts est l'outil approprié. Lua n'a pas de
 TCP intégré, et `LuaSocket` est une dépendance séparée ;
-`luapilot.socket` rend les patterns courants accessibles en une
+`babet.socket` rend les patterns courants accessibles en une
 ligne.
 
 ## API
@@ -24,8 +24,8 @@ ligne.
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.socket.connect(host, port, opts?)` | `socket` \| `(nil, err)` |
-| `luapilot.socket.listen(host, port, opts?)` | `server_socket` \| `(nil, err)` |
+| `babet.socket.connect(host, port, opts?)` | `socket` \| `(nil, err)` |
+| `babet.socket.listen(host, port, opts?)` | `server_socket` \| `(nil, err)` |
 
 `opts` :
 
@@ -63,7 +63,7 @@ présent (`\r\n` → renvoyé sans le `\r` final). A un cap dur de
 ### Client TCP echo
 
 ```lua
-local s = assert(luapilot.socket.connect("localhost", 4000, {
+local s = assert(babet.socket.connect("localhost", 4000, {
     timeout = 5,
     nodelay = true,
 }))
@@ -77,8 +77,8 @@ s:close()
 ### Serveur line-protocol simple avec arrêt propre
 
 ```lua
-local sig = luapilot.signal
-local srv = assert(luapilot.socket.listen("0.0.0.0", 4000))
+local sig = babet.signal
+local srv = assert(babet.socket.listen("0.0.0.0", 4000))
 local running = true
 sig.handle("TERM", function() running = false end)
 sig.handle("INT", function() running = false end)
@@ -142,7 +142,7 @@ srv:close()
 ## Hors v1
 
 - Sockets UDP. Facile à ajouter additivement
-  (`luapilot.socket.udp.*`).
+  (`babet.socket.udp.*`).
 - Sockets domaine Unix. Même raisonnement.
 - Multiplexage natif (`select`/`poll`/`epoll` exposé à Lua).
   Utilise plutôt les workers ou le polling à timeout court.

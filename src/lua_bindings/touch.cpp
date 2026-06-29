@@ -93,7 +93,7 @@ std::string touch(const std::string &path)
  * Lua binding for the touch function.
  * @param L The Lua state.
  * @return Number of return values (2: ok/nil, err/nil).
- * Lua usage: ok, err = luapilot.touch(path)
+ * Lua usage: ok, err = babet.touch(path)
  *   - path: The file path to touch.
  */
 int lua_touch(lua_State *L)

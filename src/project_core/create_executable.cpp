@@ -69,7 +69,7 @@ bool createExecutableWithDir(const std::string &dir, const std::string &output)
 
     // Création ATOMIQUE du temporaire via mkstemp : nom imprévisible +
     // O_EXCL + permissions 0600. Ferme le trou du nom prévisible
-    // ("luapilot_<pid>.zip"), qui sur une machine partagée permettait à
+    // ("babet_<pid>.zip"), qui sur une machine partagée permettait à
     // un attaquant de pré-créer le fichier / d'y poser un symlink.
     //
     // fs::temp_directory_path() respecte déjà $TMPDIR puis /tmp : on
@@ -86,7 +86,7 @@ bool createExecutableWithDir(const std::string &dir, const std::string &output)
     // nom aléatoire (ni pré-créable via O_EXCL, ni devinable). La
     // fermer totalement imposerait que zip_utils accepte un fd
     // (refonte séparée, hors périmètre de ce durcissement).
-    std::string tmpl = (tempDir / "luapilot_XXXXXX").string();
+    std::string tmpl = (tempDir / "babet_XXXXXX").string();
     std::vector<char> tmplBuf(tmpl.begin(), tmpl.end());
     tmplBuf.push_back('\0');
 

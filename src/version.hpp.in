@@ -1,10 +1,10 @@
 // Auto-généré depuis src/version.hpp.in par CMake.
 // Ne pas éditer le fichier généré (build/generated/version.hpp) ;
-// pour bumper la version, modifier project(luapilot VERSION x.y.z)
+// pour bumper la version, modifier project(babet VERSION x.y.z)
 // dans CMakeLists.txt.
 #pragma once
 
-#define LUAPILOT_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
-#define LUAPILOT_VERSION_MINOR @PROJECT_VERSION_MINOR@
-#define LUAPILOT_VERSION_PATCH @PROJECT_VERSION_PATCH@
-#define LUAPILOT_VERSION_STRING "@PROJECT_VERSION@"
+#define BABET_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define BABET_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define BABET_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define BABET_VERSION_STRING "@PROJECT_VERSION@"

@@ -42,7 +42,7 @@ std::chrono::duration<double> convert_to_duration(double duration, const std::st
  *   - duration: The amount of time to sleep.
  *   - unit: The unit of time (optional, default is seconds). Can be "s" for seconds, "ms" for milliseconds, "us" for microseconds.
  *
- * Phase B signal : si un signal géré par luapilot.signal arrive
+ * Phase B signal : si un signal géré par babet.signal arrive
  * pendant le sleep, l'attente est interrompue, le callback Lua est
  * dispatché, et la fonction retourne (nil, "interrupted") au lieu
  * de (true, nil). Pour les signaux non gérés (genre SIGWINCH), le

@@ -90,7 +90,7 @@ namespace
 
 } // namespace
 
-// luapilot.which(name) -> "path" | (nil, "msg")
+// babet.which(name) -> "path" | (nil, "msg")
 //
 // Mauvais usage (arg absent/non-string) -> luaL_error.
 // name non trouvé dans PATH -> (nil, "msg") : c'est un échec runtime
@@ -110,10 +110,10 @@ int lua_sys_which(lua_State *L)
     return 1;
 }
 
-// luapilot.env(name) -> "value" | nil   (PAS de (nil, err))
+// babet.env(name) -> "value" | nil   (PAS de (nil, err))
 //
 // Décision UTIL-4 : variable absente = nil seul, sans message
-// d'erreur, pour permettre l'idiome `local p = luapilot.env("PORT")
+// d'erreur, pour permettre l'idiome `local p = babet.env("PORT")
 // or "8080"`. Mauvais usage (arg absent/non-string) -> luaL_error.
 int lua_sys_env(lua_State *L)
 {
@@ -128,7 +128,7 @@ int lua_sys_env(lua_State *L)
     return 1;
 }
 
-// luapilot.setenv(name, value) -> (true, nil) | (nil, err)
+// babet.setenv(name, value) -> (true, nil) | (nil, err)
 //
 // Décision UTIL-5. La libc setenv(3) renvoie 0 / -1+errno.
 // Validations programmeur (arg manquant / mauvais type) -> luaL_error.
@@ -151,7 +151,7 @@ int lua_sys_setenv(lua_State *L)
     return push_ok(L);
 }
 
-// luapilot.hostname() -> "host" | (nil, err)
+// babet.hostname() -> "host" | (nil, err)
 //
 // Aucun argument. gethostname(2) tronque silencieusement si le buffer
 // est trop petit ; on utilise HOST_NAME_MAX (Linux) avec marge +1
@@ -171,7 +171,7 @@ int lua_sys_hostname(lua_State *L)
     return 1;
 }
 
-// luapilot.uname() -> { sysname, nodename, release, version, machine }
+// babet.uname() -> { sysname, nodename, release, version, machine }
 //                  | (nil, err)
 //
 // Mappe les 5 champs de struct utsname (Linux/POSIX). Tous des
@@ -200,7 +200,7 @@ int lua_sys_uname(lua_State *L)
     return 1;
 }
 
-// luapilot.pid() -> integer
+// babet.pid() -> integer
 //
 // getpid(2) ne peut pas échouer (POSIX). Aucun argument.
 int lua_sys_pid(lua_State *L)
@@ -211,7 +211,7 @@ int lua_sys_pid(lua_State *L)
 
 void register_sys(lua_State *L)
 {
-    // Précondition : table luapilot au sommet (-1), comme
+    // Précondition : table babet au sommet (-1), comme
     // register_http / register_json. Ici on POSE les fonctions
     // DIRECTEMENT sur cette table (nommage plat, pas de sous-table) ;
     // la pile reste donc identique après l'appel.

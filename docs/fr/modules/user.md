@@ -1,6 +1,6 @@
 > [English](../../en/modules/user.md) | **Français**
 
-# `luapilot.user`
+# `babet.user`
 
 Lookups d'utilisateurs système via NSS, sans parser `/etc/passwd`
 directement.
@@ -10,7 +10,7 @@ directement.
 Sur un système Linux moderne, les utilisateurs peuvent venir de
 plusieurs sources : `/etc/passwd`, LDAP, SSSD, NIS+, FreeIPA,
 systemd-userdb, ou d'autres plugins NSS. Lire `/etc/passwd`
-directement rate tout sauf la première source. `luapilot.user`
+directement rate tout sauf la première source. `babet.user`
 s'appuie sur `getpwnam_r(3)` et `getpwuid_r(3)`, qui traversent la
 chaîne de résolveurs configurée dans `/etc/nsswitch.conf` —
 exactement comme `id` ou `getent passwd` le font.
@@ -54,12 +54,12 @@ strings vides quand la source NSS sous-jacente n'a pas de valeur
 ```lua
 -- S'assurer qu'un user système est provisionné avant de lancer
 -- le daemon.
-if not luapilot.user.exists("yaourt") then
+if not babet.user.exists("yaourt") then
     error("user yaourt absent — fais d'abord useradd")
 end
 
-local u = assert(luapilot.user.get("yaourt"))
-luapilot.chdir(u.home)
+local u = assert(babet.user.get("yaourt"))
+babet.chdir(u.home)
 ```
 
 ## Contrat d'erreur
@@ -81,9 +81,9 @@ luapilot.chdir(u.home)
 
 - **NSS uniquement, jamais `/etc/passwd`** : lire le fichier
   directement raterait silencieusement tous les comptes qui ne sont
-  pas dans le fichier local. Tout l'intérêt de `luapilot.user` est
+  pas dans le fichier local. Tout l'intérêt de `babet.user` est
   que le script obtienne la même réponse que `id` ou `getent passwd`.
-- **Variantes `_r` thread-safe** : LuaPilot expose `luapilot.workers`,
+- **Variantes `_r` thread-safe** : Babet expose `babet.workers`,
   donc on utilise `getpwnam_r`/`getpwuid_r` partout.
 - **`gecos` exposé brut** : le format historique est
   `Full Name,Office,WorkPhone,HomePhone[,Other]`, mais en pratique
@@ -110,7 +110,7 @@ le SemVer :
 - Accès à `/etc/shadow` (mots de passe, expiration) — hors scope.
   Exige root et est rarement utile hors scripts admin de niche.
   L'authentification mot de passe devrait passer par PAM, pas par
-  LuaPilot.
+  Babet.
 - Création d'utilisateurs/groupes — déjà faisable via
-  `luapilot.exec("useradd …")` et `groupadd`. Pas besoin d'un
+  `babet.exec("useradd …")` et `groupadd`. Pas besoin d'un
   binding dédié.

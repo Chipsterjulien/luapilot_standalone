@@ -1,10 +1,10 @@
 > **English** | [Français](../../fr/modules/exec.md)
 
-# `luapilot.exec` — run an external program
+# `babet.exec` — run an external program
 
 Spawn a subprocess, capture its stdout / stderr, and get its
 exit code back as structured data. Where `os.execute` gives you
-just an integer, `luapilot.exec` gives you a result table with
+just an integer, `babet.exec` gives you a result table with
 everything you actually need.
 
 ## Why
@@ -16,14 +16,14 @@ crude (no captured output, shell quoting hazards), and
 cleanly, doesn't expose the exit code without parsing, and has
 no timeout.
 
-`luapilot.exec` is the structured alternative : argv passed as a
+`babet.exec` is the structured alternative : argv passed as a
 list (no shell, no quoting bugs), output captured into memory
 with a bounded cap, optional timeout, separate stdout/stderr.
 
 ## API
 
 ```lua
-result, err = luapilot.exec(cmd, args?, opts?)
+result, err = babet.exec(cmd, args?, opts?)
 ```
 
 | Argument | Type | Notes |
@@ -59,13 +59,13 @@ Result table on successful launch :
 
 ```lua
 -- Basic capture
-local r = assert(luapilot.exec("git", { "rev-parse", "HEAD" }))
+local r = assert(babet.exec("git", { "rev-parse", "HEAD" }))
 if r.code == 0 then
     print("HEAD:", r.stdout:gsub("\n$", ""))
 end
 
 -- Non-zero exit is NOT an error
-local r = assert(luapilot.exec("grep", { "needle", "/etc/passwd" }))
+local r = assert(babet.exec("grep", { "needle", "/etc/passwd" }))
 if r.code == 0 then
     print("found:", r.stdout)
 elseif r.code == 1 then
@@ -75,27 +75,27 @@ else
 end
 
 -- Pipe data to stdin
-local r = assert(luapilot.exec("sha256sum", { "-" }, {
+local r = assert(babet.exec("sha256sum", { "-" }, {
     stdin = "hello world\n",
 }))
 print(r.stdout)
 -- a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447  -
 
 -- Augment env (not replace)
-local r = assert(luapilot.exec("env", nil, {
+local r = assert(babet.exec("env", nil, {
     env = { MY_FLAG = "yes" },
 }))
 -- Child sees MY_FLAG=yes plus everything the parent already had.
 
 -- Timeout + truncation
-local r = assert(luapilot.exec("yes", nil, {
+local r = assert(babet.exec("yes", nil, {
     timeout = 0.5,
     max_output = 1024,
 }))
 print(r.timed_out, r.stdout_truncated)  -- true   true
 
 -- Different cwd
-local r = assert(luapilot.exec("ls", nil, { cwd = "/var/log" }))
+local r = assert(babet.exec("ls", nil, { cwd = "/var/log" }))
 ```
 
 ## Error contract
@@ -134,7 +134,7 @@ local r = assert(luapilot.exec("ls", nil, { cwd = "/var/log" }))
 - **`max_output` is per stream, not total**. 16 MiB stdout + 16
   MiB stderr is the cap. Large enough to capture most build
   logs, small enough that a runaway subprocess can't OOM the
-  LuaPilot process.
+  Babet process.
 - **Hard 2 GiB cap on `max_output`**. Pretty much anything that
   needs more than 2 GiB of captured stdout should redirect to
   a file via `opts.stdin` + a shell wrapper, or via

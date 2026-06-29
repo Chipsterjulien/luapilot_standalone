@@ -133,7 +133,7 @@ namespace
     // Aucune allocation, aucun appel non async-signal-safe, aucune
     // interaction avec la VM Lua. On se contente de marquer le flag.
     // Le callback Lua sera invoqué plus tard depuis le hook.
-    extern "C" void luapilot_sig_handler(int sig)
+    extern "C" void babet_sig_handler(int sig)
     {
         if (sig >= 0 && sig < NSIG)
         {
@@ -246,7 +246,7 @@ namespace
         return true;
     }
 
-    // luapilot.signal.handle(name, fn_or_nil) -> true | (nil, err)
+    // babet.signal.handle(name, fn_or_nil) -> true | (nil, err)
     int l_handle(lua_State *L)
     {
         check_main_thread(L, "handle");
@@ -276,7 +276,7 @@ namespace
 
         // Installer ou désinstaller le handler système.
         void (*handler)(int) =
-            (t == LUA_TFUNCTION) ? luapilot_sig_handler : SIG_DFL;
+            (t == LUA_TFUNCTION) ? babet_sig_handler : SIG_DFL;
         if (!apply_sigaction(L, signum, handler))
         {
             return 2; // (nil, err) déjà sur la pile
@@ -307,7 +307,7 @@ namespace
         return 1;
     }
 
-    // luapilot.signal.ignore(name) -> true | (nil, err)
+    // babet.signal.ignore(name) -> true | (nil, err)
     int l_ignore(lua_State *L)
     {
         check_main_thread(L, "ignore");
@@ -328,7 +328,7 @@ namespace
         return 1;
     }
 
-    // luapilot.signal.default(name) -> true | (nil, err)
+    // babet.signal.default(name) -> true | (nil, err)
     int l_default(lua_State *L)
     {
         check_main_thread(L, "default");
@@ -424,7 +424,7 @@ void register_main_thread()
 
 void register_signal(lua_State *L)
 {
-    // Précondition : la table luapilot est au sommet.
+    // Précondition : la table babet est au sommet.
     lua_newtable(L);
 
     lua_pushcfunction(L, l_handle);

@@ -44,7 +44,7 @@ bool deepCopyTable(lua_State *L, int srcIndex, int depth, int maxDepth, VisitedM
  * @brief Liaison Lua pour effectuer une copie profonde d'une table.
  *
  * Usage Lua:
- *     copiedTable = luapilot.deepCopyTable(originalTable)
+ *     copiedTable = babet.deepCopyTable(originalTable)
  *
  * @param L L'état Lua.
  * @return int Le nombre de valeurs retournées à Lua (1 : la table copiée).

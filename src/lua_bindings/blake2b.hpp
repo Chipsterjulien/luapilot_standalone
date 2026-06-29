@@ -19,7 +19,7 @@
 std::optional<std::string> blake2b512sum(const std::string &path);
 
 /**
- * @brief Lua binding: hash, err = luapilot.blake2b512sum(path)
+ * @brief Lua binding: hash, err = babet.blake2b512sum(path)
  */
 int lua_blake2b512sum(lua_State *L);
 

@@ -1,6 +1,6 @@
 > [English](../../en/modules/inotify.md) | **Français**
 
-# `luapilot.inotify` — surveillance d'événements fichier
+# `babet.inotify` — surveillance d'événements fichier
 
 Wrappe `inotify(7)` de Linux pour la délivrance instantanée
 d'événements fichier — pas de polling. Utilisé pour le rechargement
@@ -23,7 +23,7 @@ c'est de ne pas te le dire).
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.inotify.new()` | `watcher` (userdata) \| `(nil, err)` |
+| `babet.inotify.new()` | `watcher` (userdata) \| `(nil, err)` |
 | `w:add(path, events, opts?)` | `integer` wd (watch descriptor) \| `(nil, err)` |
 | `w:remove(wd)` | `(true, nil)` \| `(nil, err)` |
 | `w:read(timeout?)` | `table` d'événements \| `(nil, "timeout")` \| `(nil, "interrupted")` \| `(nil, err)` |
@@ -74,10 +74,10 @@ récupérer l'état.
 ## Exemple rapide
 
 ```lua
-local w = assert(luapilot.inotify.new())
+local w = assert(babet.inotify.new())
 assert(w:add("/srv/incoming", { "close_write", "moved_to" }))
 
-luapilot.signal.handle("TERM", function() w:close(); os.exit(0) end)
+babet.signal.handle("TERM", function() w:close(); os.exit(0) end)
 
 while true do
     local events, err = w:read()      -- bloque jusqu'à quelque chose

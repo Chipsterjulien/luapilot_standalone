@@ -7,7 +7,7 @@
  * @brief Lua binding: runs an external program and captures its output.
  *
  * Lua usage:
- *   result, err = luapilot.exec(cmd [, args] [, opts])
+ *   result, err = babet.exec(cmd [, args] [, opts])
  *     cmd  : string  — program to run (PATH is searched)
  *     args : table   — array of string arguments (optional)
  *     opts : table   — { cwd = string, env = { KEY = VALUE, ... } } (optional)

@@ -1,6 +1,6 @@
 > [English](../../en/modules/signal.md) | **Français**
 
-# `luapilot.signal` — signaux POSIX
+# `babet.signal` — signaux POSIX
 
 Enregistre des callbacks Lua pour les signaux POSIX (`SIGTERM`,
 `SIGINT`, `SIGHUP`, …) pour que les scripts long-running puissent
@@ -8,7 +8,7 @@ s'arrêter proprement ou recharger leur configuration à la demande.
 
 ## Pourquoi
 
-Les scripts LuaPilot long-running (bots, daemons, watchers) doivent
+Les scripts Babet long-running (bots, daemons, watchers) doivent
 gérer les signaux correctement :
 
 - `SIGTERM` de `systemctl stop` devrait déclencher un arrêt propre.
@@ -23,12 +23,12 @@ et des enfants orphelins.
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.signal.handle(name, fn)` | `(true, nil)` \| `(nil, err)` — installe le callback Lua |
-| `luapilot.signal.ignore(name)` | `(true, nil)` \| `(nil, err)` — met à `SIG_IGN` |
-| `luapilot.signal.default(name)` | `(true, nil)` \| `(nil, err)` — retour au défaut OS |
-| `luapilot.signal.kill(pid, name)` | `(true, nil)` \| `(nil, err)` — envoie le signal au PID |
-| `luapilot.signal.list()` | `table` de tous les noms de signaux supportés |
-| `luapilot.signal.is_pending()` | `boolean` — y a-t-il un signal géré en file ? |
+| `babet.signal.handle(name, fn)` | `(true, nil)` \| `(nil, err)` — installe le callback Lua |
+| `babet.signal.ignore(name)` | `(true, nil)` \| `(nil, err)` — met à `SIG_IGN` |
+| `babet.signal.default(name)` | `(true, nil)` \| `(nil, err)` — retour au défaut OS |
+| `babet.signal.kill(pid, name)` | `(true, nil)` \| `(nil, err)` — envoie le signal au PID |
+| `babet.signal.list()` | `table` de tous les noms de signaux supportés |
+| `babet.signal.is_pending()` | `boolean` — y a-t-il un signal géré en file ? |
 
 Noms de signaux acceptés (string, casse sensible) :
 
@@ -40,7 +40,7 @@ peuvent pas être attrapés — POSIX l'interdit.
 ## Exemple rapide
 
 ```lua
-local sig = luapilot.signal
+local sig = babet.signal
 local running = true
 
 sig.handle("TERM", function()
@@ -82,7 +82,7 @@ Quand un signal arrive :
 2. Si le script est dans un appel bloquant (`recv`, `sleep`,
    `inotify.read`, `accept`, …), l'appel renvoie
    `(nil, "interrupted")`.
-3. Avant de renvoyer, LuaPilot dispatche tous les callbacks en
+3. Avant de renvoyer, Babet dispatche tous les callbacks en
    attente dans l'ordre d'enregistrement, dans le thread Lua
    principal.
 4. Le script continue normalement — le callback a pu modifier

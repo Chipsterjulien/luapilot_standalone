@@ -1,4 +1,4 @@
-// user.cpp — Implémentation de luapilot.user (cf. user.hpp pour le
+// user.cpp — Implémentation de babet.user (cf. user.hpp pour le
 // design).
 
 #include "user.hpp"
@@ -317,7 +317,7 @@ namespace
         return out;
     }
 
-    // luapilot.user.get(name_or_uid) -> table | (nil, err)
+    // babet.user.get(name_or_uid) -> table | (nil, err)
     int lua_user_get(lua_State *L)
     {
         if (lua_gettop(L) < 1)
@@ -360,7 +360,7 @@ namespace
         return push_fail(L, full);
     }
 
-    // luapilot.user.exists(name_or_uid) -> boolean
+    // babet.user.exists(name_or_uid) -> boolean
     //
     // Strictement true ou false. Les erreurs NSS sont silencieusement
     // assimilées à "false" pour rester cohérent avec la sémantique
@@ -392,7 +392,7 @@ namespace
 
 void register_user(lua_State *L)
 {
-    // Précondition : la table luapilot est au sommet.
+    // Précondition : la table babet est au sommet.
     lua_newtable(L);
 
     lua_pushcfunction(L, lua_user_get);

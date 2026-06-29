@@ -4,7 +4,7 @@
 
 A standard leveled logger : `debug`, `info`, `warn`, `error`,
 `fatal`. Bundled as a pure-Lua module, loaded via
-`require("logging")`. Not in the `luapilot` namespace — it's a
+`require("logging")`. Not in the `babet` namespace — it's a
 library module, like `inspect`.
 
 ## Why
@@ -12,7 +12,7 @@ library module, like `inspect`.
 Every non-trivial script ends up reinventing some flavour of
 "levels + timestamps + optional file output". Standardising it
 removes the bikeshed and makes log output consistent across
-LuaPilot scripts.
+Babet scripts.
 
 ## API
 
@@ -36,7 +36,7 @@ concatenated with spaces, like `print`.
 local log = require("logging")
 log.set_level("info")   -- debug calls below this become no-ops
 
-log.info("startup, pid =", luapilot.pid())
+log.info("startup, pid =", babet.pid())
 log.warn("retry attempt", 3, "of", 5)
 log.error("connection failed:", err)
 
@@ -71,7 +71,7 @@ Output :
 
 - **Pure-Lua module**. No C++ needed, and being in Lua means
   scripts can monkey-patch it (e.g. add JSON-format output) at
-  the call site without rebuilding LuaPilot.
+  the call site without rebuilding Babet.
 - **Five levels, no `trace`**. Five is enough for almost everyone
   ; adding more invites everyone to invent their own.
 - **Single global sink**. Multiple loggers / hierarchical loggers

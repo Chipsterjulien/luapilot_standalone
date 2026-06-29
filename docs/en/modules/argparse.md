@@ -9,7 +9,7 @@ what to do.
 
 ## Why
 
-A LuaPilot script that takes command-line arguments shouldn't have
+A Babet script that takes command-line arguments shouldn't have
 to reinvent argument parsing (positional vs flag, defaults, help
 text, type coercion, choices) every time. `argparse` makes the
 common CLI patterns one-liners — and stays out of the script's way
@@ -70,7 +70,7 @@ that's a programmer bug.
 
 - `p:parse()` (no argument) reads the global `arg` table, indices
   `1..n` (stopping at the first hole). Indices `<= 0` (binary path,
-  folder) are ignored — these are LuaPilot's internal slots, not
+  folder) are ignored — these are Babet's internal slots, not
   user arguments.
 - `p:parse({ "a", "b" })` parses an explicit array. Useful for
   testing or for parsing arguments that don't come from the shell.
@@ -164,10 +164,10 @@ Options:
   `{ help = true, usage = "..." }` instead of printing and exiting
   lets the script decide : print to stdout, log to a file, send
   to a GUI, prepend a banner, whatever. The library doesn't
-  decide for you, consistent with the rest of LuaPilot where no
+  decide for you, consistent with the rest of Babet where no
   module unilaterally exits the process.
 - **`(res, err)` everywhere on user input, `error()` only on
-  builder bugs**. Same convention as the rest of LuaPilot (`user`,
+  builder bugs**. Same convention as the rest of Babet (`user`,
   `json`, `sqlite`, etc.).
 - **Spec is a single string** (`"-v --verbose"`), not a chain of
   calls. Discoverable, terse, and avoids ambiguity when multiple
@@ -181,7 +181,7 @@ Options:
 - **Positional with `default` is implicitly optional**. Saves the
   `required = false` boilerplate in the common case.
 - **`parse()` reads `arg[1..n]`** — never `arg[0]` or negative
-  indices, where LuaPilot puts its own slots. Just what the user
+  indices, where Babet puts its own slots. Just what the user
   actually typed.
 
 ## Not in v1

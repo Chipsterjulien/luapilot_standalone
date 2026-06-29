@@ -4,9 +4,9 @@
 #include <lua.hpp>
 
 /**
- * @brief Binding HTTP client : luapilot.http.{request,get,post}
+ * @brief Binding HTTP client : babet.http.{request,get,post}
  *
- * Philosophie d'erreur calquée sur luapilot.exec :
+ * Philosophie d'erreur calquée sur babet.exec :
  *
  *   - Échec transport (DNS, connexion refusée, TLS, timeout, ...) :
  *       (nil, "http: <libellé httplib brut>")
@@ -62,9 +62,9 @@ int lua_http_get(lua_State *L);
 int lua_http_post(lua_State *L);
 
 /**
- * @brief Construit la sous-table `http` et l'attache à luapilot.
+ * @brief Construit la sous-table `http` et l'attache à babet.
  *
- * Précondition : la table luapilot est au sommet de la pile (-1),
+ * Précondition : la table babet est au sommet de la pile (-1),
  * exactement comme register_json. La pile est inchangée après l'appel.
  */
 void register_http(lua_State *L);

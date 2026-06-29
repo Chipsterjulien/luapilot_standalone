@@ -153,7 +153,7 @@ BUILD_DIR="${SCRIPT_DIR}/build"
 DOWNLOAD_DIR="${SCRIPT_DIR}/downloads"
 #
 PROJECT_BUILD_DIR="${BUILD_DIR}/project_build"
-PROJECT_NAME="luapilot"
+PROJECT_NAME="babet"
 #
 # LUA_VERSION="5.4.7"
 LUA_VERSION="5.5.0"

@@ -1,6 +1,6 @@
 > **English** | [Français](../../fr/modules/sqlite.md)
 
-# `luapilot.sqlite` — embedded SQL database
+# `babet.sqlite` — embedded SQL database
 
 Wraps SQLite 3.53.1 (vendored), the most-deployed database engine
 in the world. Zero-config persistence for any script that needs
@@ -23,7 +23,7 @@ error returns.
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.sqlite.open(path, opts?)` | `db` (userdata) \| `(nil, err)` |
+| `babet.sqlite.open(path, opts?)` | `db` (userdata) \| `(nil, err)` |
 | `db:close()` | `(true, nil)` — idempotent |
 
 `opts` :
@@ -82,7 +82,7 @@ close). Use for tests or transient processing.
 ## Quick examples
 
 ```lua
-local db = assert(luapilot.sqlite.open("state.db", { wal = true }))
+local db = assert(babet.sqlite.open("state.db", { wal = true }))
 
 -- Schema
 db:exec([[

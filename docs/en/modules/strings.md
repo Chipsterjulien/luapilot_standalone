@@ -1,10 +1,10 @@
 > **English** | [Français](../../fr/modules/strings.md)
 
-# `luapilot` strings — string manipulation
+# `babet` strings — string manipulation
 
 A single function : split a string by a separator into a table.
 Predates the sub-namespace convention, lives directly on
-`luapilot`.
+`babet`.
 
 ## Why
 
@@ -18,7 +18,7 @@ the pattern-escaping trap.
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.split(s, sep)` | `table` (array) of substrings |
+| `babet.split(s, sep)` | `table` (array) of substrings |
 
 - `s` : the string to split.
 - `sep` : the separator string (literal, no patterns).
@@ -29,10 +29,10 @@ containing the whole `s`. If `s` is empty, returns an empty table.
 ## Quick example
 
 ```lua
-local parts = luapilot.split("a,b,c,d", ",")
+local parts = babet.split("a,b,c,d", ",")
 -- parts == { "a", "b", "c", "d" }
 
-local one = luapilot.split("hello", ",")
+local one = babet.split("hello", ",")
 -- one == { "hello" }
 ```
 

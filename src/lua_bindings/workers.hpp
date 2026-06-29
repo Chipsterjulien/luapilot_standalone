@@ -12,7 +12,7 @@
  * interne. Pas de mémoire partagée, pas de race condition possible
  * au niveau Lua.
  *
- * API publique exposée sur luapilot.workers :
+ * API publique exposée sur babet.workers :
  *   - spawn(code [, args] [, opts])
  *       Lance un worker exécutant la string Lua `code` dans un
  *       lua_State neuf. `args` est une table sérialisable (scalaires
@@ -21,7 +21,7 @@
  *       de spawn (sérialisation impossible, échec pthread_create).
  *
  * Méthodes sur userdata worker (convention pcall-style — exception
- * délibérée à la convention (val, err) du reste de LuaPilot, parce
+ * délibérée à la convention (val, err) du reste de Babet, parce
  * qu'un worker peut légitimement retourner nil comme valeur métier) :
  *
  *   - w:join() -> (ok, value)
@@ -57,12 +57,12 @@ void register_workers(lua_State *L);
  * main.lua (les workers ajouteront ?.lua et ?/init.lua à leur
  * package.path).
  *
- * En mode embarqué : exePath est le chemin du binaire LuaPilot
+ * En mode embarqué : exePath est le chemin du binaire Babet
  * (les workers enregistreront l'embedded searcher avec ce path).
  *
  * Si l'un des deux est utilisé, l'autre peut être vide. Si les deux
  * sont vides, les workers fonctionneront mais require() utilisateur
- * échouera (seuls stdlib + luapilot.* + modules bundlés via
+ * échouera (seuls stdlib + babet.* + modules bundlés via
  * package.preload restent disponibles).
  */
 void set_workers_init_context(const std::string &projectDir,

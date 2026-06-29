@@ -4,14 +4,14 @@
 #include <lua.hpp>
 
 /**
- * Lua bindings exposed under the `luapilot.time` sub-table.
+ * Lua bindings exposed under the `babet.time` sub-table.
  *
- *   luapilot.time.iso(ts?)            -> "YYYY-MM-DDTHH:MM:SSZ"
- *   luapilot.time.parse_iso(s)        -> (unix_ts integer, nil)
+ *   babet.time.iso(ts?)            -> "YYYY-MM-DDTHH:MM:SSZ"
+ *   babet.time.parse_iso(s)        -> (unix_ts integer, nil)
  *                                     |  (nil, "parse_iso: ...")
- *   luapilot.time.parse_duration(s)   -> (seconds integer, nil)
+ *   babet.time.parse_duration(s)   -> (seconds integer, nil)
  *                                     |  (nil, "parse_duration: ...")
- *   luapilot.time.format_duration(n)  -> "1d2h3m4s"
+ *   babet.time.format_duration(n)  -> "1d2h3m4s"
  *
  * All timestamps are interpreted as Unix time (seconds since
  * 1970-01-01 UTC). All formatting is UTC (suffix "Z"); no timezone

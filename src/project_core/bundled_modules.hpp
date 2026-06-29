@@ -10,7 +10,7 @@
  * modules bundlés à venir) sans qu'aucun fichier .lua ne soit présent
  * sur le disque : le source est compilé en dur dans le binaire.
  *
- * À appeler juste après luaL_openlibs(L), avant tout register_luapilot
+ * À appeler juste après luaL_openlibs(L), avant tout register_babet
  * ou exécution de script utilisateur.
  *
  * Note : si l'utilisateur a un fichier inspect.lua à côté de son main.lua,

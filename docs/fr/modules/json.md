@@ -1,6 +1,6 @@
 > [English](../../en/modules/json.md) | **Français**
 
-# `luapilot.json` — encode/décode JSON
+# `babet.json` — encode/décode JSON
 
 Basé sur [nlohmann/json](https://github.com/nlohmann/json), la
 bibliothèque JSON C++ la plus utilisée. Gère le round-trip
@@ -12,17 +12,17 @@ tables Lua ne peuvent pas désambiguïser de "objet vide".
 Le mismatch d'impédance Lua/JSON piège toujours quelqu'un : Lua ne
 distingue pas une liste vide d'une table vide. La plupart des
 bibliothèques Lua/JSON ad-hoc choisissent une option et se
-trompent une fois sur deux. `luapilot.json` est explicite : `{}`
+trompent une fois sur deux. `babet.json` est explicite : `{}`
 se décode en `{}` et se ré-encode en `{}` (objet), mais si tu veux
-`[]` tu utilises la sentinelle `luapilot.json.empty_array`.
+`[]` tu utilises la sentinelle `babet.json.empty_array`.
 
 ## API
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.json.encode(value, opts?)` | `string` (texte JSON) \| `(nil, err)` |
-| `luapilot.json.decode(text)` | `value` \| `(nil, err)` |
-| `luapilot.json.empty_array` | sentinelle qui s'encode en `[]` |
+| `babet.json.encode(value, opts?)` | `string` (texte JSON) \| `(nil, err)` |
+| `babet.json.decode(text)` | `value` \| `(nil, err)` |
+| `babet.json.empty_array` | sentinelle qui s'encode en `[]` |
 
 Options d'encodage (table `opts`) :
 
@@ -32,7 +32,7 @@ Options d'encodage (table `opts`) :
 ## Exemple rapide
 
 ```lua
-local J = luapilot.json
+local J = babet.json
 
 -- Décode
 local data, err = J.decode([[

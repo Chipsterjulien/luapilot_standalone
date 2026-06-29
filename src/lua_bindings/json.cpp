@@ -301,7 +301,7 @@ namespace
         {
         case json::value_t::null:
             // null -> le sentinel partagé (même objet que
-            // luapilot.json.null), pour un aller-retour sans perte.
+            // babet.json.null), pour un aller-retour sans perte.
             lua_rawgetp(L, LUA_REGISTRYINDEX, &NULL_SENTINEL_KEY);
             break;
 
@@ -504,7 +504,7 @@ int lua_json_as_array(lua_State *L)
         is_sentinel(L, 1, &EMPTY_ARRAY_SENTINEL_KEY))
     {
         return luaL_error(
-            L, "luapilot.json.as_array: cannot tag a json sentinel");
+            L, "babet.json.as_array: cannot tag a json sentinel");
     }
 
     lua_settop(L, 1); // ne garde que la table
@@ -517,7 +517,7 @@ namespace
 {
 
     // Métatable partagée par les deux sentinels : __tostring lisible
-    // (print(luapilot.json.null) -> "luapilot.json.null") et
+    // (print(babet.json.null) -> "babet.json.null") et
     // __metatable verrouillée pour qu'un script ne puisse pas la
     // trafiquer (même esprit que EVP_MD_CTX_RAII non-copiable).
     //
@@ -544,14 +544,14 @@ namespace
         lua_setfield(L, -2, "__metatable");
 
         // __newindex : un sentinel est une constante. Toute écriture
-        // (luapilot.json.null.foo = ...) lève une erreur Lua claire
+        // (babet.json.null.foo = ...) lève une erreur Lua claire
         // plutôt que de muter silencieusement le singleton partagé.
         lua_pushcfunction(
             L,
             [](lua_State *Ls) -> int
             {
                 return luaL_error(
-                    Ls, "luapilot.json sentinel is read-only");
+                    Ls, "babet.json sentinel is read-only");
             });
         lua_setfield(L, -2, "__newindex");
 
@@ -562,8 +562,8 @@ namespace
 
 void register_json(lua_State *L)
 {
-    // Précondition : table luapilot au sommet (-1).
-    lua_newtable(L); // [luapilot, json]
+    // Précondition : table babet au sommet (-1).
+    lua_newtable(L); // [babet, json]
 
     lua_pushcfunction(L, lua_json_encode);
     lua_setfield(L, -2, "encode");
@@ -580,18 +580,18 @@ void register_json(lua_State *L)
     lua_rawsetp(L, LUA_REGISTRYINDEX, &ARRAY_MT_KEY);
 
     // --- sentinel null ------------------------------------------------
-    lua_newtable(L); // [luapilot, json, null]
-    set_sentinel_metatable(L, "luapilot.json.null");
-    lua_pushvalue(L, -1); // [luapilot, json, null, null]
+    lua_newtable(L); // [babet, json, null]
+    set_sentinel_metatable(L, "babet.json.null");
+    lua_pushvalue(L, -1); // [babet, json, null, null]
     lua_rawsetp(L, LUA_REGISTRYINDEX, &NULL_SENTINEL_KEY);
     lua_setfield(L, -2, "null"); // json.null = sentinel
 
     // --- sentinel empty_array ----------------------------------------
     lua_newtable(L);
-    set_sentinel_metatable(L, "luapilot.json.empty_array");
+    set_sentinel_metatable(L, "babet.json.empty_array");
     lua_pushvalue(L, -1);
     lua_rawsetp(L, LUA_REGISTRYINDEX, &EMPTY_ARRAY_SENTINEL_KEY);
     lua_setfield(L, -2, "empty_array");
 
-    lua_setfield(L, -2, "json"); // luapilot.json = json ; pile revient à [luapilot]
+    lua_setfield(L, -2, "json"); // babet.json = json ; pile revient à [babet]
 }

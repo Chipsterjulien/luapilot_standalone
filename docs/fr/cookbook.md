@@ -8,15 +8,15 @@ recette est courte et autonome ; copie, adapte, déploie.
 ## Surveiller un dossier et envoyer les nouveaux fichiers par email
 
 Un dossier de dépôt qui mailise chaque fichier dès qu'il arrive.
-Utilise `luapilot.inotify` pour le réveil instantané (pas de
+Utilise `babet.inotify` pour le réveil instantané (pas de
 polling), et écoute `close_write` + `moved_to` pour garantir que
 le fichier est complet.
 
 ```lua
-local w = assert(luapilot.inotify.new())
+local w = assert(babet.inotify.new())
 assert(w:add("/srv/incoming", { "close_write", "moved_to" }))
 
-luapilot.signal.handle("TERM", function()
+babet.signal.handle("TERM", function()
     w:close()
     os.exit(0)
 end)
@@ -47,8 +47,8 @@ utilisateur non-root.
 
 ```lua
 local function ensure_user(name)
-    if luapilot.user.exists(name) then return true end
-    local ok, err = luapilot.exec("useradd", {
+    if babet.user.exists(name) then return true end
+    local ok, err = babet.exec("useradd", {
         "--system",
         "--home-dir", "/var/lib/" .. name,
         "--create-home",
@@ -62,13 +62,13 @@ local function ensure_user(name)
 end
 
 assert(ensure_user("myapp"))
-local u = assert(luapilot.user.get("myapp"))
-luapilot.chdir(u.home)
+local u = assert(babet.user.get("myapp"))
+babet.chdir(u.home)
 ```
 
 ## Récupérer beaucoup d'URLs en parallèle
 
-`luapilot.workers` fait tourner du Lua sur plusieurs cœurs. Le temps
+`babet.workers` fait tourner du Lua sur plusieurs cœurs. Le temps
 total est proche du fetch le plus lent, pas de la somme.
 
 ```lua
@@ -77,9 +77,9 @@ local urls = { "https://a.example/", "https://b.example/",
 
 local jobs = {}
 for i, url in ipairs(urls) do
-    jobs[i] = luapilot.workers.spawn([[
+    jobs[i] = babet.workers.spawn([[
         local url = worker.args.url
-        local r, err = luapilot.http.get(url, { timeout = 10 })
+        local r, err = babet.http.get(url, { timeout = 10 })
         if not r then return { error = err } end
         return { status = r.status, length = #r.body }
     ]], { url = url })
@@ -102,11 +102,11 @@ local log = require("logging")
 log.set_level("info")
 
 local running = true
-luapilot.signal.handle("TERM", function()
+babet.signal.handle("TERM", function()
     log.info("SIGTERM, arrêt en cours")
     running = false
 end)
-luapilot.signal.handle("INT", function()
+babet.signal.handle("INT", function()
     log.info("Ctrl-C, arrêt en cours")
     running = false
 end)
@@ -133,7 +133,7 @@ log.info("arrêt propre")
 -- Charger le TOML
 local f = assert(io.open("config.toml", "r"))
 local body = f:read("a"); f:close()
-local cfg, perr = luapilot.toml.decode(body)
+local cfg, perr = babet.toml.decode(body)
 if not cfg then error("config.toml : " .. perr) end
 
 -- Valider (checks manuels simples ; pour un vrai schéma, bâtis-le en Lua)
@@ -142,7 +142,7 @@ assert(type(cfg.server.host) == "string", "server.host absent")
 assert(math.type(cfg.server.port) == "integer", "server.port doit être un entier")
 
 -- Ouvrir la db, persister
-local db = assert(luapilot.sqlite.open("state.db", { wal = true }))
+local db = assert(babet.sqlite.open("state.db", { wal = true }))
 db:exec([[CREATE TABLE IF NOT EXISTS config (k TEXT PRIMARY KEY, v TEXT)]])
 db:exec("INSERT OR REPLACE INTO config VALUES (?, ?)",
         { "host", cfg.server.host })
@@ -161,24 +161,24 @@ sur lequel `grep` à travers les fichiers de log marche vraiment.
 -- Config depuis TOML, CLI, env, peu importe.
 local raw_ttl = "15m"
 
-local ttl, err = luapilot.time.parse_duration(raw_ttl)
+local ttl, err = babet.time.parse_duration(raw_ttl)
 if not ttl then error("TTL invalide '" .. raw_ttl .. "' : " .. err) end
 
-local deadline = luapilot.now() + ttl
+local deadline = babet.now() + ttl
 print(string.format("[%s] entrée cache créée, expire à %s (TTL %s)",
-    luapilot.time.iso(),
-    luapilot.time.iso(deadline),
-    luapilot.time.format_duration(ttl)))
+    babet.time.iso(),
+    babet.time.iso(deadline),
+    babet.time.format_duration(ttl)))
 
 -- ...plus tard, ailleurs dans le script :
-if luapilot.now() >= deadline then
-    print("[" .. luapilot.time.iso() .. "] cache miss : entrée expirée")
+if babet.now() >= deadline then
+    print("[" .. babet.time.iso() .. "] cache miss : entrée expirée")
 end
 ```
 
 Propriétés utiles de ce pattern :
 
-- `luapilot.time.iso()` est toujours UTC, toujours 20 caractères,
+- `babet.time.iso()` est toujours UTC, toujours 20 caractères,
   toujours la même forme. `grep` et `sort` marchent directement
   sur les timestamps.
 - `parse_duration("15m")` renvoie un entier, donc `now() + ttl`
@@ -200,8 +200,8 @@ print(inspect({ a = 1, b = { c = 2, d = { 3, 4, 5 } } }))
 
 ## Hello there
 
-Le script LuaPilot minimum :
+Le script Babet minimum :
 
 ```lua
-luapilot.helloThere()
+babet.helloThere()
 ```

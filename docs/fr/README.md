@@ -1,8 +1,16 @@
 > [English](../en/README.md) | **Français**
 
-# LuaPilot — Manuel utilisateur
+<p align="center">
+  <img src="../assets/babet-closed.png" alt="Babet — pomme de pin" width="160">
+</p>
 
-LuaPilot est un binaire Lua 5.5 standalone pour le scripting et
+# Babet — Manuel utilisateur
+
+> *Babet*, n.m. — terme régional (Savoie, Dauphiné, Suisse romande)
+> désignant une pomme de pin. Petit, léger, plein de graines, et
+> capable d'allumer un feu — comme ce binaire.
+
+Babet est un binaire Lua 5.5 standalone pour le scripting et
 l'automatisation sous Linux. Ceci est le manuel de référence,
 organisé en un fichier par module pour que chaque section reste
 ciblée et facile à maintenir.

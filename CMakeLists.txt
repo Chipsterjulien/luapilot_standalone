@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(luapilot VERSION 1.8.1 LANGUAGES CXX C)
+project(babet VERSION 2.0.0 LANGUAGES CXX C)
 
 # Génère src/generated/version.hpp depuis src/version.hpp.in,
 # en injectant les composants de version définis dans project().
@@ -51,7 +51,7 @@ endif()
 # SQLite : amalgamation officielle (sqlite3.c + sqlite3.h), single-file
 # fourni par build_local.sh. Compilé en C (pas C++) et lié dans le
 # binaire final. SQLITE_THREADSAFE=1 (défaut) → un mutex global suffit
-# pour notre usage actuel : chaque luapilot.sqlite.open() crée son
+# pour notre usage actuel : chaque babet.sqlite.open() crée son
 # propre handle, et les threads (workers) ne se partagent pas leurs
 # handles (recommandation SQLite : "Do not pass a database connection
 # from one thread to another").
@@ -88,7 +88,7 @@ add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
 # SQLITE_OMIT_DEPRECATED : exclut les API dépréciées.
 # SQLITE_OMIT_LOAD_EXTENSION : pas de chargement de .so en runtime —
 # on est un binaire statique et embarqué,
-# aucun cas d'usage justifie ça pour LuaPilot.
+# aucun cas d'usage justifie ça pour Babet.
 set_source_files_properties(${SQLITE_SRC} PROPERTIES
     COMPILE_FLAGS "-DSQLITE_DQS=0 \
                    -DSQLITE_THREADSAFE=1 \

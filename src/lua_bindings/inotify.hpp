@@ -2,9 +2,9 @@
 // inotify.hpp — bindings Lua pour inotify(7) (surveillance de FS Linux)
 // =====================================================================
 //
-// Expose la sous-table luapilot.inotify avec une fonction fabrique :
+// Expose la sous-table babet.inotify avec une fonction fabrique :
 //
-//   luapilot.inotify.new() -> watcher | (nil, err)
+//   babet.inotify.new() -> watcher | (nil, err)
 //     Crée une instance inotify (un FD noyau). Erreur runtime
 //     (EMFILE/ENFILE = trop de FD/instances) -> (nil, err).
 //
@@ -53,9 +53,9 @@
 //           silencieusement des événements, donc le seul moment où
 //           le script DOIT savoir qu'il faut rescanner.
 //   INOT-E  POSIX/Linux direct, zéro dépendance externe (comme
-//           socket et signal). LuaPilot assume déjà d'être Linux-only.
+//           socket et signal). Babet assume déjà d'être Linux-only.
 //   INOT-F  IN_CLOEXEC sur le FD inotify : pas d'héritage par les
-//           sous-processus de luapilot.exec (même rationale que les
+//           sous-processus de babet.exec (même rationale que les
 //           sockets, cf. socket.cpp).
 //
 // ---------------------------------------------------------------------
@@ -84,8 +84,8 @@
 // Interruption par signal
 // ---------------------------------------------------------------------
 //
-// Comme socket:recv et luapilot.sleep : si un signal géré par
-// luapilot.signal arrive pendant un w:read() bloquant, l'appel
+// Comme socket:recv et babet.sleep : si un signal géré par
+// babet.signal arrive pendant un w:read() bloquant, l'appel
 // renvoie immédiatement (nil, "interrupted") et le callback Lua
 // s'exécute avant le retour. Permet d'arrêter proprement un watcher
 // de longue durée sur SIGTERM sans attendre l'expiration du timeout.
@@ -106,14 +106,14 @@
 
 struct lua_State;
 
-// Crée la sous-table luapilot.inotify (fonction `new`) et pose la
+// Crée la sous-table babet.inotify (fonction `new`) et pose la
 // métatable "LuapilotInotify" dans le registry Lua (méthodes add/
 // read/remove/close + __gc).
 //
-// Précondition de pile : la table luapilot est au sommet (-1), comme
+// Précondition de pile : la table babet est au sommet (-1), comme
 // register_socket / register_signal / register_sqlite.
 // Postcondition : la pile est inchangée (la sous-table est posée
-// comme champ "inotify" de luapilot).
+// comme champ "inotify" de babet).
 void register_inotify(lua_State *L);
 
 #endif // LUA_BINDINGS_INOTIFY_HPP

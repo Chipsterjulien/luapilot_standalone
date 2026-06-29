@@ -1,7 +1,7 @@
 -- =====================================================================
--- LuaPilot — self-test harness
+-- Babet — self-test harness
 -- Covers the entire unified API (result, err convention).
--- Run via : ./luapilot <dir>  (the binary executes this main.lua)
+-- Run via : ./babet <dir>  (the binary executes this main.lua)
 -- =====================================================================
 
 local inspect = require("inspect")
@@ -39,53 +39,53 @@ local function ok_fail(name, val, err)
 end
 
 -- --- setup -----------------------------------------------------------
-local startDir, sderr = luapilot.currentDir()
+local startDir, sderr = babet.currentDir()
 if not startDir then
     print("FATAL: currentDir() a échoué: " .. tostring(sderr))
     os.exit(1)
 end
 
-local SB = "_luapilot_selftest"
+local SB = "_babet_selftest"
 local function sb(name) return SB .. "/" .. name end
 
 -- nettoyage préventif d'un éventuel run précédent
-luapilot.rmdirAll(SB)
+babet.rmdirAll(SB)
 
 print("=== setup ===")
-ok_act("mkdir(sandbox)", luapilot.mkdir(SB))
+ok_act("mkdir(sandbox)", babet.mkdir(SB))
 
 -- =====================================================================
 print("")
 print("=== predicates ===")
 
 do
-    luapilot.touch(sb("probe.txt"))
+    babet.touch(sb("probe.txt"))
 
-    local v, e = luapilot.fileExists(sb("probe.txt"))
+    local v, e = babet.fileExists(sb("probe.txt"))
     ok("fileExists(probe.txt) == true", v == true and e == nil)
 
-    v, e = luapilot.fileExists(sb("nope.txt"))
+    v, e = babet.fileExists(sb("nope.txt"))
     ok("fileExists(nope.txt) == false, err nil", v == false and e == nil)
 
-    v, e = luapilot.isdir(SB)
+    v, e = babet.isdir(SB)
     ok("isdir(sandbox) == true", v == true and e == nil)
 
-    v, e = luapilot.isdir(sb("probe.txt"))
+    v, e = babet.isdir(sb("probe.txt"))
     ok("isdir(probe.txt) == false", v == false and e == nil)
 
-    v, e = luapilot.isfile(sb("probe.txt"))
+    v, e = babet.isfile(sb("probe.txt"))
     ok("isfile(probe.txt) == true", v == true and e == nil)
 
-    v, e = luapilot.isfile(SB)
+    v, e = babet.isfile(SB)
     ok("isfile(sandbox) == false", v == false and e == nil)
 
     -- isdir / isfile sur chemin INEXISTANT : doit returnsr (false, nil),
     -- pas (nil, err) — c'est une réponse légitime, pas une erreur.
-    v, e = luapilot.isdir(sb("absent_dir"))
+    v, e = babet.isdir(sb("absent_dir"))
     ok("isdir(absent) == false, err nil", v == false and e == nil,
         "v=" .. tostring(v) .. " e=" .. tostring(e))
 
-    v, e = luapilot.isfile(sb("absent_file"))
+    v, e = babet.isfile(sb("absent_file"))
     ok("isfile(absent) == false, err nil", v == false and e == nil,
         "v=" .. tostring(v) .. " e=" .. tostring(e))
 end
@@ -95,48 +95,48 @@ print("")
 print("=== value getters ===")
 
 do
-    local v, e = luapilot.currentDir()
+    local v, e = babet.currentDir()
     ok_val("currentDir()", v, e, function(x) return type(x) == "string" and #x > 0 end)
 
-    v, e = luapilot.fileSize(sb("probe.txt"))
+    v, e = babet.fileSize(sb("probe.txt"))
     ok_val("fileSize(probe.txt)", v, e, function(x) return type(x) == "number" end)
 
-    v, e = luapilot.fileSize(sb("nope.txt"))
+    v, e = babet.fileSize(sb("nope.txt"))
     ok_fail("fileSize(nope.txt) -> (nil, err)", v, e)
 
-    v, e = luapilot.getBasename("/a/b/c.txt")
+    v, e = babet.getBasename("/a/b/c.txt")
     ok("getBasename == 'c.txt'", v == "c.txt" and e == nil, "val=" .. tostring(v))
 
-    v, e = luapilot.getExtension("/a/b/c.txt")
+    v, e = babet.getExtension("/a/b/c.txt")
     ok("getExtension == '.txt'", v == ".txt" and e == nil, "val=" .. tostring(v))
 
-    v, e = luapilot.getFilename("/a/b/c.txt")
+    v, e = babet.getFilename("/a/b/c.txt")
     ok("getFilename == 'c'", v == "c" and e == nil, "val=" .. tostring(v))
 
-    v, e = luapilot.getPath("/a/b/c.txt")
+    v, e = babet.getPath("/a/b/c.txt")
     ok("getPath == '/a/b'", v == "/a/b" and e == nil, "val=" .. tostring(v))
 
-    v = luapilot.joinPath("a", "b", "c")
+    v = babet.joinPath("a", "b", "c")
     ok("joinPath('a','b','c')", type(v) == "string" and #v > 0, "val=" .. tostring(v))
 
-    v, e = luapilot.listFiles(SB)
+    v, e = babet.listFiles(SB)
     ok_val("listFiles(sandbox)", v, e, function(x) return type(x) == "table" end)
 
-    v, e = luapilot.listFiles("/n/existe/pas")
+    v, e = babet.listFiles("/n/existe/pas")
     ok_fail("listFiles(bad) -> (nil, err)", v, e)
 
-    v, e = luapilot.getMode(sb("probe.txt"))
+    v, e = babet.getMode(sb("probe.txt"))
     ok_val("getMode(probe.txt)", v, e, function(x) return type(x) == "number" end)
 
-    v, e = luapilot.getMode("/n/existe/pas")
+    v, e = babet.getMode("/n/existe/pas")
     ok_fail("getMode(bad) -> (nil, err)", v, e)
 
-    v, e = luapilot.getAttributes(sb("probe.txt"))
+    v, e = babet.getAttributes(sb("probe.txt"))
     ok_val("getAttributes(probe.txt)", v, e, function(x)
         return type(x) == "table" and x.mode and x.owner and x.group
     end)
 
-    v, e = luapilot.getAttributes("/n/existe/pas")
+    v, e = babet.getAttributes("/n/existe/pas")
     ok_fail("getAttributes(bad) -> (nil, err)", v, e)
 end
 
@@ -152,11 +152,11 @@ do
         "blake2b512sum", "blake2s256sum",
     }
     for _, fn in ipairs(hashers) do
-        local v, e = luapilot[fn](sb("probe.txt"))
+        local v, e = babet[fn](sb("probe.txt"))
         ok_val(fn .. "(probe.txt)", v, e,
             function(x) return type(x) == "string" and #x > 0 end)
 
-        v, e = luapilot[fn]("/n/existe/pas")
+        v, e = babet[fn]("/n/existe/pas")
         ok_fail(fn .. "(bad) -> (nil, err)", v, e)
     end
 end
@@ -167,18 +167,18 @@ print("=== crc32 ===")
 
 do
     -- Known test vectors: CRC32 of "abc" (ASCII) is 0x352441c2.
-    local v = luapilot.crc32("abc")
+    local v = babet.crc32("abc")
     ok_val("crc32('abc') == 352441c2", v, nil,
         function(x) return x == "352441c2" end)
 
     -- Empty input -> 00000000.
-    v = luapilot.crc32("")
+    v = babet.crc32("")
     ok_val("crc32('') == 00000000", v, nil,
         function(x) return x == "00000000" end)
 
     -- Binary-safe: must accept embedded NUL bytes and produce a
     -- different CRC than the empty string.
-    v = luapilot.crc32("\0\0\0")
+    v = babet.crc32("\0\0\0")
     ok_val("crc32('\\0\\0\\0') is binary-safe (not 00000000)", v, nil,
         function(x)
             return type(x) == "string" and #x == 8
@@ -189,13 +189,13 @@ do
     local f = io.open(sb("probe.txt"), "rb")
     local content = f:read("a")
     f:close()
-    local from_file = luapilot.crc32sum(sb("probe.txt"))
-    local from_mem  = luapilot.crc32(content)
+    local from_file = babet.crc32sum(sb("probe.txt"))
+    local from_mem  = babet.crc32(content)
     ok_val("crc32sum(file) == crc32(content)", from_file, nil,
         function(x) return x == from_mem end)
 
     -- crc32sum on a directory must fail with the expected message.
-    local res, err = luapilot.crc32sum(sb(""))
+    local res, err = babet.crc32sum(sb(""))
     ok_fail("crc32sum(dir) -> (nil, err)", res, err)
     ok_val("crc32sum(dir) err mentions 'not a regular file'",
         err, nil,
@@ -210,7 +210,7 @@ print("")
 print("=== json ===")
 
 do
-    local J = luapilot.json
+    local J = babet.json
 
     -- --- round-trip des scalaires --------------------------------
     do
@@ -436,89 +436,89 @@ print("=== actions: filesystem ===")
 
 do
     -- mkdir / rmdir
-    ok_act("mkdir(sandbox/d1)", luapilot.mkdir(sb("d1")))
-    ok_act("rmdir(sandbox/d1)", luapilot.rmdir(sb("d1")))
+    ok_act("mkdir(sandbox/d1)", babet.mkdir(sb("d1")))
+    ok_act("rmdir(sandbox/d1)", babet.rmdir(sb("d1")))
 
-    local r, e = luapilot.rmdir(sb("d1")) -- already removed
+    local r, e = babet.rmdir(sb("d1")) -- already removed
     ok_fail("rmdir(already gone) -> (nil, err)", r, e)
 
     -- touch / remove
-    ok_act("touch(sandbox/t1.txt)", luapilot.touch(sb("t1.txt")))
-    ok_act("remove(sandbox/t1.txt)", luapilot.remove(sb("t1.txt")))
+    ok_act("touch(sandbox/t1.txt)", babet.touch(sb("t1.txt")))
+    ok_act("remove(sandbox/t1.txt)", babet.remove(sb("t1.txt")))
 
-    r, e = luapilot.remove(sb("t1.txt")) -- already removed
+    r, e = babet.remove(sb("t1.txt")) -- already removed
     ok_fail("remove(already gone) -> (nil, err)", r, e)
 
     -- rename
-    luapilot.touch(sb("old.txt"))
-    ok_act("rename(old.txt -> new.txt)", luapilot.rename(sb("old.txt"), sb("new.txt")))
+    babet.touch(sb("old.txt"))
+    ok_act("rename(old.txt -> new.txt)", babet.rename(sb("old.txt"), sb("new.txt")))
 
-    r, e = luapilot.rename(sb("old.txt"), sb("x.txt")) -- source absente
+    r, e = babet.rename(sb("old.txt"), sb("x.txt")) -- source absente
     ok_fail("rename(missing source) -> (nil, err)", r, e)
 
     -- copy
-    ok_act("copy(new.txt -> copy.txt)", luapilot.copy(sb("new.txt"), sb("copy.txt")))
+    ok_act("copy(new.txt -> copy.txt)", babet.copy(sb("new.txt"), sb("copy.txt")))
 
-    r, e = luapilot.copy(sb("nope.txt"), sb("x.txt"))
+    r, e = babet.copy(sb("nope.txt"), sb("x.txt"))
     ok_fail("copy(missing source) -> (nil, err)", r, e)
 
     -- link
     ok_act("link(new.txt -> link.txt)",
-        luapilot.link(sb("new.txt"), sb("link.txt")))
+        babet.link(sb("new.txt"), sb("link.txt")))
 
     -- copyTree
-    luapilot.mkdir(sb("treesrc"))
-    luapilot.touch(sb("treesrc/a.txt"))
+    babet.mkdir(sb("treesrc"))
+    babet.touch(sb("treesrc/a.txt"))
     ok_act("copyTree(treesrc -> treedst)",
-        luapilot.copyTree(sb("treesrc"), sb("treedst")))
+        babet.copyTree(sb("treesrc"), sb("treedst")))
 
     -- moveTree
-    luapilot.mkdir(sb("movesrc"))
-    luapilot.touch(sb("movesrc/b.txt"))
-    luapilot.mkdir(sb("movedst"))
+    babet.mkdir(sb("movesrc"))
+    babet.touch(sb("movesrc/b.txt"))
+    babet.mkdir(sb("movedst"))
     ok_act("moveTree(movesrc -> movedst)",
-        luapilot.moveTree(sb("movesrc"), sb("movedst")))
+        babet.moveTree(sb("movesrc"), sb("movedst")))
 
     -- rmdirAll
-    luapilot.mkdir(sb("deeptree"))
-    luapilot.mkdir(sb("deeptree/sub"))
-    luapilot.touch(sb("deeptree/sub/c.txt"))
-    ok_act("rmdirAll(deeptree)", luapilot.rmdirAll(sb("deeptree")))
+    babet.mkdir(sb("deeptree"))
+    babet.mkdir(sb("deeptree/sub"))
+    babet.touch(sb("deeptree/sub/c.txt"))
+    ok_act("rmdirAll(deeptree)", babet.rmdirAll(sb("deeptree")))
 
     -- moveTree fast path : destination INEXISTANTE, rename O(1) atomique
-    luapilot.mkdir(sb("movefast"))
-    luapilot.touch(sb("movefast/x.txt"))
+    babet.mkdir(sb("movefast"))
+    babet.touch(sb("movefast/x.txt"))
     ok_act("moveTree(fast path: dest does not exist)",
-        luapilot.moveTree(sb("movefast"), sb("movefast_new")))
+        babet.moveTree(sb("movefast"), sb("movefast_new")))
     -- vérifie que le contenu est bien arrivé à destination
-    local v_fast, _ = luapilot.fileExists(sb("movefast_new/x.txt"))
+    local v_fast, _ = babet.fileExists(sb("movefast_new/x.txt"))
     ok("moveTree fast path: content moved", v_fast == true)
     -- et que la source a disparu
-    local v_src, _ = luapilot.isdir(sb("movefast"))
+    local v_src, _ = babet.isdir(sb("movefast"))
     ok("moveTree fast path: source gone", v_src == false)
 
     -- moveTree échec : source inexistante -> (nil, err)
-    local r_mv, e_mv = luapilot.moveTree(sb("n_existe_pas"), sb("dst"))
+    local r_mv, e_mv = babet.moveTree(sb("n_existe_pas"), sb("dst"))
     ok_fail("moveTree(source does not exist) -> (nil, err)", r_mv, e_mv)
 
     -- garde-fou : destination inside source doit être refusée
-    luapilot.mkdir(sb("nested_src"))
-    luapilot.touch(sb("nested_src/file.txt"))
+    babet.mkdir(sb("nested_src"))
+    babet.touch(sb("nested_src/file.txt"))
 
-    local r_nest_mv, e_nest_mv = luapilot.moveTree(sb("nested_src"), sb("nested_src/backup"))
+    local r_nest_mv, e_nest_mv = babet.moveTree(sb("nested_src"), sb("nested_src/backup"))
     ok_fail("moveTree(destination inside source) -> (nil, err)", r_nest_mv, e_nest_mv)
     ok("  message mentions 'inside'",
         type(e_nest_mv) == "string" and e_nest_mv:find("inside", 1, true) ~= nil,
         "err=" .. tostring(e_nest_mv))
 
-    local r_nest_cp, e_nest_cp = luapilot.copyTree(sb("nested_src"), sb("nested_src/backup"), false)
+    local r_nest_cp, e_nest_cp = babet.copyTree(sb("nested_src"), sb("nested_src/backup"), false)
     ok_fail("copyTree(destination inside source) -> (nil, err)", r_nest_cp, e_nest_cp)
     ok("  message mentions 'inside'",
         type(e_nest_cp) == "string" and e_nest_cp:find("inside", 1, true) ~= nil,
         "err=" .. tostring(e_nest_cp))
 
     -- nettoyage
-    luapilot.rmdirAll(sb("nested_src"))
+    babet.rmdirAll(sb("nested_src"))
 
     -- --- durcissement symlinks (résolution réelle des chemins) -----
     -- Tout est confiné sous sb("sym") et nettoyé par UN seul rmdirAll :
@@ -526,41 +526,41 @@ do
     -- no dangling symlink can remain in the sandbox and bias
     -- une section ultérieure (ex. createFileIterator).
     local function mklink(target, linkpath)
-        return luapilot.exec("ln", { "-s", target, linkpath })
+        return babet.exec("ln", { "-s", target, linkpath })
     end
     local function readlink(p)
-        local r = luapilot.exec("readlink", { p })
+        local r = babet.exec("readlink", { p })
         return type(r) == "table" and (r.stdout:gsub("%s+$", "")) or nil
     end
-    local cwd = luapilot.currentDir()
+    local cwd = babet.currentDir()
     local function abs(p) return cwd .. "/" .. p end
 
     do
         -- racine isolée, repartie de zéro même si un run précédent a coupé
-        luapilot.rmdirAll(sb("sym"))
-        luapilot.mkdir(sb("sym"))
+        babet.rmdirAll(sb("sym"))
+        babet.mkdir(sb("sym"))
 
         -- A) destination atteignant source VIA un symlink -> refus.
         --    Avant durcissement (comparaison lexicale), ce cas passait.
-        luapilot.mkdir(sb("sym/hl_src"))
-        luapilot.touch(sb("sym/hl_src/f.txt"))
+        babet.mkdir(sb("sym/hl_src"))
+        babet.touch(sb("sym/hl_src/f.txt"))
         mklink(abs(sb("sym/hl_src")), sb("sym/hl_link"))
 
-        local r1, e1 = luapilot.copyTree(sb("sym/hl_src"), sb("sym/hl_link/backup"))
+        local r1, e1 = babet.copyTree(sb("sym/hl_src"), sb("sym/hl_link/backup"))
         ok_fail("copyTree: dest via symlink to source -> refus", r1, e1)
 
-        local r2, e2 = luapilot.moveTree(sb("sym/hl_src"), sb("sym/hl_link/backup"))
+        local r2, e2 = babet.moveTree(sb("sym/hl_src"), sb("sym/hl_link/backup"))
         ok_fail("moveTree: dest via symlink to source -> refus", r2, e2)
 
         -- B) source donnée VIA un symlink + lien absolu intra-source :
         --    must be retargeted into the destination. Before hardening
         --    (source non résolue), il restait pointé vers la source.
-        luapilot.mkdir(sb("sym/rs"))
-        luapilot.touch(sb("sym/rs/data.txt"))
+        babet.mkdir(sb("sym/rs"))
+        babet.touch(sb("sym/rs/data.txt"))
         mklink(abs(sb("sym/rs/data.txt")), sb("sym/rs/ptr"))
         mklink(abs(sb("sym/rs")), sb("sym/srcvia"))
 
-        local rc = luapilot.copyTree(sb("sym/srcvia"), sb("sym/viad"))
+        local rc = babet.copyTree(sb("sym/srcvia"), sb("sym/viad"))
         ok_act("copyTree(srcvia -> viad)", rc)
         local tgt = readlink(sb("sym/viad/ptr"))
         ok("absolute intra-source link retargeted to destination",
@@ -570,10 +570,10 @@ do
             "tgt=" .. tostring(tgt))
 
         -- C) lien pointant HORS de source : conservé tel quel.
-        luapilot.mkdir(sb("sym/os_src"))
-        luapilot.touch(sb("sym/os_src/keep.txt"))
+        babet.mkdir(sb("sym/os_src"))
+        babet.touch(sb("sym/os_src/keep.txt"))
         mklink("/tmp", sb("sym/os_src/outside"))
-        local rc2 = luapilot.copyTree(sb("sym/os_src"), sb("sym/os_dst"))
+        local rc2 = babet.copyTree(sb("sym/os_src"), sb("sym/os_dst"))
         ok_act("copyTree(os_src -> os_dst)", rc2)
         ok("out-of-source link preserved as-is",
             readlink(sb("sym/os_dst/outside")) == "/tmp",
@@ -581,9 +581,9 @@ do
 
         -- D) lien CASSÉ (cible inexistante) : moveTree le conserve,
         --    without error (decision #2 acted on).
-        luapilot.mkdir(sb("sym/bk_src"))
+        babet.mkdir(sb("sym/bk_src"))
         mklink("/n/existe/pas/cible", sb("sym/bk_src/broken"))
-        local rm = luapilot.moveTree(sb("sym/bk_src"), sb("sym/bk_dst"))
+        local rm = babet.moveTree(sb("sym/bk_src"), sb("sym/bk_dst"))
         ok_act("moveTree with broken link: no error", rm)
         ok("broken link preserved identical",
             readlink(sb("sym/bk_dst/broken")) == "/n/existe/pas/cible",
@@ -593,15 +593,15 @@ do
         --    the characters ".." without being the parent. The destination is
         --    bien DANS source -> doit être refusée (before le fix par
         --    composant, ce cas passait à tort = trou du garde).
-        luapilot.mkdir(sb("sym/dd_src"))
-        luapilot.touch(sb("sym/dd_src/f.txt"))
-        local rdd, edd = luapilot.copyTree(sb("sym/dd_src"), sb("sym/dd_src/..data"))
+        babet.mkdir(sb("sym/dd_src"))
+        babet.touch(sb("sym/dd_src/f.txt"))
+        local rdd, edd = babet.copyTree(sb("sym/dd_src"), sb("sym/dd_src/..data"))
         ok_fail("copyTree: dest 'src/..data' (inside source) -> refus", rdd, edd)
-        local rdm, edm = luapilot.moveTree(sb("sym/dd_src"), sb("sym/dd_src/..data"))
+        local rdm, edm = babet.moveTree(sb("sym/dd_src"), sb("sym/dd_src/..data"))
         ok_fail("moveTree: dest 'src/..data' (inside source) -> refus", rdm, edm)
 
         -- nettoyage : un seul appel, sûr, indépendant de l'ordre
-        luapilot.rmdirAll(sb("sym"))
+        babet.rmdirAll(sb("sym"))
     end
 end
 
@@ -611,42 +611,42 @@ print("=== actions: attributes ===")
 
 do
     -- setMode / getMode : on teste les DEUX formes accepteds
-    luapilot.touch(sb("perm.txt"))
+    babet.touch(sb("perm.txt"))
 
     -- forme string (réflexe chmod)
     ok_act("setMode(perm.txt, '700') [string]",
-        luapilot.setMode(sb("perm.txt"), "700"))
-    local m, e = luapilot.getMode(sb("perm.txt"))
+        babet.setMode(sb("perm.txt"), "700"))
+    local m, e = babet.getMode(sb("perm.txt"))
     ok("getMode reflects setMode('700')", m == tonumber("700", 8) and e == nil,
         "mode=" .. tostring(m))
 
     -- forme nombre
     ok_act("setMode(perm.txt, 0o644) [number]",
-        luapilot.setMode(sb("perm.txt"), tonumber("644", 8)))
-    m, e = luapilot.getMode(sb("perm.txt"))
+        babet.setMode(sb("perm.txt"), tonumber("644", 8)))
+    m, e = babet.getMode(sb("perm.txt"))
     ok("getMode reflects setMode(644)", m == tonumber("644", 8) and e == nil,
         "mode=" .. tostring(m))
 
     -- string invalid -> (nil, err) propre
-    local r, e2 = luapilot.setMode(sb("perm.txt"), "858")
+    local r, e2 = babet.setMode(sb("perm.txt"), "858")
     ok_fail("setMode(perm.txt, '858') -> (nil, err)", r, e2)
 
     -- setAttributes : chown vers son propre uid/gid (toujours autorisé)
-    local attrs = luapilot.getAttributes(sb("perm.txt"))
+    local attrs = babet.getAttributes(sb("perm.txt"))
     if attrs then
         ok_act("setAttributes(perm.txt, self uid/gid)",
-            luapilot.setAttributes(sb("perm.txt"), attrs.owner, attrs.group))
+            babet.setAttributes(sb("perm.txt"), attrs.owner, attrs.group))
     else
         ok("setAttributes (préparation)", false, "getAttributes a échoué")
     end
 
-    local r2, e3 = luapilot.setAttributes("/n/existe/pas", 0, 0)
+    local r2, e3 = babet.setAttributes("/n/existe/pas", 0, 0)
     ok_fail("setAttributes(bad path) -> (nil, err)", r2, e3)
 
     -- symlinkattr on the link created in the filesystem section
     if attrs then
         ok_act("symlinkattr(link.txt, self uid/gid)",
-            luapilot.symlinkattr(sb("link.txt"), attrs.owner, attrs.group))
+            babet.symlinkattr(sb("link.txt"), attrs.owner, attrs.group))
     end
 end
 
@@ -655,21 +655,21 @@ print("")
 print("=== find ===")
 
 do
-    local results, e = luapilot.find(SB, { type = "f" })
+    local results, e = babet.find(SB, { type = "f" })
     ok_val("find(sandbox, {type='f'})", results, e,
         function(x) return type(x) == "table" end)
 
-    results, e = luapilot.find("/n/existe/pas", { type = "f" })
+    results, e = babet.find("/n/existe/pas", { type = "f" })
     ok_fail("find(bad path) -> (nil, err)", results, e)
 
     -- find with ECMAScript regex : trouve tous les fichiers .txt
     -- of the sandbox (we created several during previous tests)
-    local results_txt, e_txt = luapilot.find(SB, { type = "f", name = ".*\\.txt$" })
+    local results_txt, e_txt = babet.find(SB, { type = "f", name = ".*\\.txt$" })
     ok_val("find with ECMAScript regex (.*\\.txt$)", results_txt, e_txt,
         function(x) return type(x) == "table" and #x > 0 end)
 
     -- find with iname (case-insensitive)
-    local results_ci, e_ci = luapilot.find(SB, { type = "f", iname = ".*\\.TXT$" })
+    local results_ci, e_ci = babet.find(SB, { type = "f", iname = ".*\\.TXT$" })
     ok_val("find iname case-insensitive", results_ci, e_ci,
         function(x) return type(x) == "table" and #x > 0 end)
 
@@ -680,7 +680,7 @@ do
     -- If thread_local is correctly applied, all workers complete
     -- successfully and return their result counts.
     do
-        local W = luapilot.workers
+        local W = babet.workers
         local jobs = {}
         for i = 1, 4 do
             jobs[i] = W.spawn([[
@@ -688,7 +688,7 @@ do
                 local pat = worker.args.pat
                 local count = 0
                 for _ = 1, 20 do
-                    local r, err = luapilot.find(sb, { type = "f", name = pat })
+                    local r, err = babet.find(sb, { type = "f", name = pat })
                     if not r then return { error = err } end
                     count = count + #r
                 end
@@ -714,7 +714,7 @@ print("")
 print("=== createFileIterator ===")
 
 do
-    local it, e = luapilot.createFileIterator(SB, true)
+    local it, e = babet.createFileIterator(SB, true)
     ok_val("createFileIterator(sandbox)", it, e,
         function(x) return x ~= nil end)
 
@@ -728,11 +728,11 @@ do
         ok("iterator walks files", count > 0, "count=" .. count)
     end
 
-    local it2, e2 = luapilot.createFileIterator("/n/existe/pas")
+    local it2, e2 = babet.createFileIterator("/n/existe/pas")
     ok_fail("createFileIterator(bad) -> (nil, err)", it2, e2)
 
     -- :close() puis :next() doit lever une erreur Lua propre
-    local it3 = luapilot.createFileIterator(SB)
+    local it3 = babet.createFileIterator(SB)
     if it3 then
         it3:close()
         local raised = not pcall(function() it3:next() end)
@@ -776,7 +776,7 @@ print("=== exec ===")
 
 do
     -- commande simple qui succeededt
-    local r, e = luapilot.exec("echo", { "hello" })
+    local r, e = babet.exec("echo", { "hello" })
     ok("exec('echo hello') -> (table, nil)",
         type(r) == "table" and e == nil,
         "r=" .. tostring(r) .. " e=" .. tostring(e))
@@ -789,13 +789,13 @@ do
     end
 
     -- code de sortie != 0 : ce n'est PAS une erreur d'exec
-    local r2 = luapilot.exec("sh", { "-c", "exit 3" })
+    local r2 = babet.exec("sh", { "-c", "exit 3" })
     ok("exec('sh -c \"exit 3\"'): code == 3, no err",
         type(r2) == "table" and r2.code == 3,
         "code=" .. tostring(r2 and r2.code))
 
     -- stderr captured separately from stdout
-    local r3 = luapilot.exec("sh", { "-c", "echo oops 1>&2" })
+    local r3 = babet.exec("sh", { "-c", "echo oops 1>&2" })
     ok("exec: stderr captured separately from stdout",
         type(r3) == "table"
         and r3.stderr:find("oops", 1, true) ~= nil
@@ -804,41 +804,41 @@ do
         " stderr=" .. tostring(r3 and r3.stderr))
 
     -- binaire introuvable -> (nil, err)
-    local r4, e4 = luapilot.exec("ce_binaire_nexiste_pas_12345")
+    local r4, e4 = babet.exec("ce_binaire_nexiste_pas_12345")
     ok_fail("exec(nonexistent binary) -> (nil, err)", r4, e4)
 
     -- option cwd
-    local r5 = luapilot.exec("pwd", {}, { cwd = "/tmp" })
+    local r5 = babet.exec("pwd", {}, { cwd = "/tmp" })
     ok("exec('pwd', cwd=/tmp): stdout contains /tmp",
         type(r5) == "table" and r5.stdout:find("/tmp", 1, true) ~= nil,
         "stdout=" .. tostring(r5 and r5.stdout))
 
     -- invalid cwd -> (nil, err)
-    local r6, e6 = luapilot.exec("pwd", {}, { cwd = "/n/existe/pas" })
+    local r6, e6 = babet.exec("pwd", {}, { cwd = "/n/existe/pas" })
     ok_fail("exec(invalid cwd) -> (nil, err)", r6, e6)
 
     -- env option (merged with existing environment)
-    local r7 = luapilot.exec("sh", { "-c", "echo $LUAPILOT_TEST_VAR" },
-        { env = { LUAPILOT_TEST_VAR = "ok42" } })
+    local r7 = babet.exec("sh", { "-c", "echo $BABET_TEST_VAR" },
+        { env = { BABET_TEST_VAR = "ok42" } })
     ok("exec: environment variable transmitted",
         type(r7) == "table" and r7.stdout:find("ok42", 1, true) ~= nil,
         "stdout=" .. tostring(r7 and r7.stdout))
 
     -- grosse sortie : vérifie l'absence de deadlock (drain before waitpid)
-    local r8 = luapilot.exec("sh",
+    local r8 = babet.exec("sh",
         { "-c", "for i in $(seq 1 50000); do echo line$i; done" })
     ok("exec: large output without deadlock",
         type(r8) == "table" and r8.code == 0 and #r8.stdout > 100000,
         "len=" .. tostring(r8 and r8.stdout and #r8.stdout))
 
     -- stdin : transmis au process
-    local r9 = luapilot.exec("cat", {}, { stdin = "contenu via stdin" })
+    local r9 = babet.exec("cat", {}, { stdin = "contenu via stdin" })
     ok("exec('cat', stdin=...): stdout == stdin",
         type(r9) == "table" and r9.stdout == "contenu via stdin",
         "stdout=" .. tostring(r9 and r9.stdout))
 
     -- stdin consommé par un filtre
-    local r10 = luapilot.exec("grep", { "foo" },
+    local r10 = babet.exec("grep", { "foo" },
         { stdin = "line1\nfoo bar\nline3\nfoo again\n" })
     ok("exec('grep foo', stdin=...): filters 2 lines",
         type(r10) == "table"
@@ -847,32 +847,32 @@ do
 
     -- large stdin: no deadlock (write while reading)
     local big = string.rep("x", 500000)
-    local r11 = luapilot.exec("cat", {}, { stdin = big })
+    local r11 = babet.exec("cat", {}, { stdin = big })
     ok("exec: large stdin without deadlock",
         type(r11) == "table" and #r11.stdout == 500000,
         "len=" .. tostring(r11 and r11.stdout and #r11.stdout))
 
     -- stdin sent à un process qui ne le reads pas (EPIPE géré, pas de crash)
-    local r12 = luapilot.exec("true", {}, { stdin = "ignoré" })
+    local r12 = babet.exec("true", {}, { stdin = "ignoré" })
     ok("exec: stdin to process that ignores it (EPIPE handled)",
         type(r12) == "table" and r12.code == 0,
         "code=" .. tostring(r12 and r12.code))
 
     -- timeout : un process qui dépasse est arrêté
-    local r13 = luapilot.exec("sleep", { "10" }, { timeout = 0.5 })
+    local r13 = babet.exec("sleep", { "10" }, { timeout = 0.5 })
     ok("exec('sleep 10', timeout=0.5): timed_out == true",
         type(r13) == "table" and r13.timed_out == true,
         "timed_out=" .. tostring(r13 and r13.timed_out) ..
         " code=" .. tostring(r13 and r13.code))
 
     -- un process rapide n'est PAS marqué timed_out
-    local r14 = luapilot.exec("echo", { "vite" }, { timeout = 5 })
+    local r14 = babet.exec("echo", { "vite" }, { timeout = 5 })
     ok("exec('echo', timeout=5): timed_out == false",
         type(r14) == "table" and r14.timed_out == false and r14.code == 0,
         "timed_out=" .. tostring(r14 and r14.timed_out))
 
     -- output produced BEFORE the timeout is correctly retrieved
-    local r15 = luapilot.exec("sh",
+    local r15 = babet.exec("sh",
         { "-c", "echo avant_timeout; sleep 10" }, { timeout = 0.5 })
     ok("exec: stdout before timeout is preserved",
         type(r15) == "table"
@@ -881,23 +881,23 @@ do
         "stdout=" .. tostring(r15 and r15.stdout))
 
     -- timeout invalid -> (nil, err)
-    local r16, e16 = luapilot.exec("echo", { "x" }, { timeout = -1 })
+    local r16, e16 = babet.exec("echo", { "x" }, { timeout = -1 })
     ok_fail("exec(negative timeout) -> (nil, err)", r16, e16)
 
     -- Chantier 10-D : timeout NaN / Inf rejetés
-    local r16b, e16b = luapilot.exec("echo", { "x" }, { timeout = 0 / 0 })
+    local r16b, e16b = babet.exec("echo", { "x" }, { timeout = 0 / 0 })
     ok_fail("exec(NaN timeout) -> (nil, err)", r16b, e16b)
-    local r16c, e16c = luapilot.exec("echo", { "x" }, { timeout = math.huge })
+    local r16c, e16c = babet.exec("echo", { "x" }, { timeout = math.huge })
     ok_fail("exec(Inf timeout) -> (nil, err)", r16c, e16c)
 
     -- Chantier 10-D : opts.env clé invalide rejetée
-    local rE1, eE1 = luapilot.exec("echo", { "x" }, { env = { ["A=B"] = "v" } })
+    local rE1, eE1 = babet.exec("echo", { "x" }, { env = { ["A=B"] = "v" } })
     ok_fail("exec(env key contains '=') -> (nil, err)", rE1, eE1)
-    local rE2, eE2 = luapilot.exec("echo", { "x" }, { env = { [""] = "v" } })
+    local rE2, eE2 = babet.exec("echo", { "x" }, { env = { [""] = "v" } })
     ok_fail("exec(env empty key) -> (nil, err)", rE2, eE2)
 
     -- without timeout, the timed_out field exists and is false
-    local r17 = luapilot.exec("echo", { "x" })
+    local r17 = babet.exec("echo", { "x" })
     ok("exec no timeout: timed_out == false",
         type(r17) == "table" and r17.timed_out == false,
         "timed_out=" .. tostring(r17 and r17.timed_out))
@@ -905,14 +905,14 @@ do
     -- process killed by signal (the shell SIGKILLs itself)
     -- Convention shell : code de sortie = 128 + numéro du signal
     -- SIGKILL = 9 -> code attendu = 137
-    local r_sig = luapilot.exec("sh", { "-c", "kill -9 $$" })
+    local r_sig = babet.exec("sh", { "-c", "kill -9 $$" })
     ok("exec: process killed by signal -> code = 128 + signal",
         type(r_sig) == "table" and r_sig.code == 137,
         "code=" .. tostring(r_sig and r_sig.code))
 
     -- max_output : sortie coupée aux PREMIERS octets + flag séparé, le
     -- process est mené à terme (on draine le reste), pas de deadlock.
-    local r_mo = luapilot.exec("sh",
+    local r_mo = babet.exec("sh",
         { "-c", "for i in $(seq 1 100000); do echo AAAAAAAA; done" },
         { max_output = 1024 })
     ok("exec max_output: stdout cut at limit",
@@ -927,20 +927,20 @@ do
         "code=" .. tostring(r_mo and r_mo.code))
 
     -- max_output invalid -> (nil, err)
-    local r_mo_bad, e_mo_bad = luapilot.exec("echo", { "x" },
+    local r_mo_bad, e_mo_bad = babet.exec("echo", { "x" },
         { max_output = 0 })
     ok_fail("exec(max_output <= 0) -> (nil, err)", r_mo_bad, e_mo_bad)
 
-    local r_mo_frac, e_mo_frac = luapilot.exec("echo", { "x" },
+    local r_mo_frac, e_mo_frac = babet.exec("echo", { "x" },
         { max_output = 3.7 })
     ok_fail("exec(max_output non-integer) -> (nil, err)", r_mo_frac, e_mo_frac)
 
-    local r_mo_huge, e_mo_huge = luapilot.exec("echo", { "x" },
+    local r_mo_huge, e_mo_huge = babet.exec("echo", { "x" },
         { max_output = 3 * 1024 * 1024 * 1024 })
     ok_fail("exec(max_output > 2 Gio) -> (nil, err)", r_mo_huge, e_mo_huge)
 
     -- without max_output: truncation flags present and false
-    local r_mo_def = luapilot.exec("echo", { "court" })
+    local r_mo_def = babet.exec("echo", { "court" })
     ok("exec without max_output: truncation flags false",
         type(r_mo_def) == "table"
         and r_mo_def.stdout_truncated == false
@@ -950,7 +950,7 @@ do
     -- arrière-plan qui garde le pipe ouvert. Sans groupe de process,
     -- exec resterait bloqué ~30s ; avec, il rend la main vite.
     local t0 = os.time()
-    local r_pg = luapilot.exec("sh",
+    local r_pg = babet.exec("sh",
         { "-c", "sleep 30 & wait" }, { timeout = 0.5 })
     local dt = os.time() - t0
     ok("exec timeout kills the whole group (no grandchild hang)",
@@ -966,7 +966,7 @@ print("=== deepCopyTable ===")
 do
     -- copie profonde de base : indépendance des sous-tables
     local original = { x = 1, nested = { y = 2 } }
-    local copy = luapilot.deepCopyTable(original)
+    local copy = babet.deepCopyTable(original)
     ok("deepCopyTable : subtable is a real copy",
         type(copy) == "table"
         and copy.nested ~= nil
@@ -981,7 +981,7 @@ do
 
     -- clés numeric TROUÉES : [10] ne doit pas être perdue
     local sparse = { [1] = "A", [10] = "B" }
-    local sparse_copy = luapilot.deepCopyTable(sparse)
+    local sparse_copy = babet.deepCopyTable(sparse)
     ok("deepCopyTable : sparse numeric key [10] preserved",
         sparse_copy[1] == "A" and sparse_copy[10] == "B",
         "[1]=" .. tostring(sparse_copy[1]) ..
@@ -989,7 +989,7 @@ do
 
     -- clés numeric NON basées sur 1 : pas de renumérotation
     local offset = { [5] = "x", [6] = "y" }
-    local offset_copy = luapilot.deepCopyTable(offset)
+    local offset_copy = babet.deepCopyTable(offset)
     ok("deepCopyTable : numeric keys not renumbered",
         offset_copy[5] == "x" and offset_copy[6] == "y"
         and offset_copy[1] == nil,
@@ -998,7 +998,7 @@ do
 
     -- mixed keys (string + numérique) toutes preserved
     local mixed = { name = "test", [1] = "premier", [3] = "troisieme" }
-    local mixed_copy = luapilot.deepCopyTable(mixed)
+    local mixed_copy = babet.deepCopyTable(mixed)
     ok("deepCopyTable : mixed string+numeric keys preserved",
         mixed_copy.name == "test"
         and mixed_copy[1] == "premier"
@@ -1007,7 +1007,7 @@ do
     -- cycle : table qui se référence elle-même
     local cyclic = {}
     cyclic.self = cyclic
-    local cyclic_copy = luapilot.deepCopyTable(cyclic)
+    local cyclic_copy = babet.deepCopyTable(cyclic)
     ok("deepCopyTable : self-referential cycle handled",
         type(cyclic_copy) == "table"
         and cyclic_copy.self == cyclic_copy -- pointe vers la COPIE
@@ -1017,7 +1017,7 @@ do
     -- sous-table partagée : doit être copiée UNE seule fois
     local shared = { value = 42 }
     local container = { a = shared, b = shared }
-    local container_copy = luapilot.deepCopyTable(container)
+    local container_copy = babet.deepCopyTable(container)
     ok("deepCopyTable : shared subtable copied once only",
         container_copy.a == container_copy.b -- same copy reused
         and container_copy.a ~= shared       -- mais pas l'original
@@ -1027,7 +1027,7 @@ do
     local a = {}
     local b = { back = a }
     a.forward = b
-    local a_copy = luapilot.deepCopyTable(a)
+    local a_copy = babet.deepCopyTable(a)
     ok("deepCopyTable : indirect cycle (a->b->a) handled",
         type(a_copy) == "table"
         and type(a_copy.forward) == "table"
@@ -1042,34 +1042,34 @@ print("=== pure functions ===")
 
 do
     -- split
-    local parts = luapilot.split("Hello there !", " ")
+    local parts = babet.split("Hello there !", " ")
     ok("split('Hello there !', ' ') -> 3 elements",
         type(parts) == "table" and #parts == 3,
         parts and ("#=" .. #parts) or "nil")
 
-    parts = luapilot.split("a,b,c", ",")
+    parts = babet.split("a,b,c", ",")
     ok("split('a,b,c', ',') -> 3 elements",
         type(parts) == "table" and #parts == 3)
 
     -- mergeTables
-    local merged = luapilot.mergeTables({ "a", "b" }, { "c", "d" })
+    local merged = babet.mergeTables({ "a", "b" }, { "c", "d" })
     ok("mergeTables -> table", type(merged) == "table")
 
     -- getMemoryUsage
-    local mem = luapilot.getMemoryUsage()
+    local mem = babet.getMemoryUsage()
     ok("getMemoryUsage() -> number > 0", type(mem) == "number" and mem > 0,
         "mem=" .. tostring(mem))
 
-    local used, total = luapilot.getDetailedMemoryUsage()
+    local used, total = babet.getDetailedMemoryUsage()
     ok("getDetailedMemoryUsage() -> 2 numbers",
         type(used) == "number" and type(total) == "number")
 
     -- helloThere : imprime, ne returns rien, ne doit pas planter
-    local hello_ok = pcall(luapilot.helloThere)
+    local hello_ok = pcall(babet.helloThere)
     ok("helloThere() does not crash", hello_ok)
 
     -- sleep : action courte
-    ok_act("sleep(1, 'ms')", luapilot.sleep(1, "ms"))
+    ok_act("sleep(1, 'ms')", babet.sleep(1, "ms"))
 end
 
 -- =====================================================================
@@ -1078,27 +1078,27 @@ print("=== time ===")
 
 do
     -- monotonic : strictement positif, croissant
-    local m1 = luapilot.monotonic()
+    local m1 = babet.monotonic()
     ok("monotonic() -> number > 0",
         type(m1) == "number" and m1 > 0,
         "m1=" .. tostring(m1))
 
-    local m2 = luapilot.monotonic()
+    local m2 = babet.monotonic()
     ok("monotonic() croissant (m2 >= m1)",
         type(m2) == "number" and m2 >= m1,
         "m1=" .. tostring(m1) .. " m2=" .. tostring(m2))
 
     -- monotonic mesure correctement un sleep
-    local before = luapilot.monotonic()
-    luapilot.sleep(100, "ms")
-    local after = luapilot.monotonic()
+    local before = babet.monotonic()
+    babet.sleep(100, "ms")
+    local after = babet.monotonic()
     local elapsed = after - before
     ok("monotonic() mesure sleep(100ms) : 0.05 < dt < 1.0",
         elapsed > 0.05 and elapsed < 1.0,
         "elapsed=" .. tostring(elapsed))
 
     -- now : timestamp epoch, > 0, proche de os.time()
-    local n = luapilot.now()
+    local n = babet.now()
     ok("now() -> number > 0",
         type(n) == "number" and n > 0,
         "n=" .. tostring(n))
@@ -1113,7 +1113,7 @@ do
     -- un entier), donc on teste sur une moyenne de 5 appels.
     local has_frac = false
     for _ = 1, 5 do
-        local v = luapilot.now()
+        local v = babet.now()
         if v ~= math.floor(v) then
             has_frac = true; break
         end
@@ -1122,9 +1122,9 @@ do
 
     -- Mauvais usage : argument non autorisé
     ok("monotonic('abc') -> luaL_error",
-        pcall(function() luapilot.monotonic("abc") end) == false)
+        pcall(function() babet.monotonic("abc") end) == false)
     ok("now({}) -> luaL_error",
-        pcall(function() luapilot.now({}) end) == false)
+        pcall(function() babet.now({}) end) == false)
 end
 
 -- =====================================================================
@@ -1134,32 +1134,32 @@ print("=== time_format ===")
 do
     -- ---- iso(ts?) -------------------------------------------------------
     ok("iso(0) == '1970-01-01T00:00:00Z'",
-        luapilot.time.iso(0) == "1970-01-01T00:00:00Z")
+        babet.time.iso(0) == "1970-01-01T00:00:00Z")
 
     ok("iso(0.0) accepted, same result as iso(0)",
-        luapilot.time.iso(0.0) == "1970-01-01T00:00:00Z")
+        babet.time.iso(0.0) == "1970-01-01T00:00:00Z")
 
     ok("iso(0.5) truncated, same result as iso(0)",
-        luapilot.time.iso(0.5) == "1970-01-01T00:00:00Z",
-        "got " .. tostring(luapilot.time.iso(0.5)))
+        babet.time.iso(0.5) == "1970-01-01T00:00:00Z",
+        "got " .. tostring(babet.time.iso(0.5)))
 
     -- A concrete known timestamp: 2026-01-01T00:00:00Z = 1767225600
     ok("iso(1767225600) round-trip",
-        luapilot.time.iso(1767225600) == "2026-01-01T00:00:00Z")
+        babet.time.iso(1767225600) == "2026-01-01T00:00:00Z")
 
     -- Negative Unix timestamps (before epoch) round-trip too.
     -- One second before epoch should be 1969-12-31T23:59:59Z, and
     -- one day before should be 1969-12-31T00:00:00Z.
     ok("iso(-1) == '1969-12-31T23:59:59Z'",
-        luapilot.time.iso(-1) == "1969-12-31T23:59:59Z",
-        "got " .. tostring(luapilot.time.iso(-1)))
+        babet.time.iso(-1) == "1969-12-31T23:59:59Z",
+        "got " .. tostring(babet.time.iso(-1)))
     ok("iso(-86400) == '1969-12-31T00:00:00Z'",
-        luapilot.time.iso(-86400) == "1969-12-31T00:00:00Z",
-        "got " .. tostring(luapilot.time.iso(-86400)))
+        babet.time.iso(-86400) == "1969-12-31T00:00:00Z",
+        "got " .. tostring(babet.time.iso(-86400)))
 
     -- iso() without arg returns the current time as a 20-char ISO string.
     do
-        local s = luapilot.time.iso()
+        local s = babet.time.iso()
         ok("iso() returns 20-char ISO string",
             type(s) == "string" and #s == 20 and s:sub(-1) == "Z",
             "got " .. tostring(s))
@@ -1167,39 +1167,39 @@ do
 
     -- ---- parse_iso ------------------------------------------------------
     ok("parse_iso('1970-01-01T00:00:00Z') == 0",
-        luapilot.time.parse_iso("1970-01-01T00:00:00Z") == 0)
+        babet.time.parse_iso("1970-01-01T00:00:00Z") == 0)
 
     ok("parse_iso('2026-01-01T00:00:00Z') == 1767225600",
-        luapilot.time.parse_iso("2026-01-01T00:00:00Z") == 1767225600)
+        babet.time.parse_iso("2026-01-01T00:00:00Z") == 1767225600)
 
     -- Offsets: +02:00 means the local clock is 2h ahead of UTC,
     -- so 10:00+02:00 == 08:00Z.
     do
-        local a = luapilot.time.parse_iso("2026-06-17T10:00:00+02:00")
-        local b = luapilot.time.parse_iso("2026-06-17T08:00:00Z")
+        local a = babet.time.parse_iso("2026-06-17T10:00:00+02:00")
+        local b = babet.time.parse_iso("2026-06-17T08:00:00Z")
         ok("parse_iso('+02:00') == parse_iso('Z') for same wall instant",
             a == b, "a=" .. tostring(a) .. " b=" .. tostring(b))
     end
 
     -- -05:30 means clock is 5h30 behind UTC.
     do
-        local a = luapilot.time.parse_iso("2026-06-17T08:30:00-05:30")
-        local b = luapilot.time.parse_iso("2026-06-17T14:00:00Z")
+        local a = babet.time.parse_iso("2026-06-17T08:30:00-05:30")
+        local b = babet.time.parse_iso("2026-06-17T14:00:00Z")
         ok("parse_iso half-hour offset", a == b,
             "a=" .. tostring(a) .. " b=" .. tostring(b))
     end
 
     -- Space separator instead of T.
     ok("parse_iso accepts space separator",
-        luapilot.time.parse_iso("1970-01-01 00:00:00Z") == 0)
+        babet.time.parse_iso("1970-01-01 00:00:00Z") == 0)
 
     -- Optional fractional seconds: ignored.
     ok("parse_iso ignores fractional seconds",
-        luapilot.time.parse_iso("1970-01-01T00:00:00.123Z") == 0)
+        babet.time.parse_iso("1970-01-01T00:00:00.123Z") == 0)
 
     -- Rejections: no timezone.
     do
-        local v, e = luapilot.time.parse_iso("1970-01-01T00:00:00")
+        local v, e = babet.time.parse_iso("1970-01-01T00:00:00")
         ok_fail("parse_iso without timezone -> (nil, err)", v, e)
         ok("  err mentions 'timezone'",
             type(e) == "string" and e:find("timezone", 1, true) ~= nil,
@@ -1208,107 +1208,107 @@ do
 
     -- Invalid date.
     do
-        local v, e = luapilot.time.parse_iso("2026-02-30T00:00:00Z")
+        local v, e = babet.time.parse_iso("2026-02-30T00:00:00Z")
         ok_fail("parse_iso invalid date -> (nil, err)", v, e)
     end
 
     -- Invalid time.
     do
-        local v, e = luapilot.time.parse_iso("2026-01-01T25:00:00Z")
+        local v, e = babet.time.parse_iso("2026-01-01T25:00:00Z")
         ok_fail("parse_iso invalid time -> (nil, err)", v, e)
     end
 
     -- Offset out of range.
     do
-        local v, e = luapilot.time.parse_iso("2026-01-01T00:00:00+25:00")
+        local v, e = babet.time.parse_iso("2026-01-01T00:00:00+25:00")
         ok_fail("parse_iso offset out of range -> (nil, err)", v, e)
     end
 
     -- Strict offset format: no "+02" or "+0200".
     do
-        local v, e = luapilot.time.parse_iso("2026-01-01T00:00:00+02")
+        local v, e = babet.time.parse_iso("2026-01-01T00:00:00+02")
         ok_fail("parse_iso '+02' rejected -> (nil, err)", v, e)
-        v, e = luapilot.time.parse_iso("2026-01-01T00:00:00+0200")
+        v, e = babet.time.parse_iso("2026-01-01T00:00:00+0200")
         ok_fail("parse_iso '+0200' rejected -> (nil, err)", v, e)
     end
 
     -- ---- parse_duration -------------------------------------------------
-    ok("parse_duration('0s') == 0", luapilot.time.parse_duration("0s") == 0)
-    ok("parse_duration('1s') == 1", luapilot.time.parse_duration("1s") == 1)
-    ok("parse_duration('5m') == 300", luapilot.time.parse_duration("5m") == 300)
-    ok("parse_duration('2h') == 7200", luapilot.time.parse_duration("2h") == 7200)
+    ok("parse_duration('0s') == 0", babet.time.parse_duration("0s") == 0)
+    ok("parse_duration('1s') == 1", babet.time.parse_duration("1s") == 1)
+    ok("parse_duration('5m') == 300", babet.time.parse_duration("5m") == 300)
+    ok("parse_duration('2h') == 7200", babet.time.parse_duration("2h") == 7200)
     ok("parse_duration('1d') == 86400",
-        luapilot.time.parse_duration("1d") == 86400)
+        babet.time.parse_duration("1d") == 86400)
     ok("parse_duration('1h30m') == 5400",
-        luapilot.time.parse_duration("1h30m") == 5400)
+        babet.time.parse_duration("1h30m") == 5400)
     ok("parse_duration('1d1h1m1s') == 90061",
-        luapilot.time.parse_duration("1d1h1m1s") == 90061)
+        babet.time.parse_duration("1d1h1m1s") == 90061)
 
     -- Rejections.
     do
-        local v, e = luapilot.time.parse_duration("")
+        local v, e = babet.time.parse_duration("")
         ok_fail("parse_duration('') -> (nil, err)", v, e)
-        v, e = luapilot.time.parse_duration("5")
+        v, e = babet.time.parse_duration("5")
         ok_fail("parse_duration('5') (missing unit) -> (nil, err)", v, e)
-        v, e = luapilot.time.parse_duration("30m1h")
+        v, e = babet.time.parse_duration("30m1h")
         ok_fail("parse_duration units out of order -> (nil, err)", v, e)
-        v, e = luapilot.time.parse_duration("1h1h")
+        v, e = babet.time.parse_duration("1h1h")
         ok_fail("parse_duration duplicate unit -> (nil, err)", v, e)
-        v, e = luapilot.time.parse_duration("1y")
+        v, e = babet.time.parse_duration("1y")
         ok_fail("parse_duration unknown unit -> (nil, err)", v, e)
     end
 
     -- ---- format_duration -----------------------------------------------
     ok("format_duration(0) == '0s'",
-        luapilot.time.format_duration(0) == "0s")
+        babet.time.format_duration(0) == "0s")
     ok("format_duration(1) == '1s'",
-        luapilot.time.format_duration(1) == "1s")
+        babet.time.format_duration(1) == "1s")
     ok("format_duration(60) == '1m'",
-        luapilot.time.format_duration(60) == "1m")
+        babet.time.format_duration(60) == "1m")
     ok("format_duration(3600) == '1h'",
-        luapilot.time.format_duration(3600) == "1h")
+        babet.time.format_duration(3600) == "1h")
     ok("format_duration(86400) == '1d'",
-        luapilot.time.format_duration(86400) == "1d")
+        babet.time.format_duration(86400) == "1d")
     ok("format_duration(90061) == '1d1h1m1s'",
-        luapilot.time.format_duration(90061) == "1d1h1m1s")
+        babet.time.format_duration(90061) == "1d1h1m1s")
 
     -- 3.0 accepted (integer value as float).
     ok("format_duration(3.0) == '3s'",
-        luapilot.time.format_duration(3.0) == "3s")
+        babet.time.format_duration(3.0) == "3s")
 
     -- 3.7 raises (not an integer).
     ok("format_duration(3.7) -> luaL_error",
-        pcall(luapilot.time.format_duration, 3.7) == false)
+        pcall(babet.time.format_duration, 3.7) == false)
 
     -- Negative -> raises.
     ok("format_duration(-5) -> luaL_error",
-        pcall(luapilot.time.format_duration, -5) == false)
+        pcall(babet.time.format_duration, -5) == false)
 
     -- ---- Round-trip invariant: parse(format(n)) == n -------------------
     do
         local samples = { 0, 1, 59, 60, 3599, 3600, 86399, 86400,
             90061, 1234567 }
         for _, n in ipairs(samples) do
-            local back = luapilot.time.parse_duration(
-                luapilot.time.format_duration(n))
+            local back = babet.time.parse_duration(
+                babet.time.format_duration(n))
             ok("round-trip n=" .. n,
                 back == n,
                 "got " .. tostring(back))
         end
     end
 
-    -- ---- Aliases: luapilot.time.now / monotonic / sleep -----------------
-    ok("luapilot.time.now is a function",
-        type(luapilot.time.now) == "function")
-    ok("luapilot.time.monotonic is a function",
-        type(luapilot.time.monotonic) == "function")
-    ok("luapilot.time.sleep is a function",
-        type(luapilot.time.sleep) == "function")
+    -- ---- Aliases: babet.time.now / monotonic / sleep -----------------
+    ok("babet.time.now is a function",
+        type(babet.time.now) == "function")
+    ok("babet.time.monotonic is a function",
+        type(babet.time.monotonic) == "function")
+    ok("babet.time.sleep is a function",
+        type(babet.time.sleep) == "function")
 
     -- Sanity: now() returns a finite number.
     do
-        local t = luapilot.time.now()
-        ok("luapilot.time.now() returns a number > 0",
+        local t = babet.time.now()
+        ok("babet.time.now() returns a number > 0",
             type(t) == "number" and t > 0)
     end
 end
@@ -1318,7 +1318,7 @@ print("")
 print("=== http ===")
 
 do
-    local H = luapilot.http
+    local H = babet.http
 
     -- --- contrat d'erreur : AUCUNE dépendance externe, toujours joué --
 
@@ -1397,7 +1397,7 @@ do
 
     -- --- OPTIONAL success : only if python3 is present ----------
     local function have_python3()
-        local r = luapilot.exec("python3", { "--version" })
+        local r = babet.exec("python3", { "--version" })
         return type(r) == "table" and r.code == 0
     end
 
@@ -1405,10 +1405,10 @@ do
         print("[INFO] http: python3 absent, 2xx success subsection "
             .. "ignorée (hermétique, aucun prérequis dur)")
     else
-        local SBH = "_luapilot_http_test"
-        luapilot.rmdirAll(SBH)
-        luapilot.mkdir(SBH)
-        luapilot.exec("sh", { "-c",
+        local SBH = "_babet_http_test"
+        babet.rmdirAll(SBH)
+        babet.mkdir(SBH)
+        babet.exec("sh", { "-c",
             "printf 'AB\\000CD' > " .. SBH .. "/probe.bin" })
 
         print("[INFO] http: starting local test server...")
@@ -1418,7 +1418,7 @@ do
         -- du bootstrap ne le tue PAS. exec rend la main dès `echo $!`
         -- (le serveur a ses 3 flux redirigés -> aucun pipe partagé,
         -- EOF immédiat) ; le timeout ne sert que de garde-fou ultime.
-        local boot = luapilot.exec("sh", { "-c",
+        local boot = babet.exec("sh", { "-c",
             "cd " .. SBH .. " && { setsid python3 -m http.server "
             .. port .. " --bind 127.0.0.1 >/dev/null 2>&1 </dev/null & } "
             .. "; echo $!" }, { timeout = 5 })
@@ -1435,8 +1435,8 @@ do
         local up = false
         if srv_pid and srv_pid ~= "" then
             for i = 1, 15 do
-                luapilot.sleep(200, "ms")
-                local probe = luapilot.http.get(
+                babet.sleep(200, "ms")
+                local probe = babet.http.get(
                     "http://127.0.0.1:" .. port .. "/probe.bin",
                     { timeout = 1 })
                 if type(probe) == "table" and probe.status == 200 then
@@ -1454,14 +1454,14 @@ do
             print("[INFO] http: local server unavailable in "
                 .. "budget, 2xx success subsection ignorée (optionnelle)")
             if srv_pid and srv_pid ~= "" then
-                luapilot.exec("kill", { "-9", srv_pid })
+                babet.exec("kill", { "-9", srv_pid })
             end
-            luapilot.rmdirAll(SBH)
+            babet.rmdirAll(SBH)
         else
             local base = "http://127.0.0.1:" .. port
             print("[INFO] http: server ready, running 2xx success tests...")
 
-            local res, err = luapilot.http.get(base .. "/probe.bin",
+            local res, err = babet.http.get(base .. "/probe.bin",
                 { timeout = 5 })
             ok("GET 200 -> (table, nil)",
                 type(res) == "table" and err == nil,
@@ -1482,7 +1482,7 @@ do
                         and res.headers["content-type"]))
             end
 
-            local r404, e404 = luapilot.http.get(
+            local r404, e404 = babet.http.get(
                 base .. "/nexiste_pas", { timeout = 5 })
             ok("GET 404 -> (table, nil) [4xx is not an error]",
                 type(r404) == "table" and e404 == nil
@@ -1490,16 +1490,16 @@ do
                 "status=" .. tostring(r404 and r404.status)
                 .. " err=" .. tostring(e404))
 
-            local rq = luapilot.http.get(base .. "/probe.bin",
+            local rq = babet.http.get(base .. "/probe.bin",
                 { timeout = 5, query = { a = "x y", b = 42 } })
             ok("GET with query -> 200 (encoding did not break the URL)",
                 type(rq) == "table" and rq.status == 200,
                 "status=" .. tostring(rq and rq.status))
 
-            luapilot.exec("kill", { srv_pid })
-            luapilot.sleep(100, "ms")
-            luapilot.exec("kill", { "-9", srv_pid })
-            luapilot.rmdirAll(SBH)
+            babet.exec("kill", { srv_pid })
+            babet.sleep(100, "ms")
+            babet.exec("kill", { "-9", srv_pid })
+            babet.rmdirAll(SBH)
         end
     end
     -- --- dette de test post-Chantier 1 (4 cas inscrits au `todo`) ----
@@ -2025,7 +2025,7 @@ do
     -- ----- pid : entier > 0, jamais d'erreur (POSIX) ----------------
 
     do
-        local p = luapilot.pid()
+        local p = babet.pid()
         ok("pid() -> integer > 0",
             type(p) == "number" and p > 0 and p == math.floor(p),
             "pid=" .. tostring(p))
@@ -2034,7 +2034,7 @@ do
     -- ----- hostname : string non empty ------------------------------
 
     do
-        local h, err = luapilot.hostname()
+        local h, err = babet.hostname()
         ok("hostname() -> non-empty string",
             type(h) == "string" and #h > 0 and err == nil,
             "h=" .. tostring(h) .. " err=" .. tostring(err))
@@ -2043,7 +2043,7 @@ do
     -- ----- uname: table with 5 non-empty string fields --------------
 
     do
-        local u, err = luapilot.uname()
+        local u, err = babet.uname()
         ok_val("uname() -> table", u, err)
         if type(u) == "table" then
             for _, field in ipairs({ "sysname", "nodename",
@@ -2058,12 +2058,12 @@ do
     -- ----- env : variable absente = nil seul (décision UTIL-4) -----
 
     do
-        local v = luapilot.env("LUAPILOT_VAR_QUI_NEXISTE_PAS_42")
+        local v = babet.env("BABET_VAR_QUI_NEXISTE_PAS_42")
         ok("env(absent) -> nil only (no error message)",
             v == nil,
             "v=" .. tostring(v))
 
-        local p = luapilot.env("PATH")
+        local p = babet.env("PATH")
         ok("env('PATH') -> non-empty string",
             type(p) == "string" and #p > 0)
     end
@@ -2071,37 +2071,37 @@ do
     -- ----- setenv: (true, nil) or (nil, err); observable via env ---
 
     do
-        local name = "LUAPILOT_SYS_TEST_VAR"
-        local ok_set, err = luapilot.setenv(name, "hello-42")
+        local name = "BABET_SYS_TEST_VAR"
+        local ok_set, err = babet.setenv(name, "hello-42")
         ok_val("setenv('NAME', 'val') -> (true, nil)", ok_set, err)
         ok("  env() reflects setenv",
-            luapilot.env(name) == "hello-42",
-            "got=" .. tostring(luapilot.env(name)))
+            babet.env(name) == "hello-42",
+            "got=" .. tostring(babet.env(name)))
 
-        luapilot.setenv(name, "world")
-        ok("  setenv overwrite", luapilot.env(name) == "world")
+        babet.setenv(name, "world")
+        ok("  setenv overwrite", babet.env(name) == "world")
 
-        local v, e = luapilot.setenv("bad=name", "x")
+        local v, e = babet.setenv("bad=name", "x")
         ok_fail("setenv('bad=name') -> (nil, err)", v, e)
     end
 
     -- ----- which : found / pas found / chemin direct --------------
 
     do
-        local p, err = luapilot.which("sh")
+        local p, err = babet.which("sh")
         ok_val("which('sh') -> path", p, err)
         ok("  which('sh') returns an absolute path",
             type(p) == "string" and p:sub(1, 1) == "/",
             "p=" .. tostring(p))
 
-        local v, e = luapilot.which("luapilot_binaire_qui_nexiste_pas_42")
+        local v, e = babet.which("babet_binaire_qui_nexiste_pas_42")
         ok_fail("which(absent) -> (nil, err)", v, e)
         ok("  message mentions 'PATH' or 'not found'",
             type(e) == "string" and (e:find("PATH", 1, true) ~= nil
                 or e:find("not found", 1, true) ~= nil),
             "err=" .. tostring(e))
 
-        local p2, err2 = luapilot.which("/bin/sh")
+        local p2, err2 = babet.which("/bin/sh")
         ok_val("which('/bin/sh') -> direct path accepted", p2, err2)
     end
 
@@ -2109,17 +2109,17 @@ do
 
     do
         ok("which() with no arg raises",
-            pcall(function() return luapilot.which() end) == false)
+            pcall(function() return babet.which() end) == false)
         -- env(table) raises (les nombres sont coercés en string par
         -- luaL_checkstring — convention Lua héritée, partagée par
         -- the entire codebase; so we test with a table, which does not
         -- peut pas être coercée silencieusement).
         ok("env({}) raises",
-            pcall(function() return luapilot.env({}) end) == false)
+            pcall(function() return babet.env({}) end) == false)
         ok("setenv() without args raises",
-            pcall(function() return luapilot.setenv() end) == false)
+            pcall(function() return babet.setenv() end) == false)
         ok("setenv('X') without value raises",
-            pcall(function() return luapilot.setenv("X") end) == false)
+            pcall(function() return babet.setenv("X") end) == false)
     end
 end
 
@@ -2128,10 +2128,10 @@ print("")
 print("=== signal ===")
 
 do
-    local S = luapilot.signal
+    local S = babet.signal
 
     -- ----- contract de base -----------------------------------------
-    ok("luapilot.signal is a table", type(S) == "table")
+    ok("babet.signal is a table", type(S) == "table")
     ok("handle is a function", type(S.handle) == "function")
     ok("ignore is a function", type(S.ignore) == "function")
     ok("default is a function", type(S.default) == "function")
@@ -2234,9 +2234,9 @@ do
     -- since workers block signals via pthread_sigmask, the callback
     -- never fires. Refuse this with a clear error.
     do
-        local W = luapilot.workers
+        local W = babet.workers
         local w = W.spawn([[
-            local ok, err = pcall(luapilot.signal.handle, "USR1", function() end)
+            local ok, err = pcall(babet.signal.handle, "USR1", function() end)
             return { ok = ok, err = err }
         ]])
         local ok_, res = w:join()
@@ -2247,7 +2247,7 @@ do
 
         -- ignore and default same check
         local w2 = W.spawn([[
-            local ok, err = pcall(luapilot.signal.ignore, "USR1")
+            local ok, err = pcall(babet.signal.ignore, "USR1")
             return { ok = ok, err = err }
         ]])
         local _, res2 = w2:join()
@@ -2255,7 +2255,7 @@ do
             res2.ok == false and res2.err:find("main thread"))
 
         local w3 = W.spawn([[
-            local ok, err = pcall(luapilot.signal.default, "USR1")
+            local ok, err = pcall(babet.signal.default, "USR1")
             return { ok = ok, err = err }
         ]])
         local _, res3 = w3:join()
@@ -2269,10 +2269,10 @@ print("")
 print("=== sqlite (session 1: open/close/exec) ===")
 
 do
-    local DB = luapilot.sqlite
+    local DB = babet.sqlite
 
     -- ----- contract de base ------------------------------------------
-    ok("luapilot.sqlite is a table", type(DB) == "table")
+    ok("babet.sqlite is a table", type(DB) == "table")
     ok("open is a function", type(DB.open) == "function")
 
     -- ----- validation des arguments ----------------------------------
@@ -2430,7 +2430,7 @@ print("")
 print("=== sqlite (session 2: exec with params) ===")
 
 do
-    local DB = luapilot.sqlite
+    local DB = babet.sqlite
 
     -- Helper : nouvelle DB en mémoire avec une table de validation
     -- via CHECK constraint. Permet de tester que le bind produit la
@@ -2711,7 +2711,7 @@ print("")
 print("=== sqlite (session 3: query + lazy iterator) ===")
 
 do
-    local DB = luapilot.sqlite
+    local DB = babet.sqlite
 
     -- Helper : crée une DB avec une table peuplée pour les tests.
     local function setup_users()
@@ -3160,12 +3160,12 @@ do
 end
 
 do
-    local T = luapilot.toml
+    local T = babet.toml
 
     -- ----- contrat de base -----------------------------------------
 
-    ok("luapilot.toml is a table", type(T) == "table")
-    ok("luapilot.toml.decode is a function",
+    ok("babet.toml is a table", type(T) == "table")
+    ok("babet.toml.decode is a function",
         type(T.decode) == "function")
 
     -- ----- minimal success : (table, nil) ---------------------------
@@ -3362,11 +3362,11 @@ print("")
 print("=== socket ===")
 
 do
-    local S = luapilot.socket
+    local S = babet.socket
 
     -- ----- contrat de base ------------------------------------------
 
-    ok("luapilot.socket is a table", type(S) == "table")
+    ok("babet.socket is a table", type(S) == "table")
     ok("connect is a function", type(S.connect) == "function")
     ok("listen is a function", type(S.listen) == "function")
 
@@ -3673,7 +3673,7 @@ print("")
 print("=== tls ===")
 
 do
-    local S = luapilot.socket
+    local S = babet.socket
 
     -- ----- contrat de base ----------------------------------------
 
@@ -3772,21 +3772,21 @@ do
     -- Graceful skip if openssl CLI absent or s_server doesn't start
     -- in time. Everything stays on loopback (127.0.0.1).
 
-    local openssl_bin = luapilot.which("openssl")
+    local openssl_bin = babet.which("openssl")
     if not openssl_bin then
         print("[INFO] tls: openssl CLI absent, skip tests positifs")
     else
         print("[INFO] tls: openssl CLI found, generating cert...")
 
-        local tmpdir = "/tmp/lp_tls_" .. tostring(luapilot.pid())
-        luapilot.mkdir(tmpdir)
+        local tmpdir = "/tmp/lp_tls_" .. tostring(babet.pid())
+        babet.mkdir(tmpdir)
         local cert_path = tmpdir .. "/cert.pem"
         local key_path  = tmpdir .. "/key.pem"
 
-        -- 1. Générer cert auto-signé CN=localhost. NB : luapilot.exec
+        -- 1. Générer cert auto-signé CN=localhost. NB : babet.exec
         --    attend (cmd, args_table, opts) — la commande NE peut PAS
         --    être passée comme une seule string composée.
-        local gen       = luapilot.exec("openssl", {
+        local gen       = babet.exec("openssl", {
             "req", "-x509", "-newkey", "rsa:2048", "-nodes",
             "-keyout", key_path,
             "-out", cert_path,
@@ -3795,7 +3795,7 @@ do
         }, { timeout = 15 })
 
         if not (gen and gen.code == 0
-                and luapilot.fileExists(cert_path)) then
+                and babet.fileExists(cert_path)) then
             print("[INFO] tls: cert generation failed, skipping positive tests")
         else
             -- 2. Lancer s_server en arrière-plan. On passe par sh -c
@@ -3810,11 +3810,11 @@ do
                 .. '-quiet -naccept 10 -ign_eof '
                 .. '> /dev/null 2>&1 &',
                 tls_port, cert_path, key_path)
-            luapilot.exec("sh", { "-c", server_cmd },
+            babet.exec("sh", { "-c", server_cmd },
                 { timeout = 3 })
 
             -- 3. Attendre que s_server listening (poll TCP brut)
-            luapilot.sleep(300, "ms")
+            babet.sleep(300, "ms")
             local probe_ok = false
             for _ = 1, 10 do
                 local p = S.connect("127.0.0.1", tls_port, 0.5)
@@ -3823,7 +3823,7 @@ do
                     probe_ok = true
                     break
                 end
-                luapilot.sleep(200, "ms")
+                babet.sleep(200, "ms")
             end
 
             if not probe_ok then
@@ -3908,13 +3908,13 @@ do
 
             -- 4. Cleanup s_server (best-effort, par port).
             --    pkill prend le pattern en argument séparé.
-            luapilot.exec("pkill", {
+            babet.exec("pkill", {
                 "-f",
                 "openssl s_server -accept " .. tostring(tls_port),
             }, { timeout = 2 })
         end
 
-        luapilot.rmdirAll(tmpdir)
+        babet.rmdirAll(tmpdir)
     end
 end
 
@@ -3923,9 +3923,9 @@ print("")
 print("=== user ===")
 
 do
-    local U = luapilot.user
+    local U = babet.user
 
-    ok("luapilot.user is a table", type(U) == "table")
+    ok("babet.user is a table", type(U) == "table")
     ok("get is a function", type(U.get) == "function")
     ok("exists is a function", type(U.exists) == "function")
 
@@ -3992,7 +3992,7 @@ do
 
     -- Almost-certainly-absent user. We use a deliberately weird
     -- string that is extremely unlikely to clash with a real account.
-    local missing = "luapilot_test_user_xyz_9j3hf83hf"
+    local missing = "babet_test_user_xyz_9j3hf83hf"
     do
         local u, err = U.get(missing)
         ok("get(missing) -> (nil, 'user not found')",
@@ -4020,10 +4020,10 @@ print("")
 print("=== inotify ===")
 
 do
-    local I = luapilot.inotify
+    local I = babet.inotify
 
     -- ----- base contract --------------------------------------------
-    ok("luapilot.inotify is a table", type(I) == "table")
+    ok("babet.inotify is a table", type(I) == "table")
     ok("new is a function", type(I.new) == "function")
 
     local w, nerr = I.new()
@@ -4035,7 +4035,7 @@ do
 
     -- Watched directory, inside the sandbox.
     local WDIR = sb("inotify_d")
-    ok_act("mkdir(watch dir)", luapilot.mkdir(WDIR))
+    ok_act("mkdir(watch dir)", babet.mkdir(WDIR))
 
     -- ----- misuse: luaL_error ---------------------------------------
     do
@@ -4121,7 +4121,7 @@ do
 
     -- ----- is_dir on subdirectory creation --------------------------
     do
-        luapilot.mkdir(WDIR .. "/subdir")
+        babet.mkdir(WDIR .. "/subdir")
         local evs = drain(w, 2)
         local cr = find_event(evs, "subdir", "create")
         ok("'create' detected on the subdirectory", cr ~= nil)
@@ -4190,7 +4190,7 @@ do
 
             -- Give the kernel a beat to deliver the event into the
             -- inotify queue. 100ms is comfortable on any platform.
-            luapilot.sleep(100, "ms")
+            babet.sleep(100, "ms")
 
             local evs, rerr = w:read(0)
             ok("read(0) returns the already-pending events",
@@ -4267,7 +4267,7 @@ do
         ok_fail("add() after close -> (nil, err)", v2, e2)
     end
 
-    luapilot.rmdirAll(WDIR)
+    babet.rmdirAll(WDIR)
 end
 
 -- =====================================================================
@@ -4275,11 +4275,11 @@ print("")
 print("=== workers ===")
 
 do
-    local W = luapilot.workers
+    local W = babet.workers
 
     -- ----- contrat de base ----------------------------------------
 
-    ok("luapilot.workers is a table", type(W) == "table")
+    ok("babet.workers is a table", type(W) == "table")
     ok("workers.spawn is a function", type(W.spawn) == "function")
 
     -- ----- mauvais usage : luaL_error -----------------------------
@@ -4310,7 +4310,7 @@ do
     -- ----- refus de sérialisation : userdata ----------------------
 
     do
-        local s = luapilot.socket.listen("127.0.0.1", 0)
+        local s = babet.socket.listen("127.0.0.1", 0)
         if s then
             local v, e = W.spawn("return 1", { sock = s })
             ok_fail("spawn(code, {sock=userdata}) -> (nil, err)",
@@ -4452,13 +4452,13 @@ do
         -- puis 'done' après. Race possible : machine rapide peut
         -- already asee done, on accepte les deux états initialement.
         local w = W.spawn(
-            "luapilot.sleep(300, 'ms'); return 'ok'")
+            "babet.sleep(300, 'ms'); return 'ok'")
         local state, _ = w:poll()
         ok("poll right after spawn: 'running' or 'done'",
             state == "running" or state == "done",
             "state=" .. tostring(state))
 
-        luapilot.sleep(500, "ms")
+        babet.sleep(500, "ms")
         local state2, val2 = w:poll()
         ok("poll after enough sleep: 'done'",
             state2 == "done",
@@ -4467,7 +4467,7 @@ do
 
         -- poll sur worker en erreur
         local w2 = W.spawn("error('bad')")
-        luapilot.sleep(200, "ms")
+        babet.sleep(200, "ms")
         local state3, val3 = w2:poll()
         ok("poll after error: 'error'",
             state3 == "error",
@@ -4477,14 +4477,14 @@ do
             and val3:find("bad", 1, true) ~= nil)
     end
 
-    -- ----- worker = mini-LuaPilot complet -------------------------
+    -- ----- worker = mini-Babet complet -------------------------
 
     do
-        -- Accès à luapilot.* depuis le worker
+        -- Accès à babet.* depuis le worker
         local w = W.spawn(
-            "return luapilot.json.encode({ a = 1, b = 2 })")
+            "return babet.json.encode({ a = 1, b = 2 })")
         local jok, val = w:join()
-        ok("worker can use luapilot.json.encode",
+        ok("worker can use babet.json.encode",
             jok == true and type(val) == "string"
             and val:find('"a":1', 1, true) ~= nil)
 
@@ -4526,7 +4526,7 @@ do
         local workers = {}
         for i = 1, N do
             workers[i] = W.spawn(string.format(
-                "luapilot.sleep(%d, 'ms'); return %d",
+                "babet.sleep(%d, 'ms'); return %d",
                 sleep_ms, i))
         end
         local results = {}
@@ -4577,7 +4577,7 @@ do
 
     -- ----- send : succès tant qu'il reste de la place -----------
     do
-        local w = W.spawn("luapilot.sleep(100, 'ms'); return 42",
+        local w = W.spawn("babet.sleep(100, 'ms'); return 42",
             nil, { inbox_capacity = 4 })
         local sok, serr = w:send("hello")
         ok("send(value) sur worker vivant -> (true, nil)",
@@ -4598,7 +4598,7 @@ do
 
     -- ----- send : queue pleine, timeout=0 -> "full" -------------
     do
-        local w = W.spawn("luapilot.sleep(200, 'ms'); return 1",
+        local w = W.spawn("babet.sleep(200, 'ms'); return 1",
             nil, { inbox_capacity = 2 })
         ok("send #1 sur cap=2 -> ok",
             w:send("m1") == true)
@@ -4613,7 +4613,7 @@ do
 
     -- ----- send : queue pleine, timeout>0 -> "timeout" ----------
     do
-        local w = W.spawn("luapilot.sleep(500, 'ms'); return 1",
+        local w = W.spawn("babet.sleep(500, 'ms'); return 1",
             nil, { inbox_capacity = 1 })
         w:send("only-slot")
         local t0 = os.time()
@@ -4636,7 +4636,7 @@ do
     -- produisait une race intermittente. 2s côté worker garantit
     -- qu'on observe bien le timeout.
     do
-        local w = W.spawn("luapilot.sleep(2, 's'); return 1")
+        local w = W.spawn("babet.sleep(2, 's'); return 1")
         local rok, rmsg = w:recv(0)
         ok("recv(0) sur outbox vide -> (false, 'empty')",
             rok == false and rmsg == "empty",
@@ -4683,7 +4683,7 @@ do
 
     -- ----- send : refus de types non sérialisables --------------
     do
-        local w = W.spawn("luapilot.sleep(100, 'ms'); return 1")
+        local w = W.spawn("babet.sleep(100, 'ms'); return 1")
         local sok, serr = w:send(function() end)
         ok("send(function) -> (nil, err)",
             sok == nil and type(serr) == "string"
@@ -4874,7 +4874,7 @@ do
         ]])
 
         -- Attendre un peu pour s'assurer que le worker est dans recv()
-        luapilot.sleep(100, "ms")
+        babet.sleep(100, "ms")
         w:close() -- doit débloquer worker.recv()
 
         local jok, jval = w:join()
@@ -4968,7 +4968,7 @@ do
             arg[3] == nil, "arg[3]=" .. tostring(arg[3]))
 
         if arg[-1] ~= nil then
-            -- Runner de dossier : arg[-1]=binaire luapilot, arg[0]=<dir>
+            -- Runner de dossier : arg[-1]=binaire babet, arg[0]=<dir>
             ok("folder mode: arg[-1] (binaire) is a string",
                 type(arg[-1]) == "string",
                 "arg[-1]=" .. tostring(arg[-1]))
@@ -4993,26 +4993,26 @@ print("")
 print("=== chdir (last: changes cwd) ===")
 
 do
-    local r, e = luapilot.chdir(SB)
+    local r, e = babet.chdir(SB)
     ok_act("chdir(sandbox)", r, e)
 
-    local cwd = luapilot.currentDir()
+    local cwd = babet.currentDir()
     ok("currentDir() reflects chdir",
         type(cwd) == "string" and cwd:find(SB, 1, true) ~= nil,
         "cwd=" .. tostring(cwd))
 
-    r, e = luapilot.chdir("/n/existe/pas")
+    r, e = babet.chdir("/n/existe/pas")
     ok_fail("chdir(bad path) -> (nil, err)", r, e)
 
     -- retour au répertoire de départ
-    r, e = luapilot.chdir(startDir)
+    r, e = babet.chdir(startDir)
     ok_act("chdir(back to startDir)", r, e)
 end
 
 -- =====================================================================
 print("")
 print("=== teardown ===")
-ok_act("rmdirAll(sandbox)", luapilot.rmdirAll(SB))
+ok_act("rmdirAll(sandbox)", babet.rmdirAll(SB))
 
 -- =====================================================================
 print("")

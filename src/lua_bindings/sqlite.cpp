@@ -64,7 +64,7 @@ namespace
 
     // Métaclé du userdata Db. L'adresse de cette variable sert d'ID
     // unique dans le registre Lua (idiome standard).
-    const char *DB_MT = "luapilot.sqlite.db";
+    const char *DB_MT = "babet.sqlite.db";
 
     Db *check_db(lua_State *L, int idx)
     {
@@ -76,7 +76,7 @@ namespace
     // ============================================================
 
     // Pose (nil, "sqlite: <msg>") sur la pile et renvoie 2 (nombre
-    // de valeurs Lua à retourner). Cohérent avec le contrat LuaPilot.
+    // de valeurs Lua à retourner). Cohérent avec le contrat Babet.
     int push_sqlite_fail(lua_State *L, const std::string &msg)
     {
         std::string full = "sqlite: ";
@@ -187,7 +187,7 @@ namespace
     //
     //   A. string Lua → TEXT (toujours). Pas de détection
     //      heuristique TEXT vs BLOB. Pour binder un BLOB strict,
-    //      attendre une future API `luapilot.sqlite.blob(data)`.
+    //      attendre une future API `babet.sqlite.blob(data)`.
     //
     //   B. SQL : '?', ':name', '@name', '$name' tous acceptés.
     //      Côté table Lua : clé sans préfixe (params.name pour
@@ -205,7 +205,7 @@ namespace
     // Limitation : impossible de binder explicitement NULL via la
     // table Lua (car { x = nil } est équivalent à {} en Lua). Pour
     // un NULL, utiliser un littéral SQL (NULL, COALESCE(?, NULL)).
-    // À ajouter en V2 : sentinel `luapilot.sqlite.null` (idem json.null).
+    // À ajouter en V2 : sentinel `babet.sqlite.null` (idem json.null).
 
     // Bind une seule valeur Lua à un slot de prepared statement.
     // Convention de retour :
@@ -214,7 +214,7 @@ namespace
     //            finaliser le stmt avant de propager l'erreur.
     //
     // **Important** : on ne fait PAS luaL_error ici. Lua est
-    // compilé en C dans LuaPilot (via `make linux`), donc luaL_error
+    // compilé en C dans Babet (via `make linux`), donc luaL_error
     // utilise longjmp pur qui ne déroule pas la pile C++. Tout
     // sqlite3_stmt en attente fuiterait. On signale l'erreur via
     // un bool + std::string, et db_exec finalise proprement avant
@@ -482,7 +482,7 @@ namespace
 
         // Détecter si on a des params : 3e argument fourni ET non-nil.
         // Si params est fourni mais pas une table → raise (cohérent
-        // avec les autres APIs LuaPilot).
+        // avec les autres APIs Babet).
         int top = lua_gettop(L);
         bool has_params = false;
         if (top >= 3 && !lua_isnil(L, 3))
@@ -585,7 +585,7 @@ namespace
         // Bind : retourne false + message si erreur. Avant de raise
         // côté Lua il faut absolument finaliser le stmt (sinon leak,
         // car luaL_error fait un longjmp qui ne déroule pas la pile
-        // C++ — Lua est compilé en C dans LuaPilot).
+        // C++ — Lua est compilé en C dans Babet).
         std::string bind_err;
         bool bind_ok = bind_params_from_table(L, stmt, 3, bind_err);
         if (!bind_ok)
@@ -643,11 +643,11 @@ namespace
         Db *db = check_db(L, 1);
         if (db->handle)
         {
-            lua_pushfstring(L, "luapilot.sqlite.db (open, %p)", db->handle);
+            lua_pushfstring(L, "babet.sqlite.db (open, %p)", db->handle);
         }
         else
         {
-            lua_pushliteral(L, "luapilot.sqlite.db (closed)");
+            lua_pushliteral(L, "babet.sqlite.db (closed)");
         }
         return 1;
     }
@@ -701,7 +701,7 @@ namespace
         }
     };
 
-    const char *STMT_MT = "luapilot.sqlite.stmt";
+    const char *STMT_MT = "babet.sqlite.stmt";
 
     Stmt *check_stmt(lua_State *L, int idx)
     {
@@ -716,7 +716,7 @@ namespace
     //   - `row.col == nil` fonctionne toujours.
     //   - `pairs(row)` ne verra pas les colonnes NULL.
     // Pour distinguer "colonne NULL" de "colonne inexistante", il
-    // faudrait un sentinel `luapilot.sqlite.null`. TODO V2 si besoin
+    // faudrait un sentinel `babet.sqlite.null`. TODO V2 si besoin
     // concret apparaît.
     //
     // Colonnes dupliquées (SELECT a, a FROM t) : la deuxième écrase
@@ -881,11 +881,11 @@ namespace
         Stmt *s = check_stmt(L, 1);
         if (s->handle)
         {
-            lua_pushfstring(L, "luapilot.sqlite.stmt (active, %p)", s->handle);
+            lua_pushfstring(L, "babet.sqlite.stmt (active, %p)", s->handle);
         }
         else
         {
-            lua_pushliteral(L, "luapilot.sqlite.stmt (closed)");
+            lua_pushliteral(L, "babet.sqlite.stmt (closed)");
         }
         return 1;
     }
@@ -1002,10 +1002,10 @@ namespace
     }
 
     // ============================================================
-    // API du module : luapilot.sqlite.open
+    // API du module : babet.sqlite.open
     // ============================================================
 
-    // luapilot.sqlite.open(path, opts?) → db | (nil, err)
+    // babet.sqlite.open(path, opts?) → db | (nil, err)
     //
     // path : ":memory:" pour une DB en RAM (jetable),
     //        sinon un chemin de fichier (créé s'il n'existe pas).
@@ -1087,7 +1087,7 @@ namespace
     }
 
     // ============================================================
-    // Construction de la métatable + sous-table luapilot.sqlite
+    // Construction de la métatable + sous-table babet.sqlite
     // ============================================================
 
     void create_db_metatable(lua_State *L)
@@ -1158,13 +1158,13 @@ namespace
 
 void register_sqlite(lua_State *L)
 {
-    // Précondition : la table luapilot est au sommet.
+    // Précondition : la table babet est au sommet.
 
     // Créer les métatables des userdatas (en registry).
     create_db_metatable(L);
     create_stmt_metatable(L);
 
-    // Sous-table luapilot.sqlite avec la fonction open.
+    // Sous-table babet.sqlite avec la fonction open.
     lua_newtable(L);
 
     lua_pushcfunction(L, sqlite_open);

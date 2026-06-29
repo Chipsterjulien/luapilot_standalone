@@ -490,7 +490,7 @@ int lua_exec(lua_State *L)
 #else
         // Fallback portable : pipe() + fcntl(F_SETFD). Non atomique
         // (fenêtre de race), mais maintient le comportement sur des
-        // systèmes sans pipe2. LuaPilot vise Linux où pipe2 est
+        // systèmes sans pipe2. Babet vise Linux où pipe2 est
         // toujours disponible (glibc 2.9+, Linux 2.6.27+).
         if (pipe(p) != 0) return -1;
         fcntl(p[0], F_SETFD, fcntl(p[0], F_GETFD) | FD_CLOEXEC);
@@ -591,7 +591,7 @@ int lua_exec(lua_State *L)
         // pour l'usage normal.
         //
         // execvpe est une extension GNU (Linux/glibc), comme pipe2.
-        // LuaPilot vise Linux ; sur un système qui ne fournit pas
+        // Babet vise Linux ; sur un système qui ne fournit pas
         // execvpe, on retombe sur execvp en remplaçant `environ`
         // dans le child (sûr car mono-thread post-fork).
 #ifdef __GLIBC__

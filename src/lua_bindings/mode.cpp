@@ -71,8 +71,8 @@ namespace
  * @brief Changes the permissions of a file or directory.
  *
  * Lua usage:
- *   ok, err = luapilot.setMode(path, "755")   -- string, lue en octal
- *   ok, err = luapilot.setMode(path, 493)     -- nombre, pris tel quel
+ *   ok, err = babet.setMode(path, "755")   -- string, lue en octal
+ *   ok, err = babet.setMode(path, 493)     -- nombre, pris tel quel
  *
  * @param L Lua state.
  * @return int Number of return values on the Lua stack (2: ok/nil, err/nil).
@@ -116,7 +116,7 @@ int lua_setmode(lua_State *L)
 /**
  * @brief Gets the permissions of a file or directory.
  *
- * Lua usage: mode, err = luapilot.getMode(path)
+ * Lua usage: mode, err = babet.getMode(path)
  *   - mode : permission bits as an integer (0..0o777)
  *
  * @param L Lua state.

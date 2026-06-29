@@ -104,7 +104,7 @@ namespace
 
     // -----------------------------------------------------------------
     // FD_CLOEXEC : empêche les sockets d'être hérités par les
-    // sous-processus (luapilot.exec). Sans ça, un socket d'écoute peut
+    // sous-processus (babet.exec). Sans ça, un socket d'écoute peut
     // « survivre » à un Ctrl+C dans un process enfant et bloquer le
     // port (EADDRINUSE) malgré SO_REUSEADDR — qui ne couvre que les
     // FDs vraiment fermés, pas les FDs encore vivants ailleurs.
@@ -116,11 +116,11 @@ namespace
     //
     // Méthode fallback : fcntl(F_SETFD | FD_CLOEXEC). Présente une
     // fenêtre de race entre socket()/accept() et le fcntl() : un fork
-    // concurrent (luapilot.exec) pourrait hériter du fd avant qu'il
+    // concurrent (babet.exec) pourrait hériter du fd avant qu'il
     // soit marqué close-on-exec. Avec l'arrivée des workers, cette
     // race n'est plus seulement théorique — mais sur Linux on prend
     // toujours le chemin atomique, donc ce fallback n'est jamais
-    // emprunté. À reconsidérer si un jour LuaPilot vise macOS/BSD
+    // emprunté. À reconsidérer si un jour Babet vise macOS/BSD
     // sans SOCK_CLOEXEC (cf. notes.md section 5).
     //
     // ensure_cloexec() est appelé même après SOCK_CLOEXEC pour
@@ -155,7 +155,7 @@ namespace
     //
     // Cohérent avec http qui utilise set_max_timeout (cpp-httplib
     // v0.45.0+) = "durée max bout-en-bout". Sémantique unifiée dans
-    // tout LuaPilot : timeout = durée max de l'APPEL courant.
+    // tout Babet : timeout = durée max de l'APPEL courant.
     //
     // L'horloge utilisée est steady_clock (monotone, immune aux
     // ajustements wall clock NTP).
@@ -214,7 +214,7 @@ namespace
     //   == 0 : timeout par deadline (avant tout event)
     //   == -1: erreur fatale (errno renseigné, à passer à push_errno_fail)
     //   == WAIT_INTERRUPTED : interrompu par un signal géré par
-    //          luapilot.signal. Le callback Lua a DÉJÀ été dispatché
+    //          babet.signal. Le callback Lua a DÉJÀ été dispatché
     //          avant le retour ; le caller n'a qu'à renvoyer
     //          (nil, "interrupted") en sauvegardant son buffer si
     //          nécessaire.
@@ -244,7 +244,7 @@ namespace
                     // CORRECTIF (chantier signal phase B) : avant de
                     // retry silencieusement, on vérifie si l'EINTR
                     // vient d'un signal QU'ON GÈRE via
-                    // luapilot.signal. Si oui, on doit propager
+                    // babet.signal. Si oui, on doit propager
                     // l'interruption au caller (qui retournera
                     // (nil, "interrupted")) ET dispatcher le
                     // callback Lua avant de revenir, pour que le
@@ -255,7 +255,7 @@ namespace
                     // SIGWINCH si l'utilisateur redimensionne son
                     // terminal, par exemple), on retry comme avant :
                     // ce serait surprenant qu'un signal non
-                    // intercepté par luapilot fasse retourner un
+                    // intercepté par babet fasse retourner un
                     // recv() en "interrupted".
                     if (signal_any_handled_pending())
                     {
@@ -1049,7 +1049,7 @@ namespace
         // DEADLINE GLOBALE (post-revue 2) : on calcule la deadline
         // UNE FOIS au début ; chaque tour de boucle utilise le temps
         // restant. timeout = durée max de l'APPEL complet (cohérent
-        // avec http set_max_timeout, sémantique unifiée LuaPilot).
+        // avec http set_max_timeout, sémantique unifiée Babet).
         //
         // TLS (Chantier 7, sous-étape 1.3) : si s->ssl est non-null,
         // le socket est en mode TLS. Le FD est en O_NONBLOCK depuis
@@ -2016,10 +2016,10 @@ namespace
 } // namespace
 
 // -----------------------------------------------------------------------
-// Fonctions publiques de luapilot.socket
+// Fonctions publiques de babet.socket
 // -----------------------------------------------------------------------
 
-// luapilot.socket.connect(host, port [, timeout]) -> socket | (nil, err)
+// babet.socket.connect(host, port [, timeout]) -> socket | (nil, err)
 //
 // timeout en SECONDES (float), s'applique à la phase de connexion
 // uniquement ici ; pour les opérations suivantes, l'utilisateur peut
@@ -2062,7 +2062,7 @@ int lua_socket_connect(lua_State *L)
     return 1;
 }
 
-// luapilot.socket.connect_tls(host, port [, opts]) -> socket | (nil, err)
+// babet.socket.connect_tls(host, port [, opts]) -> socket | (nil, err)
 //
 // Variante TLS de connect. opts table (toutes optionnelles) :
 //   timeout      : secondes (float), bloquant infini si absent ou 0
@@ -2310,7 +2310,7 @@ int sock_starttls(lua_State *L)
     return push_ok(L);
 }
 
-// luapilot.socket.listen(host, port [, backlog]) -> socket | (nil, err)
+// babet.socket.listen(host, port [, backlog]) -> socket | (nil, err)
 //
 // Fait socket + setsockopt(SO_REUSEADDR) + bind + listen en une
 // opération (API haute, décision SOCK-2). host peut être "" pour
@@ -2354,7 +2354,7 @@ int lua_socket_listen(lua_State *L)
         // SOCK_CLOEXEC : voir note dans lua_socket_connect. C'est
         // CRITIQUE pour un socket d'écoute : sans ça, un Ctrl+C sur
         // le parent laisserait le port bloqué si un sous-processus
-        // de luapilot.exec est encore vivant et a hérité du FD.
+        // de babet.exec est encore vivant et a hérité du FD.
         fd = ::socket(ai->ai_family,
                       ai->ai_socktype | SOCK_CLOEXEC,
                       ai->ai_protocol);
@@ -2440,10 +2440,10 @@ void register_socket(lua_State *L)
         lua_pushcfunction(L, sock_starttls);
         lua_setfield(L, -2, "starttls");
     }
-    lua_pop(L, 1); // dépile la métatable, la table luapilot redevient au sommet
+    lua_pop(L, 1); // dépile la métatable, la table babet redevient au sommet
 
-    // 2. Crée et attache la sous-table luapilot.socket.
-    //    Précondition : table luapilot au sommet (-1).
+    // 2. Crée et attache la sous-table babet.socket.
+    //    Précondition : table babet au sommet (-1).
     lua_newtable(L);
 
     lua_pushcfunction(L, lua_socket_connect);

@@ -600,10 +600,10 @@ void register_inotify(lua_State *L)
         lua_pushcfunction(L, inot_close);
         lua_setfield(L, -2, "close");
     }
-    lua_pop(L, 1); // dépile la métatable ; table luapilot au sommet
+    lua_pop(L, 1); // dépile la métatable ; table babet au sommet
 
-    // 2. Sous-table luapilot.inotify.
-    //    Précondition : table luapilot au sommet (-1).
+    // 2. Sous-table babet.inotify.
+    //    Précondition : table babet au sommet (-1).
     lua_newtable(L);
     lua_pushcfunction(L, lua_inotify_new);
     lua_setfield(L, -2, "new");

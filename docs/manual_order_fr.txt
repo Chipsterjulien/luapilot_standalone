@@ -1,4 +1,4 @@
-# Manuel LuaPilot — ordre des fichiers FR pour pandoc
+# Manuel Babet — ordre des fichiers FR pour pandoc
 #
 # Les lignes commençant par `#` sont ignorées.
 # Les lignes vides sont ignorées.

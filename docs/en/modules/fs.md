@@ -1,8 +1,8 @@
 > **English** | [Français](../../fr/modules/fs.md)
 
-# `luapilot` fs — file system
+# `babet` fs — file system
 
-A flat set of file system operations exposed directly on `luapilot`
+A flat set of file system operations exposed directly on `babet`
 (no sub-namespace, predates the convention). Covers the everyday
 needs that Lua's `os.*` and `io.*` don't : recursive listing, copy
 with attributes, hashing, path manipulation, attributes, links.
@@ -12,43 +12,43 @@ with attributes, hashing, path manipulation, attributes, links.
 Lua's standard `io` and `os` give you `open`, `rename`, `remove`,
 and that's about it. Everything beyond that — listing a directory,
 recursive copy, computing a hash, querying mtime — requires
-external programs or low-level FFI. `luapilot` collects these in a
+external programs or low-level FFI. `babet` collects these in a
 single set of functions that behave consistently (paths are
 strings, errors come back as `(nil, "...")`).
 
 All paths are accepted as plain strings. Tilde expansion (`~/x`)
 is **not** automatic — the caller must resolve `$HOME` itself if
 needed. Functions never expand globs ; for glob support, use
-`luapilot.find` with an explicit pattern.
+`babet.find` with an explicit pattern.
 
 ## API — Existence, type, attributes
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.fileExists(path)` | `boolean` |
-| `luapilot.isfile(path)` | `boolean` (true only for regular files) |
-| `luapilot.isdir(path)` | `boolean` |
-| `luapilot.fileSize(path)` | `integer` bytes \| `(nil, err)` |
-| `luapilot.getAttributes(path)` | `table` with `mtime`, `mode`, `size`, `uid`, `gid`, `inode`, etc. \| `(nil, err)` |
-| `luapilot.setAttributes(path, uid, gid, mode?)` | `(true, nil)` \| `(nil, err)` — set owner/group, optionally mode |
-| `luapilot.symlinkattr(path)` | same shape as `getAttributes`, but `lstat` (does not follow symlinks) \| `(nil, err)` |
-| `luapilot.getMode(path)` | octal `integer` \| `(nil, err)` |
-| `luapilot.setMode(path, mode)` | `(true, nil)` \| `(nil, err)` — `mode` is an integer (use `0x1ed` for `0755`, or build it with `tonumber("755", 8)`) |
+| `babet.fileExists(path)` | `boolean` |
+| `babet.isfile(path)` | `boolean` (true only for regular files) |
+| `babet.isdir(path)` | `boolean` |
+| `babet.fileSize(path)` | `integer` bytes \| `(nil, err)` |
+| `babet.getAttributes(path)` | `table` with `mtime`, `mode`, `size`, `uid`, `gid`, `inode`, etc. \| `(nil, err)` |
+| `babet.setAttributes(path, uid, gid, mode?)` | `(true, nil)` \| `(nil, err)` — set owner/group, optionally mode |
+| `babet.symlinkattr(path)` | same shape as `getAttributes`, but `lstat` (does not follow symlinks) \| `(nil, err)` |
+| `babet.getMode(path)` | octal `integer` \| `(nil, err)` |
+| `babet.setMode(path, mode)` | `(true, nil)` \| `(nil, err)` — `mode` is an integer (use `0x1ed` for `0755`, or build it with `tonumber("755", 8)`) |
 
 ## API — Creating, removing, moving
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.touch(path)` | `(true, nil)` \| `(nil, err)` — create file or update mtime |
-| `luapilot.mkdir(path, opts?)` | `(true, nil)` \| `(nil, err)` — `opts.parents = true` for `mkdir -p` |
-| `luapilot.rmdir(path)` | `(true, nil)` \| `(nil, err)` — only empty dirs |
-| `luapilot.rmdirAll(path)` | `(true, nil)` \| `(nil, err)` — recursive |
-| `luapilot.remove(path)` | `(true, nil)` \| `(nil, err)` — file or symlink |
-| `luapilot.rename(old, new)` | `(true, nil)` \| `(nil, err)` |
-| `luapilot.chdir(path)` | `(true, nil)` \| `(nil, err)` |
-| `luapilot.currentDir()` | `string` (absolute) |
-| `luapilot.joinPath(a, b, ...)` | `string` — like `path/a/b/c` ; also accepts a single table of segments |
-| `luapilot.link(target, link, opts?)` | `(true, nil)` \| `(nil, err)` — `opts.symbolic = true` for symlinks |
+| `babet.touch(path)` | `(true, nil)` \| `(nil, err)` — create file or update mtime |
+| `babet.mkdir(path, opts?)` | `(true, nil)` \| `(nil, err)` — `opts.parents = true` for `mkdir -p` |
+| `babet.rmdir(path)` | `(true, nil)` \| `(nil, err)` — only empty dirs |
+| `babet.rmdirAll(path)` | `(true, nil)` \| `(nil, err)` — recursive |
+| `babet.remove(path)` | `(true, nil)` \| `(nil, err)` — file or symlink |
+| `babet.rename(old, new)` | `(true, nil)` \| `(nil, err)` |
+| `babet.chdir(path)` | `(true, nil)` \| `(nil, err)` |
+| `babet.currentDir()` | `string` (absolute) |
+| `babet.joinPath(a, b, ...)` | `string` — like `path/a/b/c` ; also accepts a single table of segments |
+| `babet.link(target, link, opts?)` | `(true, nil)` \| `(nil, err)` — `opts.symbolic = true` for symlinks |
 
 ## API — Path manipulation
 
@@ -56,18 +56,18 @@ These operate on path *strings* — they don't touch the filesystem.
 
 | Function | Returns | Example |
 | --- | --- | --- |
-| `luapilot.getBasename(path)` | `string` \| `(nil, err)` — last component | `"/etc/hostname"` → `"hostname"` |
-| `luapilot.getPath(path)` | `string` \| `(nil, err)` — parent dir (dirname) | `"/etc/hostname"` → `"/etc"` |
-| `luapilot.getFilename(path)` | `string` \| `(nil, err)` — basename without extension | `"report.tar.gz"` → `"report.tar"` |
-| `luapilot.getExtension(path)` | `string` \| `(nil, err)` — final extension | `"report.tar.gz"` → `".gz"` |
+| `babet.getBasename(path)` | `string` \| `(nil, err)` — last component | `"/etc/hostname"` → `"hostname"` |
+| `babet.getPath(path)` | `string` \| `(nil, err)` — parent dir (dirname) | `"/etc/hostname"` → `"/etc"` |
+| `babet.getFilename(path)` | `string` \| `(nil, err)` — basename without extension | `"report.tar.gz"` → `"report.tar"` |
+| `babet.getExtension(path)` | `string` \| `(nil, err)` — final extension | `"report.tar.gz"` → `".gz"` |
 
 ## API — Listing and finding
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.listFiles(path)` | `table` (regular files in `path`) \| `(nil, err)` |
-| `luapilot.find(path, opts)` | iterator function, see below |
-| `luapilot.createFileIterator(path)` | iterator function over directory entries |
+| `babet.listFiles(path)` | `table` (regular files in `path`) \| `(nil, err)` |
+| `babet.find(path, opts)` | iterator function, see below |
+| `babet.createFileIterator(path)` | iterator function over directory entries |
 
 `find` accepts `opts` :
 
@@ -80,9 +80,9 @@ These operate on path *strings* — they don't touch the filesystem.
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.copy(src, dst, opts?)` | `(true, nil)` \| `(nil, err)` |
-| `luapilot.copyTree(src, dst, opts?)` | `(true, nil)` \| `(nil, err)` — recursive |
-| `luapilot.moveTree(src, dst)` | `(true, nil)` \| `(nil, err)` |
+| `babet.copy(src, dst, opts?)` | `(true, nil)` \| `(nil, err)` |
+| `babet.copyTree(src, dst, opts?)` | `(true, nil)` \| `(nil, err)` — recursive |
+| `babet.moveTree(src, dst)` | `(true, nil)` \| `(nil, err)` |
 
 `copy` options :
 
@@ -93,20 +93,20 @@ These operate on path *strings* — they don't touch the filesystem.
 
 Hash digests of file contents. Result is **lowercase hex string**
 unless noted. Note the `sum` suffix — these are the registered
-names in `luapilot.*`.
+names in `babet.*`.
 
 | Function | Algorithm | Notes |
 | --- | --- | --- |
-| `luapilot.crc32sum(path)` | CRC-32 (IEEE 802.3) | **Not cryptographic**. For integrity / accidental-error detection only. |
-| `luapilot.md5sum(path)` | MD5 | Legacy. Don't use for security. |
-| `luapilot.sha1sum(path)` | SHA-1 | Legacy. Don't use for security. |
-| `luapilot.sha256sum(path)` | SHA-256 | |
-| `luapilot.sha384sum(path)` | SHA-384 | |
-| `luapilot.sha512sum(path)` | SHA-512 | |
-| `luapilot.sha3_256sum(path)` | SHA3-256 | |
-| `luapilot.sha3_384sum(path)` | SHA3-384 | |
-| `luapilot.sha3_512sum(path)` | SHA3-512 | |
-| `luapilot.blake2b512sum(path)` | BLAKE2b-512 | |
+| `babet.crc32sum(path)` | CRC-32 (IEEE 802.3) | **Not cryptographic**. For integrity / accidental-error detection only. |
+| `babet.md5sum(path)` | MD5 | Legacy. Don't use for security. |
+| `babet.sha1sum(path)` | SHA-1 | Legacy. Don't use for security. |
+| `babet.sha256sum(path)` | SHA-256 | |
+| `babet.sha384sum(path)` | SHA-384 | |
+| `babet.sha512sum(path)` | SHA-512 | |
+| `babet.sha3_256sum(path)` | SHA3-256 | |
+| `babet.sha3_384sum(path)` | SHA3-384 | |
+| `babet.sha3_512sum(path)` | SHA3-512 | |
+| `babet.blake2b512sum(path)` | BLAKE2b-512 | |
 
 Each returns `string` (hex) or `(nil, err)`. The file is streamed,
 not loaded entirely into RAM. Non-regular files (directories,
@@ -125,7 +125,7 @@ through a temporary file. Binary-safe (embedded NULs are allowed).
 
 | Function | Returns |
 | --- | --- |
-| `luapilot.crc32(data)` | `string` — 8-char lowercase hex |
+| `babet.crc32(data)` | `string` — 8-char lowercase hex |
 
 Cannot fail at runtime (pure computation). Wrong argument types
 raise via `luaL_error`. As with `crc32sum`, **not cryptographic**.
@@ -134,42 +134,42 @@ raise via `luaL_error`. As with `crc32sum`, **not cryptographic**.
 
 ```lua
 -- Predicates
-if luapilot.isdir("/etc") and luapilot.fileExists("/etc/hostname") then
-    print("size:", luapilot.fileSize("/etc/hostname"))
+if babet.isdir("/etc") and babet.fileExists("/etc/hostname") then
+    print("size:", babet.fileSize("/etc/hostname"))
 end
 
 -- Path manipulation (pure string ops)
-local base = luapilot.getBasename("/var/log/syslog.1")  -- "syslog.1"
-local dir  = luapilot.getPath("/var/log/syslog.1")      -- "/var/log"
-local ext  = luapilot.getExtension("/var/log/syslog.1") -- ".1"
+local base = babet.getBasename("/var/log/syslog.1")  -- "syslog.1"
+local dir  = babet.getPath("/var/log/syslog.1")      -- "/var/log"
+local ext  = babet.getExtension("/var/log/syslog.1") -- ".1"
 
 -- Recursive listing
-for entry in luapilot.find("/var/log",
+for entry in babet.find("/var/log",
         { pattern = "*.log", type = "f", recursive = true }) do
     print(entry)
 end
 
 -- Copy with attributes
-luapilot.copyTree("./src", "/tmp/backup",
+babet.copyTree("./src", "/tmp/backup",
                   { preserve = true, overwrite = true })
 
 -- Hash a release tarball
-local sha, err = luapilot.sha256sum("/tmp/luapilot-1.7.0.tar.gz")
+local sha, err = babet.sha256sum("/tmp/babet-1.7.0.tar.gz")
 if sha then print("SHA256:", sha) end
 
 -- Quick integrity check (NOT cryptographic, but fast)
-local crc = luapilot.crc32sum("/tmp/luapilot-1.7.0.tar.gz")
+local crc = babet.crc32sum("/tmp/babet-1.7.0.tar.gz")
 print("CRC32:", crc)                 -- e.g. "a1b2c3d4"
 
 -- In-memory CRC32 of arbitrary bytes (binary-safe, NULs OK)
-print(luapilot.crc32("abc"))         -- "352441c2"
-print(luapilot.crc32(""))            -- "00000000"
+print(babet.crc32("abc"))         -- "352441c2"
+print(babet.crc32(""))            -- "00000000"
 
 -- Set ownership and permissions
 local mode_755 = tonumber("755", 8)  -- octal -> integer
-assert(luapilot.setMode("/srv/myapp/run.sh", mode_755))
+assert(babet.setMode("/srv/myapp/run.sh", mode_755))
 -- root only:
--- assert(luapilot.setAttributes("/srv/myapp", 1000, 1000))
+-- assert(babet.setAttributes("/srv/myapp", 1000, 1000))
 ```
 
 ## Error contract
@@ -211,7 +211,7 @@ assert(luapilot.setMode("/srv/myapp/run.sh", mode_755))
 
 ## Not in v1
 
-- Glob matching as a standalone function (`luapilot.glob`). Use
+- Glob matching as a standalone function (`babet.glob`). Use
   `find` with `pattern = "*.lua"` for the common case.
 - Async I/O. Use [`workers`](workers.md) for parallel file
   processing instead.

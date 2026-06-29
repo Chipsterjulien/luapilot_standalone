@@ -1,6 +1,6 @@
 > [English](../../en/modules/toml.md) | **Français**
 
-# `luapilot.toml` — parseur TOML
+# `babet.toml` — parseur TOML
 
 Basé sur [toml++](https://marzer.github.io/tomlplusplus/), un
 parser TOML 1.0 strict. Décodage seulement — encoder du TOML
@@ -10,7 +10,7 @@ les inline tables et les dotted tables, par exemple).
 ## Pourquoi
 
 TOML est le format de config naturel des outils modernes (Cargo,
-pyproject, systemd-credentials, etc.). Un script LuaPilot lisant
+pyproject, systemd-credentials, etc.). Un script Babet lisant
 sa propre config devrait pouvoir le faire directement, pas via
 une conversion TOML → JSON via `tomlq`.
 
@@ -18,7 +18,7 @@ une conversion TOML → JSON via `tomlq`.
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.toml.decode(text)` | `table` (TOML parsé) \| `(nil, err)` |
+| `babet.toml.decode(text)` | `table` (TOML parsé) \| `(nil, err)` |
 
 La table renvoyée reflète la structure TOML :
 
@@ -47,7 +47,7 @@ features = ["auth", "metrics"]
 url = "sqlite:///var/lib/app.db"
 ]]
 
-local cfg, err = luapilot.toml.decode(body)
+local cfg, err = babet.toml.decode(body)
 if not cfg then error("parsing config échoué : " .. err) end
 
 print(cfg.title)                  -- "My App"

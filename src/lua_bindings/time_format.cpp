@@ -20,7 +20,7 @@
 //      ship it at all (not relevant here but still a smell).
 //   2. std::chrono::parse / std::format with chrono types require
 //      recent compilers and are still partially implemented on the
-//      toolchains LuaPilot targets (RPi0 armv6l + Ubuntu LTS + Arch).
+//      toolchains Babet targets (RPi0 armv6l + Ubuntu LTS + Arch).
 //   3. The format we accept is small enough to parse manually with
 //      total control: ~150 lines, zero hidden behaviour.
 //

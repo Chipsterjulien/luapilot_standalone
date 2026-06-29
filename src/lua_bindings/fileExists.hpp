@@ -6,7 +6,7 @@
 /**
  * @brief Lua binding for checking if a path is an existing regular file.
  *
- * Lua usage: exists, err = luapilot.fileExists(path)
+ * Lua usage: exists, err = babet.fileExists(path)
  *   - exists = true   : path is an existing regular file
  *   - exists = false  : path does not exist, or is not a regular file
  *   - exists = nil    : a filesystem error occurred (err holds the message)

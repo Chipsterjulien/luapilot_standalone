@@ -1,4 +1,12 @@
-# LuaPilot
+<p align="center">
+  <img src="docs/assets/babet-closed.png" alt="Babet — pomme de pin" width="200">
+</p>
+
+# Babet
+
+> *Babet*, n.m. — terme régional (Savoie, Dauphiné, Suisse romande)
+> désignant une pomme de pin. Petit, léger, plein de graines, et
+> capable d'allumer un feu — comme ce binaire.
 
 A standalone Lua 5.5 binary for Linux scripting and automation, written
 in C++23. Embeds OpenSSL, SQLite, miniz, nlohmann/json, cpp-httplib,
@@ -7,24 +15,24 @@ beyond glibc.
 
 Can be used in three modes:
 
-1. **As a Lua interpreter** : `luapilot script.lua` or `luapilot folder/`
+1. **As a Lua interpreter** : `babet script.lua` or `babet folder/`
    (looks for `main.lua` inside).
-2. **As a packager** : `luapilot --create-exe script.lua app` produces a
+2. **As a packager** : `babet --create-exe script.lua app` produces a
    self-contained executable with the script and its `require`d modules
    embedded as a ZIP appended to the binary.
 3. **As a library of bindings** : Lua scripts get
-   `luapilot.json`, `luapilot.http`, `luapilot.sqlite`,
-   `luapilot.socket`, `luapilot.inotify`, `luapilot.workers`,
-   `luapilot.user`, and more.
+   `babet.json`, `babet.http`, `babet.sqlite`,
+   `babet.socket`, `babet.inotify`, `babet.workers`,
+   `babet.user`, and more.
 
 ## Quick start
 
 ```sh
-git clone https://github.com/Chipsterjulien/luapilot_standalone.git
-cd luapilot_standalone
+git clone https://github.com/Chipsterjulien/babet.git
+cd babet
 ./build_local.sh        # downloads deps and compiles (~5 min first time)
-./run_tests.sh          # offline harness — should print 827 PASS / 0 FAIL
-./test/luapilot --help
+./run_tests.sh          # offline harness — should print 890 PASS / 0 FAIL
+./test/babet --help
 ```
 
 The build script vendors and compiles all its dependencies. The only
@@ -48,7 +56,7 @@ Requires `pandoc` and a LaTeX engine (`texlive-xetex` is fine).
 ## Releases
 
 Download prebuilt binaries from the
-[releases page](https://github.com/Chipsterjulien/luapilot_standalone/releases).
+[releases page](https://github.com/Chipsterjulien/babet/releases).
 
 ## License
 

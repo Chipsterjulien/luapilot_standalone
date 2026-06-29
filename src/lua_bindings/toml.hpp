@@ -4,7 +4,7 @@
 #include <lua.hpp>
 
 /**
- * @brief Binding TOML : luapilot.toml.decode(s) -> (table, nil) | (nil, err)
+ * @brief Binding TOML : babet.toml.decode(s) -> (table, nil) | (nil, err)
  *
  * Décisions actées avec le mainteneur :
  *
@@ -12,7 +12,7 @@
  *     pas de sentinelles, pas d'options de parsing. Tout ajoutable
  *     plus tard sous SemVer sans casse.
  *
- *   - Contrat de retour, strict miroir de luapilot.json.decode :
+ *   - Contrat de retour, strict miroir de babet.json.decode :
  *       * succès        : (table, nil)
  *       * TOML invalide : (nil, "toml: <description> (line L, col C)")
  *       * mauvais usage (arg absent / non-string) : luaL_error
@@ -29,7 +29,7 @@
  *   - Tables vs arrays côté Lua :
  *       * TOML table     -> Lua table à clés string
  *       * TOML array     -> Lua table à clés 1..n (séquence)
- *     Cohérent avec ce que fait luapilot.json.decode.
+ *     Cohérent avec ce que fait babet.json.decode.
  *
  *   - Aucune exception C++ ne traverse vers Lua : invariant de
  *     correction (try/catch global même si toml::parse ne lève pas
@@ -39,9 +39,9 @@
 int lua_toml_decode(lua_State *L);
 
 /**
- * @brief Construit la sous-table `toml` et l'attache à luapilot.
+ * @brief Construit la sous-table `toml` et l'attache à babet.
  *
- * Précondition : la table luapilot est au sommet de la pile (-1),
+ * Précondition : la table babet est au sommet de la pile (-1),
  * exactement comme register_json / register_http. La pile est
  * inchangée après l'appel.
  */

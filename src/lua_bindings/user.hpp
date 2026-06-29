@@ -1,8 +1,8 @@
-// user.hpp — Module luapilot.user : lookup d'utilisateurs système
+// user.hpp — Module babet.user : lookup d'utilisateurs système
 //
 // API exposée :
-//   luapilot.user.get(name_or_uid) -> table | (nil, err)
-//   luapilot.user.exists(name_or_uid) -> boolean
+//   babet.user.get(name_or_uid) -> table | (nil, err)
+//   babet.user.exists(name_or_uid) -> boolean
 //
 // Détails de design :
 //
@@ -44,7 +44,7 @@
 //      - groupes (getgrnam) — sera ajouté si un cas concret le
 //        demande ;
 //      - création/modification d'utilisateurs (déjà faisable via
-//        luapilot.exec("useradd ...")).
+//        babet.exec("useradd ...")).
 
 #pragma once
 
@@ -53,8 +53,8 @@ extern "C"
 #include <lua.h>
 }
 
-// Crée la sous-table luapilot.user avec les fonctions get et exists.
-// Précondition de pile : la table luapilot est au sommet.
+// Crée la sous-table babet.user avec les fonctions get et exists.
+// Précondition de pile : la table babet est au sommet.
 // Postcondition : la pile est inchangée (la sous-table est posée
-// comme champ "user" de luapilot).
+// comme champ "user" de babet).
 void register_user(lua_State *L);

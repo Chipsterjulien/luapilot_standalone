@@ -1,6 +1,6 @@
 > **English** | [Français](../../fr/modules/user.md)
 
-# `luapilot.user`
+# `babet.user`
 
 System user lookups via NSS, without parsing `/etc/passwd` directly.
 
@@ -9,7 +9,7 @@ System user lookups via NSS, without parsing `/etc/passwd` directly.
 On a modern Linux system, users may come from multiple sources :
 `/etc/passwd`, LDAP, SSSD, NIS+, FreeIPA, systemd-userdb, or other
 NSS plugins. Reading `/etc/passwd` directly misses everything except
-the first source. `luapilot.user` is backed by `getpwnam_r(3)` and
+the first source. `babet.user` is backed by `getpwnam_r(3)` and
 `getpwuid_r(3)`, which traverse the resolver chain configured in
 `/etc/nsswitch.conf` — exactly what `id` or `getent passwd` does.
 
@@ -51,12 +51,12 @@ possible — typically empty `gecos`).
 
 ```lua
 -- Ensure a service user is provisioned before launching the daemon.
-if not luapilot.user.exists("yaourt") then
+if not babet.user.exists("yaourt") then
     error("yaourt user not provisioned — run useradd first")
 end
 
-local u = assert(luapilot.user.get("yaourt"))
-luapilot.chdir(u.home)
+local u = assert(babet.user.get("yaourt"))
+babet.chdir(u.home)
 ```
 
 ## Error contract
@@ -75,10 +75,10 @@ luapilot.chdir(u.home)
 
 - **NSS only, never `/etc/passwd`** : reading the file directly would
   silently miss every account that isn't in the local file. The whole
-  point of `luapilot.user` is that the script gets the same answer as
+  point of `babet.user` is that the script gets the same answer as
   `id` or `getent passwd`.
-- **Thread-safe `_r` variants** : LuaPilot exposes
-  `luapilot.workers`, so we use `getpwnam_r`/`getpwuid_r` everywhere.
+- **Thread-safe `_r` variants** : Babet exposes
+  `babet.workers`, so we use `getpwnam_r`/`getpwuid_r` everywhere.
 - **`gecos` exposed raw** : the historical format is
   `Full Name,Office,WorkPhone,HomePhone[,Other]`, but in practice
   most entries hold a free-form name. Parsing it in Lua is trivial
@@ -100,7 +100,7 @@ Additive — these could be added later without breaking SemVer :
   concrete use case asks for them.
 - `/etc/shadow` access (passwords, password aging) — out of scope.
   Requires root and is rarely useful outside niche admin scripts.
-  Password authentication should go through PAM, not LuaPilot.
+  Password authentication should go through PAM, not Babet.
 - User/group creation — already feasible via
-  `luapilot.exec("useradd …")` and `groupadd`. No need for a
+  `babet.exec("useradd …")` and `groupadd`. No need for a
   dedicated binding.

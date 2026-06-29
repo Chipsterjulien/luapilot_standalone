@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-docs.sh — generate the LuaPilot manual PDFs from per-language
+# build-docs.sh — generate the Babet manual PDFs from per-language
 # Markdown sources, auto-detecting which languages are present.
 #
 # Discovery is driven by docs/manual_order_<lang>.txt files :
@@ -50,13 +50,13 @@ show_help() {
 # are added.
 title_for_lang() {
     case "$1" in
-        en) echo "LuaPilot Manual" ;;
-        fr) echo "Manuel LuaPilot" ;;
-        de) echo "LuaPilot Handbuch" ;;
-        es) echo "Manual LuaPilot" ;;
-        it) echo "Manuale LuaPilot" ;;
-        pt) echo "Manual do LuaPilot" ;;
-        *)  echo "LuaPilot Manual ($1)" ;;
+        en) echo "Babet Manual" ;;
+        fr) echo "Manuel Babet" ;;
+        de) echo "Babet Handbuch" ;;
+        es) echo "Manual Babet" ;;
+        it) echo "Manuale Babet" ;;
+        pt) echo "Manual do Babet" ;;
+        *)  echo "Babet Manual ($1)" ;;
     esac
 }
 

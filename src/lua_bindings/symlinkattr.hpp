@@ -7,7 +7,7 @@
  * @brief Lua binding: changes the owner and group of a symbolic link itself
  *        (does not follow the link, unlike a regular chown).
  *
- * Lua usage: ok, err = luapilot.symlinkattr(path, owner_uid, group_gid)
+ * Lua usage: ok, err = babet.symlinkattr(path, owner_uid, group_gid)
  *   - ok = true  on success, err = nil
  *   - ok = nil   on failure, err = error message
  *

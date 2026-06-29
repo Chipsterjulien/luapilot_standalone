@@ -1,10 +1,10 @@
 > [English](../../en/modules/time.md) | **Français**
 
-# `luapilot` time — horloges monotone et temps réel
+# `babet` time — horloges monotone et temps réel
 
 Deux horloges avec précision sub-seconde et un sleep qui respecte
 les unités `s`/`ms`/`us`/`ns` ainsi que les signaux. Comble les
-trous de `os.time` / `os.clock`. Vit directement sur `luapilot`,
+trous de `os.time` / `os.clock`. Vit directement sur `babet`,
 pas de sous-namespace.
 
 ## Pourquoi
@@ -14,33 +14,33 @@ temps CPU, pas le temps réel. Aucun des deux n'est approprié pour
 mesurer des durées réelles (latence de requête, backoff de retry,
 timeouts). Et `os` n'a pas de sleep portable à la nanoseconde.
 
-`luapilot.monotonic()` et `luapilot.now()` exposent
+`babet.monotonic()` et `babet.now()` exposent
 `CLOCK_MONOTONIC` (durées) et `CLOCK_REALTIME` (timestamps), avec
-`luapilot.sleep()` qui respecte l'interruption par signal.
+`babet.sleep()` qui respecte l'interruption par signal.
 
 ## API
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.monotonic()` | `number` — secondes depuis une epoch arbitraire (immune aux changements d'horloge) |
-| `luapilot.now()` | `number` — temps POSIX (secondes depuis 1970-01-01 UTC) |
-| `luapilot.sleep(amount, unit?)` | `(true, nil)` \| `(nil, "interrupted")` |
+| `babet.monotonic()` | `number` — secondes depuis une epoch arbitraire (immune aux changements d'horloge) |
+| `babet.now()` | `number` — temps POSIX (secondes depuis 1970-01-01 UTC) |
+| `babet.sleep(amount, unit?)` | `(true, nil)` \| `(nil, "interrupted")` |
 
 `unit` pour `sleep` est l'un de `"s"` (défaut), `"ms"`, `"us"`,
 `"ns"`. Les floats sont acceptés.
 
 ## API — utilitaires de dates et durées (v1.8.0+)
 
-Ajoutées sous la sous-table `luapilot.time`. Les trois fonctions
-plates ci-dessus y sont aussi exposées en alias (`luapilot.time.now`,
-`luapilot.time.monotonic`, `luapilot.time.sleep`) pour l'ergonomie.
+Ajoutées sous la sous-table `babet.time`. Les trois fonctions
+plates ci-dessus y sont aussi exposées en alias (`babet.time.now`,
+`babet.time.monotonic`, `babet.time.sleep`) pour l'ergonomie.
 
 | Fonction | Renvoie |
 | --- | --- |
-| `luapilot.time.iso(ts?)` | `string` — `"YYYY-MM-DDTHH:MM:SSZ"` (UTC). Sans argument, formate l'heure courante. |
-| `luapilot.time.parse_iso(s)` | `(integer, nil)` \| `(nil, "parse_iso: ...")` — timestamp Unix en secondes. |
-| `luapilot.time.parse_duration(s)` | `(integer, nil)` \| `(nil, "parse_duration: ...")` — nombre de secondes. |
-| `luapilot.time.format_duration(n)` | `string` — style `"1d2h3m4s"`, compact, composantes nulles omises. |
+| `babet.time.iso(ts?)` | `string` — `"YYYY-MM-DDTHH:MM:SSZ"` (UTC). Sans argument, formate l'heure courante. |
+| `babet.time.parse_iso(s)` | `(integer, nil)` \| `(nil, "parse_iso: ...")` — timestamp Unix en secondes. |
+| `babet.time.parse_duration(s)` | `(integer, nil)` \| `(nil, "parse_duration: ...")` — nombre de secondes. |
+| `babet.time.format_duration(n)` | `string` — style `"1d2h3m4s"`, compact, composantes nulles omises. |
 
 **Format ISO 8601 accepté par `parse_iso`** — pragmatique, avec
 une règle stricte : **un suffixe de timezone est obligatoire**.
@@ -77,32 +77,32 @@ de tests sur un échantillon représentatif.
 
 ```lua
 -- Mesurer une durée en toute sécurité (immune aux sauts NTP / DST)
-local t0 = luapilot.monotonic()
+local t0 = babet.monotonic()
 do_something()
-local elapsed = luapilot.monotonic() - t0
+local elapsed = babet.monotonic() - t0
 print(string.format("durée %.3f s", elapsed))
 
 -- Timestamper un événement
-local now = luapilot.now()
+local now = babet.now()
 db:exec("INSERT INTO events (ts, kind) VALUES (?, ?)", { now, "ping" })
 
 -- Dormir 100 ms, mais se réveiller sur un signal
-local ok, err = luapilot.sleep(100, "ms")
+local ok, err = babet.sleep(100, "ms")
 if not ok and err == "interrupted" then
     print("réveillé par un signal")
 end
 
 -- Timestamp ISO 8601 pour les logs (toujours UTC)
-print("event at " .. luapilot.time.iso())          -- "2026-06-17T14:32:01Z"
-print(luapilot.time.iso(0))                        -- "1970-01-01T00:00:00Z"
+print("event at " .. babet.time.iso())          -- "2026-06-17T14:32:01Z"
+print(babet.time.iso(0))                        -- "1970-01-01T00:00:00Z"
 
 -- Parser une ligne de log en timestamp Unix
-local ts = assert(luapilot.time.parse_iso("2026-06-17T10:00:00+02:00"))
+local ts = assert(babet.time.parse_iso("2026-06-17T10:00:00+02:00"))
 -- ts vaut 1750147200 (qui est 08:00:00 UTC)
 
 -- Durées lisibles par un humain
-local cache_ttl = luapilot.time.parse_duration("2h30m")  -- 9000
-print("cache valide pendant " .. luapilot.time.format_duration(cache_ttl))
+local cache_ttl = babet.time.parse_duration("2h30m")  -- 9000
+print("cache valide pendant " .. babet.time.format_duration(cache_ttl))
 -- "cache valide pendant 2h30m"
 ```
 
@@ -129,13 +129,13 @@ print("cache valide pendant " .. luapilot.time.format_duration(cache_ttl))
   ignore `SIGTERM` est le bug classique de l'arrêt gracieux.
   `sleep()` renvoie `(nil, "interrupted")` pour que l'appelant
   puisse sortir proprement.
-- **Pas de helper "format date"**. `os.date(format, luapilot.now())`
+- **Pas de helper "format date"**. `os.date(format, babet.now())`
   marche très bien, et une fonction dupliquée ne serait qu'un
   wrapper.
 
 ## Hors v1
 
-- `luapilot.boottime()` (`CLOCK_BOOTTIME` — inclut le suspend).
+- `babet.boottime()` (`CLOCK_BOOTTIME` — inclut le suspend).
   Rarement utile, facile à ajouter plus tard.
-- Helpers `luapilot.utcnow()` / `localnow()` qui renvoient des
+- Helpers `babet.utcnow()` / `localnow()` qui renvoient des
   strings pré-formatées. Trivial en Lua, sans valeur ajoutée.

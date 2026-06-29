@@ -10,7 +10,7 @@ quoi en faire.
 
 ## Pourquoi
 
-Un script LuaPilot qui prend des arguments ne devrait pas avoir à
+Un script Babet qui prend des arguments ne devrait pas avoir à
 réinventer le parsing (positionnel vs flag, défauts, texte d'aide,
 coercion de type, choix) à chaque fois. `argparse` rend les
 patterns CLI courants accessibles en une ligne — et reste hors du
@@ -76,7 +76,7 @@ lève via `error()`, parce que c'est un bug du programmeur.
 - `p:parse()` (sans argument) lit la table globale `arg`, indices
   `1..n` (on s'arrête au premier trou). Les indices `<= 0`
   (chemin du binaire, dossier) sont ignorés — ce sont les slots
-  internes de LuaPilot, pas des arguments utilisateur.
+  internes de Babet, pas des arguments utilisateur.
 - `p:parse({ "a", "b" })` parse un array explicite. Utile pour
   les tests ou pour parser des arguments qui ne viennent pas du
   shell.
@@ -173,10 +173,10 @@ Options:
   sortir laisse le script décider : afficher sur stdout, logger
   dans un fichier, envoyer à une GUI, préfixer une bannière, peu
   importe. La bibliothèque ne décide pas à ta place, cohérent
-  avec le reste de LuaPilot où aucun module ne sort
+  avec le reste de Babet où aucun module ne sort
   unilatéralement du process.
 - **`(res, err)` partout sur entrée utilisateur, `error()` seulement
-  sur bug du builder**. Même convention que le reste de LuaPilot
+  sur bug du builder**. Même convention que le reste de Babet
   (`user`, `json`, `sqlite`, etc.).
 - **Spec en une seule string** (`"-v --verbose"`), pas une
   chaîne d'appels. Découvrable, concis, et évite l'ambiguïté
@@ -190,7 +190,7 @@ Options:
 - **Un positionnel avec `default` est implicitement optionnel**.
   Évite le boilerplate `required = false` dans le cas courant.
 - **`parse()` lit `arg[1..n]`** — jamais `arg[0]` ni les indices
-  négatifs, où LuaPilot place ses propres slots. Juste ce que
+  négatifs, où Babet place ses propres slots. Juste ce que
   l'utilisateur a réellement tapé.
 
 ## Hors v1

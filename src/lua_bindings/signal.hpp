@@ -2,18 +2,18 @@
 // signal.hpp — bindings Lua pour les signaux POSIX
 // =====================================================================
 //
-// Expose la sous-table luapilot.signal avec trois fonctions :
+// Expose la sous-table babet.signal avec trois fonctions :
 //
-//   luapilot.signal.handle(name, fn_or_nil) -> true | (nil, err)
+//   babet.signal.handle(name, fn_or_nil) -> true | (nil, err)
 //     Installe un handler Lua pour le signal donné, OU le désinstalle
 //     si on passe nil (auquel cas le comportement par défaut du
 //     système reprend).
 //
-//   luapilot.signal.ignore(name) -> true | (nil, err)
+//   babet.signal.ignore(name) -> true | (nil, err)
 //     Marque le signal comme ignoré (SIG_IGN). Le process ne réagit
 //     plus du tout à ce signal.
 //
-//   luapilot.signal.default(name) -> true | (nil, err)
+//   babet.signal.default(name) -> true | (nil, err)
 //     Restaure le comportement système par défaut (SIG_DFL) pour ce
 //     signal. Pour TERM/INT/HUP cela tue le process.
 //
@@ -45,7 +45,7 @@
 //     du code Lua typique.
 //
 //   - Explicitement (phase B, à venir), depuis les fonctions
-//     bloquantes de LuaPilot (socket:recv, sleep, etc.) quand un
+//     bloquantes de Babet (socket:recv, sleep, etc.) quand un
 //     EINTR survient. C'est ce qui permettra à un SIGTERM
 //     d'interrompre un recv_line() bloquant et de renvoyer
 //     (nil, "interrupted").
@@ -77,10 +77,10 @@
 
 struct lua_State;
 
-// Crée la sous-table luapilot.signal avec les fonctions handle, ignore,
-// default. Précondition de pile : la table luapilot est au sommet.
+// Crée la sous-table babet.signal avec les fonctions handle, ignore,
+// default. Précondition de pile : la table babet est au sommet.
 // Postcondition : la pile est inchangée (la sous-table est posée
-// comme champ "signal" de luapilot).
+// comme champ "signal" de babet).
 void register_signal(lua_State *L);
 
 // Capture le pthread_t du thread courant comme "main thread". Doit
