@@ -87,6 +87,7 @@ discover_languages() {
 # Check that all required tools are present.
 check_prereqs() {
     command -v pandoc >/dev/null 2>&1 || die "pandoc not found (install: pacman -S pandoc / apt install pandoc)" 2
+    command -v python3 >/dev/null 2>&1 || die "python3 not found (required by preprocess_pdf.py)" 2
     command -v "$PDF_ENGINE" >/dev/null 2>&1 || \
         die "PDF engine '$PDF_ENGINE' not found (install: pacman -S texlive-xetex / apt install texlive-xetex). Override with PDF_ENGINE=lualatex or pdflatex." 2
 }
@@ -119,13 +120,43 @@ build_one() {
     local title
     title="$(title_for_lang "$lang")"
 
-    echo "Building $out  ($lang, ${#files[@]} files)"
+    # ---- Pre-processing for PDF-friendly internal links --------------
+    # Generate a transient docs/build_<lang>/ tree with the .md sources
+    # rewritten for the PDF context :
+    #   - language toggles stripped
+    #   - {#ch-xxx} ids injected on chapter H1s
+    #   - [text](other.md) links rewritten to [text](#ch-xxx)
+    #   - obsolete strings (test counts, version examples) fixed up
+    # The original docs/<lang>/ sources are never modified.
+    local build_dir="$SCRIPT_DIR/build_$lang"
+    local preprocess="$SCRIPT_DIR/preprocess_pdf.py"
+
+    if [ ! -x "$preprocess" ]; then
+        echo "build-docs: preprocess script not found or not executable: $preprocess" >&2
+        return 1
+    fi
+
+    echo "Preprocessing docs/$lang/ -> docs/build_$lang/"
+    python3 "$preprocess" "$SCRIPT_DIR/$lang" "$build_dir" || {
+        echo "build-docs: preprocess failed for '$lang'" >&2
+        return 1
+    }
+
+    # Rewrite the file list: replace docs/<lang>/ -> docs/build_<lang>/
+    # so pandoc reads the preprocessed copies, not the originals.
+    local prep_files=()
+    for f in "${files[@]}"; do
+        prep_files+=("${f/docs\/$lang\//docs/build_$lang/}")
+    done
+
+    echo "Building $out  ($lang, ${#prep_files[@]} files)"
 
     # pandoc reads paths relative to its CWD, so we run from REPO_ROOT
     # — the same convention used by manual_order_<lang>.txt itself.
+    local rc=0
     (
         cd "$REPO_ROOT" || exit 1
-        pandoc "${files[@]}" \
+        pandoc "${prep_files[@]}" \
             --toc \
             --pdf-engine="$PDF_ENGINE" \
             --metadata title="$title" \
@@ -137,6 +168,17 @@ build_one() {
             --variable=monofont:'DejaVu Sans Mono' \
             -o "$out"
     )
+    rc=$?
+
+    # Clean up the transient build dir on success. On failure we keep
+    # it so the user can inspect what pandoc saw.
+    if [ "$rc" -eq 0 ]; then
+        rm -rf "$build_dir"
+    else
+        echo "build-docs: pandoc failed; preprocessed sources kept in $build_dir for inspection" >&2
+    fi
+
+    return "$rc"
 }
 
 # ---- Argument parsing ------------------------------------------------
