@@ -88,3 +88,14 @@ ajoute ou réordonne des chapitres.
   bref rationnel.
 - **Hors v1** : une courte liste de ce qui pourrait être ajouté de
   manière additive plus tard sans casser le SemVer.
+
+## Méthodologie de développement
+
+Babet est développé par un seul auteur avec une assistance IA
+substantielle (principalement Claude / Anthropic, avec des audits
+croisés de ChatGPT, Gemini et Mistral). Chaque suggestion de ces
+outils est traitée comme une hypothèse à vérifier — les audits
+croisés par IA identifient régulièrement des « bugs » qui n'existent
+pas, ou proposent des changements d'API qui n'ont pas changé. Chaque
+modification est validée par la batterie de 890 tests avant chaque
+release.

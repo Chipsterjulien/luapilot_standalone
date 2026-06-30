@@ -82,3 +82,13 @@ reordering chapters.
   recursive ?", "why mandatory ?"), there's a short rationale.
 - **Not in v1** : a short list of what could be added additively
   later without breaking SemVer.
+
+## Development methodology
+
+Babet is developed by a single author with substantial AI assistance
+(primarily Claude / Anthropic, with cross-audits from ChatGPT, Gemini,
+and Mistral). Every suggestion from these tools is treated as a
+hypothesis to verify — AI cross-audits regularly identify "bugs"
+that don't actually exist, or propose API changes for APIs that
+haven't changed. Every change is validated against the 890-test
+harness before release.

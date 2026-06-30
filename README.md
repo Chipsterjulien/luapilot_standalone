@@ -59,6 +59,26 @@ Requires `pandoc` and a LaTeX engine (`texlive-xetex` is fine).
 Download prebuilt binaries from the
 [releases page](https://github.com/Chipsterjulien/babet/releases).
 
+## Development methodology
+
+Babet was developed by a single human author with substantial AI
+assistance, primarily Claude (Anthropic) for design discussions,
+code generation, and documentation drafting. Cross-audits were
+performed regularly with ChatGPT (OpenAI), Gemini (Google), and
+Mistral, and the suggestions from these audits were applied only
+after verification against the actual source code — AI tools
+occasionally hallucinate bugs that aren't there, or invent APIs
+that don't exist, so every suggestion was treated as a hypothesis
+to test, not a fix to apply blindly.
+
+The pine cone illustrations in `docs/assets/` were generated with
+ChatGPT (image model gpt-image-1).
+
+All architectural decisions, the test harness (890 PASS / 0 FAIL
+across 3 modes), and the validation of every change before tagging
+are the author's responsibility. The AI tools accelerated drafting
+and exploration; they did not replace human judgement.
+
 ## License
 
 See [LICENSE](LICENSE).
